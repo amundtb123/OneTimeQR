@@ -5,7 +5,7 @@ import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { generateStyledQrCode } from '../utils/qr-generator';
+import { generateQrCodeData, renderQrCodeVisual, type QrCodeData } from '../utils/qr-generator';
 
 export interface QrStyle {
   // Colors
@@ -36,9 +36,22 @@ interface QrStylePickerProps {
   qrUrl: string; // The URL to encode in the QR
 }
 
+/**
+ * QR Style Picker Component
+ * 
+ * ARCHITECTURE:
+ * - QR code DATA (the encoded pattern) is generated ONCE when qrUrl changes
+ * - QR code VISUAL (styling) is re-rendered when style changes
+ * - This ensures the QR pattern stays consistent when only colors/styling change
+ */
 export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Cache QR code DATA (the encoded pattern) - only regenerates when qrUrl changes
+  // This is the actual QR code structure, independent of visual styling
+  const [qrData, setQrData] = useState<QrCodeData | null>(null);
+  const [lastQrUrl, setLastQrUrl] = useState<string>('');
 
   const presetColors = [
     { name: 'Indigo', value: '#4F46E5' },
@@ -66,21 +79,51 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
     { value: 'extra-rounded', label: 'Ekstra avrundet' },
   ];
 
+  // STEP 1: Generate QR code DATA only when URL or logo presence changes
+  // This effect triggers DATA REGENERATION (the actual QR pattern)
+  // Note: Logo presence affects error correction level, which changes the QR structure
   useEffect(() => {
-    generatePreview();
-  }, [JSON.stringify(style), qrUrl]); // Use JSON.stringify to detect deep changes in style object
-
-  const generatePreview = async () => {
     if (!qrUrl) return;
+    
+    // Regenerate data if URL changed OR if logo was added/removed (affects error correction)
+    const logoChanged = (qrData === null) || (!!style.logo !== (qrData.errorCorrectionLevel === 'H'));
+    const urlChanged = qrUrl !== lastQrUrl;
+    
+    if (!urlChanged && !logoChanged) return;
+    
+    const generateData = async () => {
+      try {
+        // Generate QR code data (module grid) - this is the actual encoded pattern
+        // Only happens when qrUrl changes OR logo is added/removed, NOT when styling changes
+        const data = await generateQrCodeData(qrUrl, style.logo ? 'H' : 'M');
+        setQrData(data);
+        setLastQrUrl(qrUrl);
+      } catch (error) {
+        console.error('Error generating QR code data:', error);
+      }
+    };
+    
+    generateData();
+  }, [qrUrl, !!style.logo]); // Regenerate when URL changes OR logo presence changes
 
-    try {
-      // Use the advanced styled generator
-      const dataUrl = await generateStyledQrCode(qrUrl, style);
-      setPreviewUrl(dataUrl);
-    } catch (error) {
-      console.error('Error generating QR preview:', error);
-    }
-  };
+  // STEP 2: Render QR code VISUALLY when data or styling changes
+  // This effect triggers VISUAL RE-RENDERING (styling only)
+  useEffect(() => {
+    if (!qrData) return;
+    
+    const renderVisual = async () => {
+      try {
+        // Render existing QR data with new styling
+        // This is fast - only redraws the visual appearance, doesn't regenerate data
+        const dataUrl = await renderQrCodeVisual(qrData, style);
+        setPreviewUrl(dataUrl);
+      } catch (error) {
+        console.error('Error rendering QR preview:', error);
+      }
+    };
+    
+    renderVisual();
+  }, [qrData, JSON.stringify(style)]); // Re-render when data OR style changes
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

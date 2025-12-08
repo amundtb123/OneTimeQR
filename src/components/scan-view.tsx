@@ -21,6 +21,7 @@ interface ScanViewProps {
 }
 
 export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = false, unlockKey = null }: ScanViewProps) {
+  const { t } = useTranslation();
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);

@@ -391,7 +391,63 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         />
       );
     }
-    return null;
+    
+    // If we're still loading, show loading state (should have been caught earlier, but just in case)
+    if (isLoading) {
+      return (
+        <div className="max-w-3xl mx-auto">
+          {!isDirectScan && (
+            <Button variant="ghost" onClick={onBack} className="mb-6">
+              <ArrowLeft className="size-4 mr-2" />
+              {t('scanView.back')}
+            </Button>
+          )}
+          
+          <Card className="p-12 text-center">
+            <Loader2 className="size-12 text-indigo-600 mx-auto mb-4 animate-spin" />
+            <p className="text-gray-600">{t('scanView.loadingQr')}</p>
+          </Card>
+        </div>
+      );
+    }
+    
+    // If we have an error, show error (should have been caught earlier, but just in case)
+    if (error) {
+      return (
+        <div className="max-w-3xl mx-auto">
+          {!isDirectScan && (
+            <Button variant="ghost" onClick={onBack} className="mb-6">
+              <ArrowLeft className="size-4 mr-2" />
+              {t('scanView.back')}
+            </Button>
+          )}
+          
+          <Card className="p-12 text-center">
+            <AlertCircle className="size-12 text-red-600 mx-auto mb-4" />
+            <h3 className="text-gray-900 mb-2">{t('scanView.couldNotLoadQr')}</h3>
+            <p className="text-gray-600">{error}</p>
+          </Card>
+        </div>
+      );
+    }
+    
+    // Fallback: Show a message if qrDrop is null but no error/loading state
+    return (
+      <div className="max-w-3xl mx-auto">
+        {!isDirectScan && (
+          <Button variant="ghost" onClick={onBack} className="mb-6">
+            <ArrowLeft className="size-4 mr-2" />
+            {t('scanView.back')}
+          </Button>
+        )}
+        
+        <Card className="p-12 text-center">
+          <AlertCircle className="size-12 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-gray-900 mb-2">{t('scanView.couldNotLoadQr')}</h3>
+          <p className="text-gray-600">QR-koden kunne ikke lastes. Prøv å skanne på nytt.</p>
+        </Card>
+      </div>
+    );
   }
   
   // Show unlock screen if encrypted and no key provided

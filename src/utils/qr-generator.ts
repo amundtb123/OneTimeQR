@@ -24,59 +24,51 @@ export async function generateQrCodeData(
   url: string,
   errorCorrectionLevel: 'L' | 'M' | 'Q' | 'H' = 'M'
 ): Promise<QrCodeData> {
-  // Create a temporary canvas to generate the base QR code
-  const tempCanvas = document.createElement('canvas');
-  const size = 400;
-  tempCanvas.width = size;
-  tempCanvas.height = size;
-  const tempCtx = tempCanvas.getContext('2d');
-  
-  if (!tempCtx) {
-    throw new Error('Could not get canvas context');
-  }
+  // Use QRCode.create to get module data directly (much more reliable than extracting from canvas)
+  return new Promise((resolve, reject) => {
+    QRCode.create(url, {
+      errorCorrectionLevel,
+    }, (err, qr) => {
+      if (err) {
+        reject(err);
+        return;
+      }
 
-  // Generate base QR code with standard black/white colors for data extraction
-  // We use black/white to reliably detect modules regardless of future styling
-  await QRCode.toCanvas(tempCanvas, url, {
-    width: size,
-    margin: 2,
-    color: {
-      dark: '#000000', // Always use black for data generation
-      light: '#FFFFFF', // Always use white for data generation
-    },
-    errorCorrectionLevel,
+      // Get module data directly from QRCode library
+      // qr.modules.data is a 2D array where true = dark module, false = light module
+      const modules = qr.modules.size;
+      const moduleData = qr.modules.data;
+      
+      // Convert the flat module data array to a 2D grid
+      // QRCode library stores modules in row-major order
+      const grid: boolean[][] = [];
+      for (let row = 0; row < modules; row++) {
+        grid[row] = [];
+        for (let col = 0; col < modules; col++) {
+          const index = row * modules + col;
+          grid[row][col] = moduleData[index]; // true = dark module
+        }
+      }
+
+      // Calculate module size in pixels for rendering (400px canvas with margin: 2)
+      // QRCode.toCanvas with width: 400 and margin: 2 means:
+      // - The QR code itself has 'modules' number of modules
+      // - There are 2 modules of white margin on each side = 4 modules total margin
+      // - Total modules across canvas = modules + 4
+      // - moduleSize = canvasSize / totalModules
+      const canvasSize = 400;
+      const margin = 2; // margin in modules (2 on each side)
+      const totalModules = modules + (margin * 2);
+      const moduleSize = canvasSize / totalModules;
+
+      resolve({
+        grid,
+        moduleSize,
+        modules,
+        errorCorrectionLevel,
+      });
+    });
   });
-
-  // Extract the module grid from the generated QR code
-  const imageData = tempCtx.getImageData(0, 0, size, size);
-  const data = imageData.data;
-  
-  // Detect module size
-  const moduleSize = detectModuleSize(tempCanvas, data);
-  if (moduleSize === 0) {
-    throw new Error('Could not detect module size');
-  }
-
-  const modules = Math.floor(size / moduleSize);
-
-  // Create grid to track which modules are dark (true = dark module)
-  const grid: boolean[][] = [];
-  for (let row = 0; row < modules; row++) {
-    grid[row] = [];
-    for (let col = 0; col < modules; col++) {
-      const x = col * moduleSize + Math.floor(moduleSize / 2);
-      const y = row * moduleSize + Math.floor(moduleSize / 2);
-      const i = (y * size + x) * 4;
-      grid[row][col] = data[i] < 128; // true if dark
-    }
-  }
-
-  return {
-    grid,
-    moduleSize,
-    modules,
-    errorCorrectionLevel,
-  };
 }
 
 /**
@@ -92,9 +84,9 @@ export async function renderQrCodeVisual(
   style: QrStyle
 ): Promise<string> {
   const canvas = document.createElement('canvas');
-  const size = 400;
-  canvas.width = size;
-  canvas.height = size;
+  const canvasSize = 400;
+  canvas.width = canvasSize;
+  canvas.height = canvasSize;
   const ctx = canvas.getContext('2d');
   
   if (!ctx) {
@@ -103,12 +95,18 @@ export async function renderQrCodeVisual(
 
   // Fill background
   ctx.fillStyle = style.backgroundColor;
-  ctx.fillRect(0, 0, size, size);
+  ctx.fillRect(0, 0, canvasSize, canvasSize);
 
   // Draw modules with styling
   ctx.fillStyle = style.dotsColor;
   
   const { grid, moduleSize, modules } = qrData;
+  
+  // QRCode.toCanvas uses margin: 2, so we need to account for that when positioning
+  // The QR code is centered with 2 modules of white space on each side
+  const margin = 2; // margin in modules
+  const offsetX = margin * moduleSize;
+  const offsetY = margin * moduleSize;
 
   // Identify corner positions (top-left, top-right, bottom-left)
   const cornerSize = 7; // QR corners are 7x7 modules
@@ -126,8 +124,9 @@ export async function renderQrCodeVisual(
   for (let row = 0; row < modules; row++) {
     for (let col = 0; col < modules; col++) {
       if (grid[row][col]) {
-        const x = col * moduleSize;
-        const y = row * moduleSize;
+        // Position modules accounting for margin
+        const x = offsetX + col * moduleSize;
+        const y = offsetY + row * moduleSize;
 
         // Use corner style for corners, otherwise use dot style
         if (isCorner(row, col)) {

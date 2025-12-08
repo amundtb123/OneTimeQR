@@ -39,58 +39,6 @@ interface QrStylePickerProps {
 export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [contrastWarning, setContrastWarning] = useState(false);
-
-  // Calculate relative luminance for a color
-  const getLuminance = (hex: string): number => {
-    const rgb = hexToRgb(hex);
-    if (!rgb) return 0;
-    
-    const [r, g, b] = [rgb.r, rgb.g, rgb.b].map(val => {
-      val = val / 255;
-      return val <= 0.03928 ? val / 12.92 : Math.pow((val + 0.055) / 1.055, 2.4);
-    });
-    
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  };
-
-  // Convert hex to RGB
-  const hexToRgb = (hex: string): { r: number; g: number; b: number } | null => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
-      r: parseInt(result[1], 16),
-      g: parseInt(result[2], 16),
-      b: parseInt(result[3], 16)
-    } : null;
-  };
-
-  // Calculate contrast ratio between two colors
-  const getContrastRatio = (color1: string, color2: string): number => {
-    const lum1 = getLuminance(color1);
-    const lum2 = getLuminance(color2);
-    const lighter = Math.max(lum1, lum2);
-    const darker = Math.min(lum1, lum2);
-    return (lighter + 0.05) / (darker + 0.05);
-  };
-
-  // Check if contrast is sufficient (minimum 7:1 for QR codes)
-  const hasSufficientContrast = (foreground: string, background: string): boolean => {
-    const ratio = getContrastRatio(foreground, background);
-    return ratio >= 7.0;
-  };
-
-  // Auto-adjust background color for better contrast
-  const autoAdjustBackground = (foregroundColor: string): string => {
-    const foregroundLum = getLuminance(foregroundColor);
-    
-    // If foreground is dark, use white background
-    // If foreground is light, use black background
-    if (foregroundLum < 0.5) {
-      return '#FFFFFF'; // White background for dark colors
-    } else {
-      return '#000000'; // Black background for light colors
-    }
-  };
 
   const presetColors = [
     { name: 'Indigo', value: '#4F46E5' },
@@ -120,10 +68,6 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
 
   useEffect(() => {
     generatePreview();
-    
-    // Check contrast and show warning if insufficient
-    const hasContrast = hasSufficientContrast(style.dotsColor, style.backgroundColor);
-    setContrastWarning(!hasContrast);
   }, [JSON.stringify(style), qrUrl]); // Use JSON.stringify to detect deep changes in style object
 
   const generatePreview = async () => {
@@ -198,18 +142,9 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
                     <button
                       key={color.value}
                       onClick={() => {
-                        const newDotsColor = color.value;
-                        let newBackgroundColor = style.backgroundColor;
-                        
-                        // Auto-adjust background if contrast is insufficient
-                        if (!hasSufficientContrast(newDotsColor, newBackgroundColor)) {
-                          newBackgroundColor = autoAdjustBackground(newDotsColor);
-                        }
-                        
                         onChange({ 
                           ...style, 
-                          dotsColor: newDotsColor, 
-                          backgroundColor: newBackgroundColor,
+                          dotsColor: color.value, 
                           gradientType: 'none' 
                         });
                       }}
@@ -234,18 +169,9 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
                     type="color"
                     value={style.dotsColor}
                     onChange={(e) => {
-                      const newDotsColor = e.target.value;
-                      let newBackgroundColor = style.backgroundColor;
-                      
-                      // Auto-adjust background if contrast is insufficient
-                      if (!hasSufficientContrast(newDotsColor, newBackgroundColor)) {
-                        newBackgroundColor = autoAdjustBackground(newDotsColor);
-                      }
-                      
                       onChange({ 
                         ...style, 
-                        dotsColor: newDotsColor, 
-                        backgroundColor: newBackgroundColor,
+                        dotsColor: e.target.value, 
                         gradientType: 'none' 
                       });
                     }}
@@ -258,17 +184,9 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
                       const newDotsColor = e.target.value;
                       // Only update if it's a valid hex color
                       if (/^#[0-9A-F]{6}$/i.test(newDotsColor)) {
-                        let newBackgroundColor = style.backgroundColor;
-                        
-                        // Auto-adjust background if contrast is insufficient
-                        if (!hasSufficientContrast(newDotsColor, newBackgroundColor)) {
-                          newBackgroundColor = autoAdjustBackground(newDotsColor);
-                        }
-                        
                         onChange({ 
                           ...style, 
                           dotsColor: newDotsColor, 
-                          backgroundColor: newBackgroundColor,
                           gradientType: 'none' 
                         });
                       } else {
@@ -314,15 +232,6 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
                   />
                 </div>
               </div>
-
-              {/* Contrast Warning */}
-              {contrastWarning && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <p className="text-red-800 text-sm">
-                    ⚠️ Kontrasten mellom fargene er for lav. QR-koden kan bli vanskelig å skanne. Vurder å endre bakgrunnsfargen for bedre lesbarhet.
-                  </p>
-                </div>
-              )}
             </TabsContent>
 
             <TabsContent value="logo" className="space-y-4 mt-4">

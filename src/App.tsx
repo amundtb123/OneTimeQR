@@ -437,10 +437,11 @@ function AppContent() {
               />
             )}
             
-            {currentView === 'scan' && selectedQrDrop && (
+            {currentView === 'scan' && (selectedQrDrop || scanId) && (
               <ScanView 
-                qrDropId={selectedQrDrop.id}
-                isPreview={true}
+                qrDropId={selectedQrDrop?.id || scanId || ''}
+                isPreview={!!selectedQrDrop}
+                isDirectScan={!selectedQrDrop && !!scanId}
                 unlockKey={unlockKey}
                 onBack={() => {
                   setCurrentView('list');

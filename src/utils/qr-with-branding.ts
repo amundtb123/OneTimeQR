@@ -42,11 +42,6 @@ export async function createBrandedQrCode(qrDataUrl: string): Promise<string> {
       ctx.textAlign = 'center';
       ctx.fillText('OneTimeQR', canvas.width / 2, textY);
       
-      // Small tagline below
-      ctx.font = '400 10px system-ui, -apple-system, sans-serif';
-      ctx.fillStyle = '#9CA3AF'; // Light gray
-      ctx.fillText('Sikker fildeling', canvas.width / 2, textY + 14);
-      
       // Convert to data URL
       resolve(canvas.toDataURL('image/png'));
     };

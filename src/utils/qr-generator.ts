@@ -24,51 +24,67 @@ export async function generateQrCodeData(
   url: string,
   errorCorrectionLevel: 'L' | 'M' | 'Q' | 'H' = 'M'
 ): Promise<QrCodeData> {
-  // Use QRCode.create to get module data directly (much more reliable than extracting from canvas)
-  return new Promise((resolve, reject) => {
-    QRCode.create(url, {
-      errorCorrectionLevel,
-    }, (err, qr) => {
-      if (err) {
-        reject(err);
-        return;
-      }
+  // Create a temporary canvas to generate the base QR code
+  const tempCanvas = document.createElement('canvas');
+  const size = 400;
+  tempCanvas.width = size;
+  tempCanvas.height = size;
+  const tempCtx = tempCanvas.getContext('2d');
+  
+  if (!tempCtx) {
+    throw new Error('Could not get canvas context');
+  }
 
-      // Get module data directly from QRCode library
-      // qr.modules.data is a 2D array where true = dark module, false = light module
-      const modules = qr.modules.size;
-      const moduleData = qr.modules.data;
-      
-      // Convert the flat module data array to a 2D grid
-      // QRCode library stores modules in row-major order
-      const grid: boolean[][] = [];
-      for (let row = 0; row < modules; row++) {
-        grid[row] = [];
-        for (let col = 0; col < modules; col++) {
-          const index = row * modules + col;
-          grid[row][col] = moduleData[index]; // true = dark module
-        }
-      }
-
-      // Calculate module size in pixels for rendering (400px canvas with margin: 2)
-      // QRCode.toCanvas with width: 400 and margin: 2 means:
-      // - The QR code itself has 'modules' number of modules
-      // - There are 2 modules of white margin on each side = 4 modules total margin
-      // - Total modules across canvas = modules + 4
-      // - moduleSize = canvasSize / totalModules
-      const canvasSize = 400;
-      const margin = 2; // margin in modules (2 on each side)
-      const totalModules = modules + (margin * 2);
-      const moduleSize = canvasSize / totalModules;
-
-      resolve({
-        grid,
-        moduleSize,
-        modules,
-        errorCorrectionLevel,
-      });
-    });
+  // Generate base QR code with standard black/white colors for data extraction
+  // We use black/white to reliably detect modules regardless of future styling
+  await QRCode.toCanvas(tempCanvas, url, {
+    width: size,
+    margin: 2,
+    color: {
+      dark: '#000000', // Always use black for data generation
+      light: '#FFFFFF', // Always use white for data generation
+    },
+    errorCorrectionLevel,
   });
+
+  // Extract the module grid from the generated QR code
+  const imageData = tempCtx.getImageData(0, 0, size, size);
+  const data = imageData.data;
+  
+  // Detect module size
+  const moduleSize = detectModuleSize(tempCanvas, data);
+  if (moduleSize === 0) {
+    throw new Error('Could not detect module size');
+  }
+
+  // Calculate total modules in canvas (including margin)
+  const totalModules = Math.floor(size / moduleSize);
+  
+  // QRCode.toCanvas with margin: 2 means 2 modules of white space on each side
+  // So the actual QR code has: totalModules - (2 * margin) modules
+  const margin = 2; // margin in modules
+  const modules = totalModules - (margin * 2);
+  
+  // Create grid to track which modules are dark (true = dark module)
+  // We skip the margin modules when extracting
+  const grid: boolean[][] = [];
+  for (let row = 0; row < modules; row++) {
+    grid[row] = [];
+    for (let col = 0; col < modules; col++) {
+      // Account for margin: skip first 'margin' modules, then sample QR code modules
+      const x = (margin + col) * moduleSize + Math.floor(moduleSize / 2);
+      const y = (margin + row) * moduleSize + Math.floor(moduleSize / 2);
+      const i = (y * size + x) * 4;
+      grid[row][col] = data[i] < 128; // true if dark
+    }
+  }
+
+  return {
+    grid,
+    moduleSize,
+    modules,
+    errorCorrectionLevel,
+  };
 }
 
 /**
@@ -105,8 +121,8 @@ export async function renderQrCodeVisual(
   // QRCode.toCanvas uses margin: 2, so we need to account for that when positioning
   // The QR code is centered with 2 modules of white space on each side
   const margin = 2; // margin in modules
-  const offsetX = margin * moduleSize;
-  const offsetY = margin * moduleSize;
+  const offsetX = margin * moduleSize; // Start position after margin
+  const offsetY = margin * moduleSize; // Start position after margin
 
   // Identify corner positions (top-left, top-right, bottom-left)
   const cornerSize = 7; // QR corners are 7x7 modules

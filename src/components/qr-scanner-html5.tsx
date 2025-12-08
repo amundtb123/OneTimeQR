@@ -1,0 +1,113 @@
+import { useEffect, useRef, useState } from 'react';
+import { X, Scan } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
+
+interface QrScannerProps {
+  onScan: (data: string) => void;
+  onClose: () => void;
+}
+
+export function QrScanner({ onScan, onClose }: QrScannerProps) {
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    startScanner();
+    return () => {
+      stopScanner();
+    };
+  }, []);
+
+  const startScanner = async () => {
+    try {
+      // Create scanner instance
+      const scanner = new Html5Qrcode('qr-reader');
+      scannerRef.current = scanner;
+
+      // Start scanning
+      await scanner.start(
+        { facingMode: 'environment' }, // Use back camera
+        {
+          fps: 10, // Frames per second
+          qrbox: { width: 250, height: 250 }, // Scanning box size
+          aspectRatio: 1.0,
+        },
+        (decodedText) => {
+          // Success callback
+          console.log('✅ QR code detected:', decodedText);
+          stopScanner();
+          onScan(decodedText);
+        },
+        (errorMessage) => {
+          // Error callback (fires continuously, so we don't log it)
+        }
+      );
+
+      setIsScanning(true);
+    } catch (err: any) {
+      console.error('Error starting scanner:', err);
+      setError('Kunne ikke starte kamera. Sjekk tillatelser.');
+    }
+  };
+
+  const stopScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        await scannerRef.current.stop();
+        scannerRef.current.clear();
+      } catch (err) {
+        console.error('Error stopping scanner:', err);
+      }
+      scannerRef.current = null;
+    }
+  };
+
+  const handleClose = () => {
+    stopScanner();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black">
+      {/* Close button */}
+      <button
+        onClick={handleClose}
+        className="absolute top-4 right-4 z-10 w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+      >
+        <X className="size-6" />
+      </button>
+
+      {/* Instructions */}
+      <div className="absolute top-8 left-0 right-0 text-center px-4 z-10">
+        <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white/90 backdrop-blur-sm">
+          <Scan className="size-5 text-[#5D8CC9]" />
+          <span className="text-[#3F3F3F] font-medium">
+            Skann QR #2 (opplåsingskode)
+          </span>
+        </div>
+      </div>
+
+      {/* Scanner container */}
+      <div className="w-full max-w-md px-4">
+        <div id="qr-reader" className="rounded-2xl overflow-hidden shadow-2xl" />
+      </div>
+
+      {/* Error message */}
+      {error && (
+        <div className="absolute bottom-20 left-4 right-4 text-center">
+          <div className="inline-block px-6 py-3 rounded-xl bg-red-500/90 text-white backdrop-blur-sm">
+            {error}
+          </div>
+        </div>
+      )}
+
+      {/* Help text */}
+      <div className="absolute bottom-8 left-0 right-0 text-center px-4">
+        <p className="text-white/70 text-sm">
+          Hold QR-koden stabilt foran kameraet
+        </p>
+      </div>
+    </div>
+  );
+}

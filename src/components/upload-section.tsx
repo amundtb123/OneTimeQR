@@ -1,0 +1,1003 @@
+import { useState } from 'react';
+import { Upload, X, Plus, Image, FileText, LinkIcon, Clock, Shield, Eye, Lock, Info, ChevronDown, Crown, EyeOff, Key } from 'lucide-react';
+import { toast } from 'sonner@2.0.3';
+import { useTranslation } from 'react-i18next';
+import type { QrDrop } from '../App';
+import { uploadFile, createQrDrop } from '../utils/api-client';
+import { generateStyledQrCode } from '../utils/qr-generator';
+import { createBrandedQrCode } from '../utils/qr-with-branding';
+import { generateEncryptionKey, encryptData, createDecryptionKeyUrl } from '../utils/encryption';
+import { SoftCard } from './soft-card';
+import { NordicButton } from './nordic-button';
+import { NordicLogo } from './nordic-logo';
+import { DualQrDisplay } from './dual-qr-display';
+import { Label } from './ui/label';
+import { Input } from './ui/input';
+import { Textarea } from './ui/textarea';
+import { Switch } from './ui/switch';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { QrStylePicker, type QrStyle } from './qr-style-picker';
+import { useAuth } from '../utils/auth-context';
+
+const defaultQrStyle: QrStyle = {
+  dotsColor: '#5D8CC9',
+  backgroundColor: '#000000',
+  gradientType: 'none',
+  dotsType: 'rounded',
+  cornersSquareType: 'extra-rounded',
+  cornersDotType: 'dot',
+  logoSize: 0.2,
+  logoMargin: 4,
+};
+
+interface UploadSectionProps {
+  onQrCreated: (qrDrop: QrDrop) => void;
+}
+
+export function UploadSection({ onQrCreated }: UploadSectionProps) {
+  const { user } = useAuth();
+  const { t } = useTranslation();
+  
+  // Title
+  const [title, setTitle] = useState('');
+  
+  // Files state (multiple files)
+  const [files, setFiles] = useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<{ [key: string]: string }>({});
+  
+  // Text state (200 chars max)
+  const [textContent, setTextContent] = useState('');
+  
+  // URLs state (multiple URLs)
+  const [urls, setUrls] = useState<string[]>([]);
+  const [currentUrl, setCurrentUrl] = useState('');
+  
+  // Common settings
+  const [expiryType, setExpiryType] = useState('10m');
+  const [maxScans, setMaxScans] = useState<string>('');
+  const [maxDownloads, setMaxDownloads] = useState<string>('');
+  const [viewOnly, setViewOnly] = useState(false);
+  const [noPreview, setNoPreview] = useState(false);
+  const [password, setPassword] = useState('');
+  const [usePassword, setUsePassword] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(true);
+  const [qrStyle, setQrStyle] = useState<QrStyle>(defaultQrStyle);
+  const [secureMode, setSecureMode] = useState(false);
+  const [showDualQr, setShowDualQr] = useState(false);
+  const [dualQrData, setDualQrData] = useState<{ qr1: string; qr2: string; qr1Url: string; qr2Url: string; title?: string } | null>(null);
+
+  const handleFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    
+    if (selectedFiles.length > 0) {
+      // Add new files to existing files
+      const newFiles = [...files, ...selectedFiles];
+      setFiles(newFiles);
+      
+      // Create previews for image files
+      selectedFiles.forEach((file) => {
+        if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            setPreviewUrls(prev => ({
+              ...prev,
+              [file.name]: reader.result as string
+            }));
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+    }
+  };
+
+  const removeFile = (index: number) => {
+    const fileToRemove = files[index];
+    setFiles(files.filter((_, i) => i !== index));
+    
+    // Remove preview if exists
+    if (previewUrls[fileToRemove.name]) {
+      setPreviewUrls(prev => {
+        const newPreviews = { ...prev };
+        delete newPreviews[fileToRemove.name];
+        return newPreviews;
+      });
+    }
+  };
+
+  const addUrl = () => {
+    const trimmedUrl = currentUrl.trim();
+    if (trimmedUrl && trimmedUrl.length > 0) {
+      // Basic URL validation
+      try {
+        new URL(trimmedUrl);
+        setUrls([...urls, trimmedUrl]);
+        setCurrentUrl('');
+      } catch {
+        toast.error(t('upload.invalidUrl'));
+      }
+    }
+  };
+
+  const removeUrl = (index: number) => {
+    setUrls(urls.filter((_, i) => i !== index));
+  };
+
+  const expiryOptions = user ? [
+    { value: '10m', label: t('upload.expiry10m'), icon: Clock },
+    { value: '30m', label: t('upload.expiry30m'), icon: Clock },
+    { value: '1h', label: t('upload.expiry1h'), icon: Clock },
+    { value: '24h', label: t('upload.expiry24h'), icon: Clock },
+    { value: '7d', label: t('upload.expiry7d'), icon: Clock, isPro: true },
+    { value: 'scan', label: t('upload.expiryScan'), icon: Eye, isPro: true },
+  ] : [
+    { value: '10m', label: t('upload.expiry10m'), icon: Clock },
+  ];
+
+  const calculateExpiryDate = (type: string): Date | undefined => {
+    const now = new Date();
+    switch (type) {
+      case '10m':
+        return new Date(now.getTime() + 10 * 60 * 1000);
+      case '30m':
+        return new Date(now.getTime() + 30 * 60 * 1000);
+      case '1h':
+        return new Date(now.getTime() + 60 * 60 * 1000);
+      case '24h':
+        return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      case '7d':
+        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      case 'scan':
+        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      default:
+        return undefined;
+    }
+  };
+
+  const hasContent = () => {
+    if (files.length > 0) return true;
+    if (textContent.trim().length > 0) return true;
+    if (urls.length > 0) return true;
+    return false;
+  };
+
+  const handleGenerateQr = async () => {
+    if (!hasContent()) {
+      toast.error(t('upload.addContent'));
+      return;
+    }
+
+    // Check file size limits based on login status
+    const totalFileSize = files.reduce((sum, file) => sum + file.size, 0);
+    const maxSize = user ? 20 * 1024 * 1024 : 1 * 1024 * 1024; // 20 MB logged in, 1 MB not logged in
+    
+    if (totalFileSize > maxSize) {
+      const maxSizeMB = user ? '20 MB' : '1 MB';
+      const loginPrompt = !user ? t('upload.loginPrompt') : '';
+      toast.error(t('upload.fileSizeExceeded', { maxSize: maxSizeMB, loginPrompt }));
+      return;
+    }
+
+    // Check if Secure Mode requires login
+    if (secureMode && !user) {
+      toast.error(t('upload.secureModeRequiresLogin'));
+      return;
+    }
+    
+    setIsGenerating(true);
+    
+    try {
+      const expiryDate = calculateExpiryDate(expiryType);
+      
+      // SECURE MODE: Generate encryption key and encrypt content
+      let encryptionKey: string | undefined;
+      let encryptedTextContent: string | undefined;
+      let encryptedUrlContent: string | undefined;
+      
+      if (secureMode) {
+        encryptionKey = await generateEncryptionKey();
+        
+        // Encrypt text content if exists
+        if (textContent.trim()) {
+          encryptedTextContent = await encryptData(textContent.trim(), encryptionKey);
+        }
+        
+        // Encrypt URL content if exists
+        if (urls.length > 0) {
+          const urlJson = JSON.stringify(urls);
+          encryptedUrlContent = await encryptData(urlJson, encryptionKey);
+        }
+      }
+      
+      // Generate QR code FIRST (before sending to backend)
+      const tempId = crypto.randomUUID();
+      
+      // Don't generate the actual QR image yet - we'll do that on-demand with access tokens
+      // This is a placeholder QR code just for initial display
+      const qrUrl = `${window.location.origin}/scan/${tempId}`;
+      const qrCodeDataUrl = await generateStyledQrCode(qrUrl, qrStyle);
+      const brandedQrCode = await createBrandedQrCode(qrCodeDataUrl);
+      
+      const metadata = {
+        title: title.trim() || undefined,
+        contentType: 'bundle' as const, // New type for mixed content
+        textContent: secureMode ? encryptedTextContent : textContent.trim() || undefined,
+        urlContent: secureMode ? encryptedUrlContent : (urls.length > 0 ? JSON.stringify(urls) : undefined),
+        expiryType,
+        expiryDate,
+        maxScans: maxScans ? parseInt(maxScans) : undefined,
+        maxDownloads: maxDownloads ? parseInt(maxDownloads) : undefined,
+        viewOnly,
+        noPreview,
+        password: usePassword ? password : undefined,
+        qrStyle, // Store QR styling preferences
+        qrCodeDataUrl: brandedQrCode, // Already generated
+        secureMode, // Flag to indicate Secure Mode
+        encrypted: secureMode, // Flag for backend to know data is encrypted
+        encryptionKey: secureMode ? encryptionKey : undefined, // Store encryption key on server
+      };
+
+      let response;
+      
+      // If we have files, use upload endpoint
+      if (files.length > 0) {
+        // For now, upload the first file (we'll enhance backend to support multiple files later)
+        response = await uploadFile(files[0], metadata);
+      } else {
+        // No files, just text/URLs
+        response = await createQrDrop(metadata);
+      }
+      
+      // SECURE MODE: Generate TWO QR codes
+      if (secureMode && encryptionKey) {
+        // QR #1: Access code (normal URL)
+        const accessUrl = `${window.location.origin}/scan/${response.id}`;
+        const qr1Base = await generateStyledQrCode(accessUrl, qrStyle);
+        const qr1Final = await createBrandedQrCode(qr1Base);
+        
+        // QR #2: Unlock code (contains decryption key)
+        const unlockUrl = createDecryptionKeyUrl(window.location.origin, response.id, encryptionKey);
+        console.log('🔑 QR #2 URL generated:', unlockUrl);
+        // Use high contrast (black on white) with standard square corners for maximum scanner readability
+        const qr2Base = await generateStyledQrCode(unlockUrl, {
+          dotsColor: '#000000', // Pure black for maximum contrast
+          backgroundColor: '#FFFFFF', // Pure white background
+          gradientType: 'none',
+          dotsType: 'square', // Standard square dots for reliability
+          cornersSquareType: 'square', // Standard square corners - critical for scanner detection
+          cornersDotType: 'square', // Standard square center dots
+          logoSize: 0.2,
+          logoMargin: 4,
+        });
+        const qr2Final = await createBrandedQrCode(qr2Base);
+        
+        // Show dual QR display modal
+        setDualQrData({
+          qr1: qr1Final,
+          qr2: qr2Final,
+          qr1Url: accessUrl,
+          qr2Url: unlockUrl,
+          title: title.trim() || t('upload.sharedContent')
+        });
+        setShowDualQr(true);
+        
+        // Still create QrDrop for list (but don't show single QR)
+        const totalSize = files.reduce((sum, file) => sum + file.size, 0) + 
+                          (textContent?.length || 0) + 
+                          urls.reduce((sum, url) => sum + url.length, 0);
+
+        const newQrDrop: QrDrop = {
+          id: response.id,
+          title: title.trim() || undefined,
+          contentType: 'bundle',
+          fileName: title.trim() || 'Delt innhold',
+          fileType: 'bundle',
+          fileSize: totalSize,
+          textContent: textContent.trim() || undefined,
+          urlContent: urls.length > 0 ? JSON.stringify(urls) : undefined,
+          expiryType,
+          expiryDate,
+          maxScans: maxScans ? parseInt(maxScans) : undefined,
+          maxDownloads: maxDownloads ? parseInt(maxDownloads) : undefined,
+          scanCount: 0,
+          downloadCount: 0,
+          viewOnly,
+          password: usePassword ? password : undefined,
+          createdAt: new Date(),
+          qrCodeUrl: qr1Final, // Store QR #1 as primary
+          secureMode: true, // Mark as Secure Mode
+          qrCodeUrl2: qr2Final, // Store QR #2
+        };
+
+        onQrCreated(newQrDrop);
+      } else {
+        // STANDARD MODE: Generate single QR code
+        const cleanUrl = `${window.location.origin}/scan/${response.id}`;
+        
+        let finalQrCode: string;
+        if (qrStyle) {
+          const baseQr = await generateStyledQrCode(cleanUrl, qrStyle);
+          finalQrCode = await createBrandedQrCode(baseQr);
+        } else {
+          const QRCode = (await import('qrcode')).default;
+          const baseQr = await QRCode.toDataURL(cleanUrl, {
+            width: 400,
+            margin: 2,
+            color: {
+              dark: '#4F46E5',
+              light: '#FFFFFF',
+            },
+          });
+          finalQrCode = await createBrandedQrCode(baseQr);
+        }
+
+        // Calculate total size
+        const totalSize = files.reduce((sum, file) => sum + file.size, 0) + 
+                          (textContent?.length || 0) + 
+                          urls.reduce((sum, url) => sum + url.length, 0);
+
+        const newQrDrop: QrDrop = {
+          id: response.id,
+          title: title.trim() || undefined,
+          contentType: 'bundle',
+          fileName: title.trim() || t('upload.sharedContent'),
+          fileType: 'bundle',
+          fileSize: totalSize,
+          textContent: textContent.trim() || undefined,
+          urlContent: urls.length > 0 ? JSON.stringify(urls) : undefined,
+          expiryType,
+          expiryDate,
+          maxScans: maxScans ? parseInt(maxScans) : undefined,
+          maxDownloads: maxDownloads ? parseInt(maxDownloads) : undefined,
+          scanCount: 0,
+          downloadCount: 0,
+          viewOnly,
+          password: usePassword ? password : undefined,
+          createdAt: new Date(),
+          qrCodeUrl: finalQrCode,
+        };
+
+        onQrCreated(newQrDrop);
+      }
+      
+      // Reset form
+      setTitle('');
+      setFiles([]);
+      setPreviewUrls({});
+      setTextContent('');
+      setUrls([]);
+      setCurrentUrl('');
+      setExpiryType('10m');
+      setMaxScans('');
+      setMaxDownloads('');
+      setViewOnly(false);
+      setNoPreview(false);
+      setPassword('');
+      setUsePassword(false);
+      setQrStyle(defaultQrStyle);
+    } catch (error) {
+      console.error('Error creating QR drop:', error);
+      
+      if ((error as any).status === 401) {
+        toast.error(t('upload.mustBeLoggedIn'));
+      } else {
+        toast.error(t('upload.createQrError'));
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto space-y-6 pb-32">
+      
+      {/* Show info if user is not authenticated */}
+      {!user && (
+        <SoftCard className="text-center py-8">
+          <h3 className="text-[#3F3F3F] mb-2">{t('upload.getStarted')}</h3>
+          <p className="text-[#5B5B5B] mb-4" dangerouslySetInnerHTML={{ __html: t('upload.freeLimit') }} />
+          <p className="text-[#4A6FA5] text-sm">
+            {t('upload.loginPrompt')}
+          </p>
+        </SoftCard>
+      )}
+      
+      {/* Main Upload Card */}
+      <SoftCard>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="bg-[#E2EFFA] p-3 rounded-xl border border-[#D5C5BD]">
+            <Upload className="size-5 text-[#4A6FA5]" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-[#3F3F3F]">{t('upload.shareContent')}</h2>
+          </div>
+        </div>
+
+        {/* Title Field - First and optional */}
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[#3F3F3F]">{t('upload.title')}</span>
+          </div>
+          <Input
+            type="text"
+            placeholder={t('upload.titlePlaceholder')}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="rounded-xl border-[#D5C5BD] bg-[#E8DCD4] text-[#3F3F3F]"
+          />
+        </div>
+
+        {/* Content Type Selection - Always visible */}
+        <div className="mb-6">
+          {/* File Upload Section */}
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Image className="size-4 text-[#4A6FA5]" />
+              <span className="text-[#3F3F3F]">{t('upload.files')}</span>
+            </div>
+            
+            {/* File list */}
+            {files.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {files.map((file, index) => (
+                  <div 
+                    key={`${file.name}-${index}`}
+                    className="border rounded-xl p-3"
+                    style={{ 
+                      backgroundColor: '#E8DCD4',
+                      borderColor: '#D5C5BD'
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      {previewUrls[file.name] ? (
+                        <img src={previewUrls[file.name]} alt={file.name} className="w-12 h-12 object-cover rounded-lg border border-[#D5C5BD]" />
+                      ) : (
+                        <div className="w-12 h-12 bg-[#E1C7BA] rounded-lg flex items-center justify-center border border-[#D5C5BD]">
+                          <Upload className="size-6 text-[#5B5B5B]" />
+                        </div>
+                      )}
+                      
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[#3F3F3F] truncate text-sm">{file.name}</p>
+                        <p className="text-[#5B5B5B] text-xs">{formatFileSize(file.size)}</p>
+                      </div>
+                      
+                      <button
+                        onClick={() => removeFile(index)}
+                        className="p-2 text-[#5B5B5B] hover:bg-white/50 rounded-lg transition-colors"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add file button */}
+            <label className="block">
+              <input
+                type="file"
+                onChange={handleFilesChange}
+                className="hidden"
+                accept="image/*,video/*,application/pdf,.doc,.docx,.txt"
+                multiple
+              />
+              <div 
+                className="border-2 border-dashed rounded-xl p-6 text-center hover:border-[#5D8CC9] hover:bg-[#F7F2EE] transition-all cursor-pointer"
+                style={{ borderColor: '#D5C5BD' }}
+              >
+                <Plus className="size-8 text-[#5B5B5B] mx-auto mb-2" />
+                <p className="text-[#3F3F3F] text-sm mb-1">{t('upload.addFiles')}</p>
+                <p className="text-[#5B5B5B] text-xs">{t('upload.fileTypes')}</p>
+              </div>
+            </label>
+          </div>
+
+          {/* Text Input Section */}
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <FileText className="size-4 text-[#4A6FA5]" />
+              <span className="text-[#3F3F3F]">{t('upload.text')}</span>
+            </div>
+            
+            <Textarea
+              placeholder={t('upload.textPlaceholder')}
+              value={textContent}
+              onChange={(e) => {
+                if (e.target.value.length <= 200) {
+                  setTextContent(e.target.value);
+                }
+              }}
+              className="rounded-xl border-[#D5C5BD] bg-[#E8DCD4] text-[#3F3F3F] min-h-[80px]"
+              maxLength={200}
+            />
+          </div>
+
+          {/* URL Input Section */}
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <LinkIcon className="size-4 text-[#4A6FA5]" />
+              <span className="text-[#3F3F3F]">{t('upload.urls')}</span>
+            </div>
+            
+            {/* URL list */}
+            {urls.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {urls.map((url, index) => (
+                  <div 
+                    key={`${url}-${index}`}
+                    className="border rounded-xl p-3"
+                    style={{ 
+                      backgroundColor: '#E8DCD4',
+                      borderColor: '#D5C5BD'
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <LinkIcon className="size-4 text-[#4A6FA5] flex-shrink-0" />
+                      <p className="text-[#3F3F3F] text-sm break-all flex-1">{url}</p>
+                      <button
+                        onClick={() => removeUrl(index)}
+                        className="p-2 text-[#5B5B5B] hover:bg-white/50 rounded-lg transition-colors"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add URL input */}
+            <div className="flex gap-2">
+              <Input
+                type="url"
+                placeholder={t('upload.urlPlaceholder')}
+                value={currentUrl}
+                onChange={(e) => setCurrentUrl(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addUrl()}
+                className="rounded-xl border-[#D5C5BD] bg-[#E8DCD4] text-[#3F3F3F] flex-1"
+              />
+              <button
+                onClick={addUrl}
+                className="px-4 py-2 bg-[#5D8CC9] text-white rounded-xl hover:bg-[#4A6FA5] transition-colors"
+              >
+                <Plus className="size-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </SoftCard>
+
+      {/* Settings Card - Show only when content is selected */}
+      {hasContent() && (
+        <>
+          <SoftCard>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-[#E2EFFA] p-3 rounded-xl border border-[#D5C5BD]">
+                <Clock className="size-5 text-[#4A6FA5]" />
+              </div>
+              <div>
+                <h2 className="text-[#3F3F3F]">{t('upload.expiryTitle')}</h2>
+                <p className="text-[#5B5B5B] text-sm">{t('upload.expirySubtitle')}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {expiryOptions.map((option) => {
+                const isPro = option.isPro || false;
+                return (
+                  <button
+                    key={option.value}
+                    onClick={() => setExpiryType(option.value)}
+                    className={`p-4 rounded-xl border-2 transition-all relative ${
+                      expiryType === option.value
+                        ? 'bg-[#5D8CC9] text-white border-[#4A6FA5]'
+                        : 'bg-[#E8DCD4] text-[#3F3F3F] border-[#D5C5BD] hover:bg-[#E1C7BA]'
+                    } ${isPro ? 'opacity-75' : ''}`}
+                    style={{
+                      boxShadow: expiryType === option.value 
+                        ? '0 4px 12px rgba(93, 140, 201, 0.25)' 
+                        : 'none',
+                    }}
+                  >
+                    {isPro && (
+                      <div className="absolute top-1 right-1">
+                        <Crown className="size-3 text-[#E8927E]" />
+                      </div>
+                    )}
+                    <option.icon className="size-5 mx-auto mb-2" />
+                    <p className="text-sm">{option.label}</p>
+                    {isPro && (
+                      <p className="text-xs mt-1 opacity-75">{t('upload.pro')}</p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            
+            {!user && (
+              <div 
+                className="mt-4 p-3 rounded-xl flex items-start gap-2"
+                style={{ backgroundColor: '#E2EFFA', borderColor: '#D5C5BD' }}
+              >
+                <Info className="size-4 text-[#4A6FA5] flex-shrink-0 mt-0.5" />
+                <p className="text-[#4A6FA5] text-sm">
+                  {t('upload.loginForMore')}
+                </p>
+              </div>
+            )}
+
+            {expiryType === 'scan' && (
+              <div 
+                className="mt-4 p-3 rounded-xl flex items-start gap-2"
+                style={{ backgroundColor: '#E2EFFA', borderColor: '#D5C5BD' }}
+              >
+                <Info className="size-4 text-[#4A6FA5] flex-shrink-0 mt-0.5" />
+                <p className="text-[#4A6FA5] text-sm">
+                  {t('upload.scanExpiryNote')}
+                </p>
+              </div>
+            )}
+          </SoftCard>
+
+          {/* Secure Mode Selection */}
+          <SoftCard>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-[#F5E5E1] p-3 rounded-xl border border-[#D5C5BD]">
+                <Shield className="size-5 text-[#E8927E]" />
+              </div>
+              <div>
+                <h2 className="text-[#3F3F3F]">{t('upload.securityTitle')}</h2>
+                <p className="text-[#5B5B5B] text-sm">{t('upload.securitySubtitle')}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Standard Mode */}
+              <button
+                onClick={() => setSecureMode(false)}
+                className={`p-5 rounded-xl border-2 transition-all text-left ${
+                  !secureMode
+                    ? 'bg-[#5D8CC9] text-white border-[#4A6FA5]'
+                    : 'bg-[#E8DCD4] text-[#3F3F3F] border-[#D5C5BD] hover:bg-[#E1C7BA]'
+                }`}
+                style={{
+                  boxShadow: !secureMode 
+                    ? '0 4px 12px rgba(93, 140, 201, 0.25)' 
+                    : 'none',
+                }}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <Eye className={`size-5 ${!secureMode ? 'text-white' : 'text-[#4A6FA5]'}`} />
+                  <h3 className={`${!secureMode ? 'text-white' : 'text-[#3F3F3F]'}`}>
+                    {t('upload.standardMode')}
+                  </h3>
+                </div>
+                <p className={`text-sm mb-1 ${!secureMode ? 'text-white/90' : 'text-[#3F3F3F]'}`}>
+                  {t('upload.standardModeDesc')}
+                </p>
+                <p className={`text-xs ${!secureMode ? 'text-white/75' : 'text-[#5B5B5B]'}`}>
+                  {t('upload.standardModeNote')}
+                </p>
+              </button>
+
+              {/* Secure Mode */}
+              <button
+                onClick={() => setSecureMode(true)}
+                className={`p-5 rounded-xl border-2 transition-all text-left relative ${
+                  secureMode
+                    ? 'bg-[#5D8CC9] text-white border-[#4A6FA5]'
+                    : 'bg-[#E8DCD4] text-[#3F3F3F] border-[#D5C5BD] hover:bg-[#E1C7BA]'
+                }`}
+                style={{
+                  boxShadow: secureMode 
+                    ? '0 4px 12px rgba(93, 140, 201, 0.25)' 
+                    : 'none',
+                }}
+              >
+                {user && (
+                  <div className="absolute top-2 right-2">
+                    <Crown className="size-4 text-[#E8927E]" />
+                  </div>
+                )}
+                <div className="flex items-center gap-3 mb-2">
+                  <Shield className={`size-5 ${secureMode ? 'text-white' : 'text-[#E8927E]'}`} />
+                  <h3 className={`${secureMode ? 'text-white' : 'text-[#3F3F3F]'}`}>
+                    {t('upload.secureMode')}
+                  </h3>
+                </div>
+                <p className={`text-sm mb-1 ${secureMode ? 'text-white/90' : 'text-[#3F3F3F]'}`}>
+                  {t('upload.secureModeDesc')}
+                </p>
+                <p className={`text-xs ${secureMode ? 'text-white/75' : 'text-[#5B5B5B]'}`}>
+                  {t('upload.secureModeNote')}
+                </p>
+              </button>
+            </div>
+
+            {secureMode && (
+              <div 
+                className="mt-4 p-3 rounded-xl flex items-start gap-2"
+                style={{ backgroundColor: '#F5E5E1', borderColor: '#D5C5BD' }}
+              >
+                <Shield className="size-4 text-[#E8927E] flex-shrink-0 mt-0.5" />
+                <p className="text-[#E8927E] text-sm" dangerouslySetInnerHTML={{ __html: t('upload.secureModeInfo') }} />
+              </div>
+            )}
+
+            {!user && secureMode && (
+              <div 
+                className="mt-4 p-3 rounded-xl flex items-start gap-2"
+                style={{ backgroundColor: '#E2EFFA', borderColor: '#D5C5BD' }}
+              >
+                <Info className="size-4 text-[#4A6FA5] flex-shrink-0 mt-0.5" />
+                <p className="text-[#4A6FA5] text-sm">
+                  {t('upload.secureModeLoginRequired')}
+                </p>
+              </div>
+            )}
+          </SoftCard>
+
+          {user && (
+            <>
+              <SoftCard>
+                <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+                  <CollapsibleTrigger className="w-full">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-[#F5E5E1] p-3 rounded-xl border border-[#D5C5BD]">
+                          <Shield className="size-5 text-[#E8927E]" />
+                        </div>
+                        <div className="text-left">
+                          <h3 className="text-[#3F3F3F]">{t('upload.advancedSettings')}</h3>
+                          <p className="text-[#5B5B5B] text-sm">{t('upload.advancedSettingsSubtitle')}</p>
+                        </div>
+                      </div>
+                      <ChevronDown className={`size-5 text-[#5B5B5B] transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+                    </div>
+                  </CollapsibleTrigger>
+
+                  <CollapsibleContent>
+                    <div className="mt-6 space-y-6">
+                      {/* Max Scans */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 flex items-center gap-2">
+                          <div>
+                            <Label className="text-[#3F3F3F]">{t('upload.maxScans')}</Label>
+                            <p className="text-[#5B5B5B] text-sm mt-1">{t('upload.maxScansNote')}</p>
+                          </div>
+                          <Crown className="size-4 text-[#E8927E] opacity-60" />
+                        </div>
+                        <Input
+                          type="number"
+                          placeholder="∞"
+                          value={maxScans}
+                          onChange={(e) => setMaxScans(e.target.value)}
+                          className="w-24 rounded-xl border-[#D5C5BD] bg-[#E8DCD4] text-[#3F3F3F] opacity-75"
+                          min="1"
+                        />
+                      </div>
+
+                      {/* Max Downloads */}
+                      {files.length > 0 && (
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <Label className="text-[#3F3F3F]">{t('upload.maxDownloads')}</Label>
+                            <p className="text-[#5B5B5B] text-sm mt-1">{t('upload.maxDownloadsNote')}</p>
+                          </div>
+                          <Input
+                            type="number"
+                            placeholder="∞"
+                            value={maxDownloads}
+                            onChange={(e) => setMaxDownloads(e.target.value)}
+                            className="w-24 rounded-xl border-[#D5C5BD] bg-[#E8DCD4] text-[#3F3F3F]"
+                            min="1"
+                          />
+                        </div>
+                      )}
+
+                      {/* View Only */}
+                      {files.length > 0 && (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <Eye className="size-5 text-[#5B5B5B]" />
+                            <div>
+                              <Label className="text-[#3F3F3F]">{t('upload.viewOnly')}</Label>
+                              <p className="text-[#5B5B5B] text-sm mt-1">{t('upload.viewOnlyNote')}</p>
+                            </div>
+                          </div>
+                          <Switch
+                            checked={viewOnly}
+                            onCheckedChange={setViewOnly}
+                          />
+                        </div>
+                      )}
+
+                      {/* No Preview */}
+                      {files.length > 0 && (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <EyeOff className="size-5 text-[#5B5B5B]" />
+                            <div>
+                              <Label className="text-[#3F3F3F]">{t('upload.noPreview')}</Label>
+                              <p className="text-[#5B5B5B] text-sm mt-1">{t('upload.noPreviewNote')}</p>
+                            </div>
+                          </div>
+                          <Switch
+                            checked={noPreview}
+                            onCheckedChange={setNoPreview}
+                          />
+                        </div>
+                      )}
+
+                      {/* Password Protection */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <Lock className="size-5 text-[#5B5B5B]" />
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <Label className="text-[#3F3F3F]">{t('upload.passwordProtection')}</Label>
+                                <Crown className="size-4 text-[#E8927E] opacity-60" />
+                              </div>
+                              <p className="text-[#5B5B5B] text-sm mt-1">{t('upload.passwordNote')}</p>
+                            </div>
+                          </div>
+                          <Switch
+                            checked={usePassword}
+                            onCheckedChange={setUsePassword}
+                            className="opacity-75"
+                          />
+                        </div>
+                        
+                        {usePassword && (
+                          <Input
+                            type="text"
+                            placeholder={t('upload.passwordPlaceholder')}
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="rounded-xl border-[#D5C5BD] bg-[#E8DCD4] text-[#3F3F3F] opacity-75"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </SoftCard>
+
+              {/* QR Style Picker */}
+              <QrStylePicker
+                style={qrStyle}
+                onChange={setQrStyle}
+                qrUrl={`${window.location.origin}/scan/preview`}
+              />
+            </>
+          )}
+        </>
+      )}
+
+      {/* Info Cards - Why OneTimeQR? (shown for everyone as upsale) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+        {/* Card 1: Ingen delbar lenke */}
+        <div 
+          className="rounded-2xl p-6 border shadow-sm"
+          style={{ 
+            backgroundColor: '#E8DCD4',
+            borderColor: '#D5C5BD'
+          }}
+        >
+          <div 
+            className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 border"
+            style={{ 
+              backgroundColor: '#E1C7BA',
+              borderColor: '#D5C5BD'
+            }}
+          >
+            <EyeOff className="size-6 text-[#3F3F3F]" />
+          </div>
+          <h4 className="text-[#3F3F3F] mb-2">{t('upload.noShareableLink')}</h4>
+          <p className="text-[#5B5B5B] text-sm leading-relaxed">
+            {t('upload.noShareableLinkDesc')}
+          </p>
+        </div>
+
+        {/* Card 2: Automatisk opprydding */}
+        <div 
+          className="rounded-2xl p-6 border shadow-sm"
+          style={{ 
+            backgroundColor: '#F5E5E1',
+            borderColor: '#D5C5BD'
+          }}
+        >
+          <div 
+            className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 border"
+            style={{ 
+              backgroundColor: '#EED4C9',
+              borderColor: '#D5C5BD'
+            }}
+          >
+            <Clock className="size-6 text-[#E8927E]" />
+          </div>
+          <h4 className="text-[#3F3F3F] mb-2">{t('upload.autoCleanup')}</h4>
+          <p className="text-[#5B5B5B] text-sm leading-relaxed">
+            {t('upload.autoCleanupDesc')}
+          </p>
+        </div>
+
+        {/* Card 3: Digitalt avtrykk: 0 */}
+        <div 
+          className="rounded-2xl p-6 border shadow-sm"
+          style={{ 
+            backgroundColor: '#E2EFFA',
+            borderColor: '#D5C5BD'
+          }}
+        >
+          <div 
+            className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 border"
+            style={{ 
+              backgroundColor: '#D0E3F4',
+              borderColor: '#D5C5BD'
+            }}
+          >
+            <Lock className="size-6 text-[#4A6FA5]" />
+          </div>
+          <h4 className="text-[#3F3F3F] mb-2">{t('upload.securityFirst')}</h4>
+          <p className="text-[#5B5B5B] text-sm leading-relaxed">
+            {t('upload.securityFirstDesc')}
+          </p>
+        </div>
+      </div>
+
+      {/* Generate Button - Sticky at bottom */}
+      {hasContent() && (
+        <div className="fixed bottom-0 left-0 right-0 p-4 z-50" style={{ backgroundColor: '#F7F2EE' }}>
+          <div className="max-w-3xl mx-auto">
+            <SoftCard 
+              variant="blue" 
+              className="relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <NordicLogo className="w-12 h-12 flex-shrink-0" />
+                
+                <NordicButton
+                  variant="coral"
+                  size="lg"
+                  onClick={handleGenerateQr}
+                  disabled={isGenerating}
+                  className="shadow-lg min-w-[160px]"
+                  style={{
+                    boxShadow: '0 4px 16px rgba(78, 205, 196, 0.35)',
+                  }}
+                >
+                  {isGenerating ? t('upload.generating') : t('upload.generateQr')}
+                </NordicButton>
+              </div>
+            </SoftCard>
+          </div>
+        </div>
+      )}
+
+      {/* Dual QR Display Modal - shown when Secure Mode is used */}
+      {showDualQr && dualQrData && (
+        <DualQrDisplay
+          qr1Url={dualQrData.qr1}
+          qr2Url={dualQrData.qr2}
+          qr1LinkUrl={dualQrData.qr1Url}
+          qr2LinkUrl={dualQrData.qr2Url}
+          title={dualQrData.title}
+          onClose={() => {
+            setShowDualQr(false);
+            setDualQrData(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}

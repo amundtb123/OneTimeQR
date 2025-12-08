@@ -1,0 +1,217 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&family=Inter:wght@400;500;600&display=swap');
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+  
+  /* WCAG AA Accessible Nordic Pastel Colors */
+  --cream-base: #F7F2EE;
+  --sand-neutral: #E8DCD4;
+  --soft-clay: #E1C7BA;
+  
+  /* Text Colors (WCAG AA compliant) */
+  --primary-text: #3F3F3F;
+  --secondary-text: #5B5B5B;
+  --link-action: #6D8DAF;
+  
+  /* Accent Colors */
+  --pastel-blue-deep: #5D8CC9;
+  --pastel-sand-deep: #C6A99A;
+  --blush-coral: #E8927E;
+  
+  /* Borders & Surfaces */
+  --border-color: #D5C5BD;
+  --card-bg: #F7F2EE;
+  --card-surface: #E8DCD4;
+  
+  /* Badge Colors */
+  --badge-bg: #E2EFFA;
+  --badge-text: #3F3F3F;
+  --badge-icon: #4A6FA5;
+  
+  /* Button Colors */
+  --button-primary-bg: #C6A99A;
+  --button-primary-hover: #B99787;
+  --button-primary-border: #A88B7D;
+  
+  /* Standard theme mapping */
+  --background: var(--cream-base);
+  --foreground: var(--primary-text);
+  --card: #FFFFFF;
+  --card-foreground: var(--primary-text);
+  --popover: #FFFFFF;
+  --popover-foreground: var(--primary-text);
+  --primary: var(--pastel-sand-deep);
+  --primary-foreground: var(--primary-text);
+  --secondary: var(--sand-neutral);
+  --secondary-foreground: var(--primary-text);
+  --muted: var(--sand-neutral);
+  --muted-foreground: var(--secondary-text);
+  --accent: var(--soft-clay);
+  --accent-foreground: var(--primary-text);
+  --destructive: var(--blush-coral);
+  --destructive-foreground: #FFFFFF;
+  --border: var(--border-color);
+  --input: transparent;
+  --input-background: var(--card-surface);
+  --switch-background: var(--soft-clay);
+  --font-weight-medium: 600;
+  --font-weight-normal: 400;
+  --ring: var(--pastel-blue-deep);
+  --chart-1: var(--pastel-blue-deep);
+  --chart-2: var(--pastel-sand-deep);
+  --chart-3: var(--blush-coral);
+  --chart-4: var(--soft-clay);
+  --chart-5: var(--link-action);
+  --radius: 1rem;
+  --sidebar: var(--cream-base);
+  --sidebar-foreground: var(--primary-text);
+  --sidebar-primary: var(--pastel-blue-deep);
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: var(--soft-clay);
+  --sidebar-accent-foreground: var(--primary-text);
+  --sidebar-border: var(--border-color);
+  --sidebar-ring: var(--pastel-blue-deep);
+}
+
+.dark {
+  --background: #2A2A2A;
+  --foreground: #F7F2EE;
+  --card: #333333;
+  --card-foreground: #F7F2EE;
+  --popover: #333333;
+  --popover-foreground: #F7F2EE;
+  --primary: var(--pastel-sand-deep);
+  --primary-foreground: var(--primary-text);
+  --secondary: #4A4A4A;
+  --secondary-foreground: #F7F2EE;
+  --muted: #4A4A4A;
+  --muted-foreground: #AAAAAA;
+  --accent: #4A4A4A;
+  --accent-foreground: #F7F2EE;
+  --destructive: var(--blush-coral);
+  --destructive-foreground: #FFFFFF;
+  --border: #4A4A4A;
+  --input: #4A4A4A;
+  --ring: var(--pastel-blue-deep);
+  --font-weight-medium: 600;
+  --font-weight-normal: 400;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+}
+
+/**
+ * Base typography. This is not applied to elements which have an ancestor with a Tailwind text class.
+ */
+@layer base {
+  :where(:not(:has([class*=' text-']), :not(:has([class^='text-'])))) {
+    h1 {
+      font-size: var(--text-2xl);
+      font-weight: 600;
+      line-height: 1.4;
+      letter-spacing: -0.02em;
+      font-family: 'Nunito Sans', -apple-system, sans-serif;
+    }
+
+    h2 {
+      font-size: var(--text-xl);
+      font-weight: 600;
+      line-height: 1.4;
+      letter-spacing: -0.01em;
+      font-family: 'Nunito Sans', -apple-system, sans-serif;
+    }
+
+    h3 {
+      font-size: var(--text-lg);
+      font-weight: 600;
+      line-height: 1.4;
+      font-family: 'Nunito Sans', -apple-system, sans-serif;
+    }
+
+    h4 {
+      font-size: var(--text-base);
+      font-weight: 600;
+      line-height: 1.5;
+      font-family: 'Nunito Sans', -apple-system, sans-serif;
+    }
+
+    p {
+      font-size: var(--text-base);
+      font-weight: 400;
+      line-height: 1.6;
+    }
+
+    label {
+      font-size: var(--text-base);
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    button {
+      font-size: var(--text-base);
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    input {
+      font-size: var(--text-base);
+      font-weight: 400;
+      line-height: 1.5;
+    }
+  }
+}
+
+html {
+  font-size: var(--font-size);
+}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Upload, X, Plus, Image, FileText, LinkIcon, Clock, Shield, Eye, Lock, Info, ChevronDown, Crown, EyeOff, Key } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useTranslation } from 'react-i18next';
@@ -66,10 +66,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
   const [secureMode, setSecureMode] = useState(false);
   const [showDualQr, setShowDualQr] = useState(false);
   const [dualQrData, setDualQrData] = useState<{ qr1: string; qr2: string; qr1Url: string; qr2Url: string; title?: string } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
-  const handleFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(e.target.files || []);
-    
+  const handleFilesChange = (selectedFiles: File[]) => {
     if (selectedFiles.length > 0) {
       // Add new files to existing files
       const newFiles = [...files, ...selectedFiles];
@@ -88,6 +87,39 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           reader.readAsDataURL(file);
         }
       });
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    handleFilesChange(selectedFiles);
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length > 0) {
+      handleFilesChange(droppedFiles);
     }
   };
 
@@ -122,6 +154,27 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
   const removeUrl = (index: number) => {
     setUrls(urls.filter((_, i) => i !== index));
   };
+
+  // Prevent default browser behavior for drag and drop (opening files)
+  useEffect(() => {
+    const handleGlobalDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const handleGlobalDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    window.addEventListener('dragover', handleGlobalDragOver);
+    window.addEventListener('drop', handleGlobalDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleGlobalDragOver);
+      window.removeEventListener('drop', handleGlobalDrop);
+    };
+  }, []);
 
   const expiryOptions = user ? [
     { value: '10m', label: t('upload.expiry10m'), icon: Clock },
@@ -480,22 +533,31 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
               </div>
             )}
 
-            {/* Add file button */}
+            {/* Add file button with drag'n drop */}
             <label className="block">
               <input
                 type="file"
-                onChange={handleFilesChange}
+                onChange={handleFileInputChange}
                 className="hidden"
                 accept="image/*,video/*,application/pdf,.doc,.docx,.txt"
                 multiple
               />
               <div 
-                className="border-2 border-dashed rounded-xl p-6 text-center hover:border-[#5D8CC9] hover:bg-[#F7F2EE] transition-all cursor-pointer"
-                style={{ borderColor: '#D5C5BD' }}
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${
+                  isDragging 
+                    ? 'border-[#5D8CC9] bg-[#E2EFFA] scale-105' 
+                    : 'hover:border-[#5D8CC9] hover:bg-[#F7F2EE]'
+                }`}
+                style={{ borderColor: isDragging ? '#5D8CC9' : '#D5C5BD' }}
               >
-                <Plus className="size-8 text-[#5B5B5B] mx-auto mb-2" />
-                <p className="text-[#3F3F3F] text-sm mb-1">{t('upload.addFiles')}</p>
-                <p className="text-[#5B5B5B] text-xs">{t('upload.fileTypes')}</p>
+                <Upload className={`size-12 text-[#5B5B5B] mx-auto mb-4 ${isDragging ? 'text-[#5D8CC9]' : ''}`} />
+                <p className="text-[#3F3F3F] text-base mb-2 font-medium">{t('upload.addFiles')}</p>
+                <p className="text-[#5B5B5B] text-sm mb-2">{t('upload.fileTypes')}</p>
+                <p className="text-[#5B5B5B] text-xs">{t('upload.dragDropHint') || 'Eller dra og slipp filer her'}</p>
               </div>
             </label>
           </div>

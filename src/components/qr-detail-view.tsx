@@ -202,8 +202,7 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
         ) : (
           // Standard Mode: Show single QR code
           <div className="text-center">
-            <h2 className="text-[#3F3F3F] mb-2">{t('qrDetail.yourQrCode')}</h2>
-            <p className="text-[#5B5B5B] mb-8">{t('qrDetail.scanToAccess')}</p>
+            <h2 className="text-[#3F3F3F] mb-8">{t('qrDetail.yourQrCode')}</h2>
             
             {/* Large QR Code with pastel frame */}
             <div 
@@ -216,7 +215,7 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
               <img 
                 src={qrDrop.qrCodeUrl} 
                 alt="QR Code" 
-                className="w-72 h-72 md:w-96 md:h-96 rounded-xl"
+                className="w-64 h-64 md:w-80 md:h-80 rounded-xl"
               />
             </div>
 

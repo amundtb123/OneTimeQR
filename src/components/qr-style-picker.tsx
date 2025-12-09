@@ -169,7 +169,7 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
 
       <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-start">
         {/* Preview */}
-        <div className="bg-black rounded-xl p-6 flex items-center justify-center overflow-hidden">
+        <div className="flex items-center justify-center">
           <div 
             ref={canvasRef} 
             className="bg-white rounded-lg p-3 w-[250px] h-[250px] flex items-center justify-center overflow-hidden"

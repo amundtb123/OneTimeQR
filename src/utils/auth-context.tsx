@@ -6,8 +6,10 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  coins: number | null;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  refreshCoins: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -16,23 +18,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [coins, setCoins] = useState<number | null>(null);
+
+  const fetchUserCoins = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('coins')
+        .eq('id', userId)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching coins:', error);
+        // If profile doesn't exist, create it with 0 coins
+        if (error.code === 'PGRST116') {
+          const { error: insertError } = await supabase
+            .from('user_profiles')
+            .insert({ id: userId, coins: 0 });
+          if (!insertError) {
+            setCoins(0);
+          }
+        }
+        return;
+      }
+      
+      setCoins(data?.coins ?? 0);
+    } catch (error) {
+      console.error('Error fetching coins:', error);
+    }
+  };
 
   useEffect(() => {
     // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
+      if (session?.user) {
+        await fetchUserCoins(session.user.id);
+      } else {
+        setCoins(null);
+      }
       setLoading(false);
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
+      if (session?.user) {
+        await fetchUserCoins(session.user.id);
+      } else {
+        setCoins(null);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const refreshCoins = async () => {
+    if (user) {
+      await fetchUserCoins(user.id);
+    }
+  };
 
   const signInWithGoogle = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
@@ -58,7 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, coins, signInWithGoogle, signOut, refreshCoins }}>
       {children}
     </AuthContext.Provider>
   );

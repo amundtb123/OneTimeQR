@@ -142,3 +142,19 @@ export async function cleanupExpired(): Promise<{ success: boolean; deletedCount
     method: 'POST',
   });
 }
+
+export async function createCheckoutSession(): Promise<{ url: string }> {
+  return fetchApi('/checkout', {
+    method: 'POST',
+  });
+}
+
+export async function deductCoins(amount: number): Promise<{ success: boolean; coins: number }> {
+  return fetchApi('/deduct-coins', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ amount }),
+  });
+}

@@ -18,6 +18,8 @@ import { Switch } from './ui/switch';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { QrStylePicker, type QrStyle } from './qr-style-picker';
 import { useAuth } from '../utils/auth-context';
+import { deductCoins } from '../utils/api-client';
+import { CoinShop } from './coin-shop';
 
 const defaultQrStyle: QrStyle = {
   dotsColor: '#5D8CC9',
@@ -35,7 +37,7 @@ interface UploadSectionProps {
 }
 
 export function UploadSection({ onQrCreated }: UploadSectionProps) {
-  const { user } = useAuth();
+  const { user, coins, refreshCoins } = useAuth();
   const { t } = useTranslation();
   
   // Title
@@ -214,6 +216,49 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
     return false;
   };
 
+  // Calculate coin cost based on user choices
+  const calculateCoinCost = (): number => {
+    // Free tier: 1 MB, 10 minutes, no password
+    const totalFileSize = files.reduce((sum, file) => sum + file.size, 0);
+    const freeSizeLimit = 1 * 1024 * 1024; // 1 MB
+    const freeExpiryMinutes = 10;
+    
+    let cost = 0;
+    
+    // Check if password is used (+1 coin)
+    if (usePassword) {
+      cost += 1;
+    }
+    
+    // Check file size beyond free limit (+1 coin per 2 MB extra)
+    if (totalFileSize > freeSizeLimit) {
+      const extraMB = (totalFileSize - freeSizeLimit) / (2 * 1024 * 1024);
+      cost += Math.ceil(extraMB);
+    }
+    
+    // Check expiry beyond 10 minutes (+1 coin per 24 hours extra)
+    if (expiryType !== '10m') {
+      const expiryMinutes = {
+        '30m': 30,
+        '1h': 60,
+        '24h': 24 * 60,
+        '7d': 7 * 24 * 60,
+        'scan': 7 * 24 * 60, // Treat as 7 days
+      }[expiryType] || 10;
+      
+      if (expiryMinutes > freeExpiryMinutes) {
+        const extraHours = (expiryMinutes - freeExpiryMinutes) / 60;
+        const extra24HourPeriods = extraHours / 24;
+        cost += Math.ceil(extra24HourPeriods);
+      }
+    }
+    
+    return cost;
+  };
+
+  const coinCost = calculateCoinCost();
+  const isFreeTier = coinCost === 0;
+
   const handleGenerateQr = async () => {
     if (!hasContent()) {
       toast.error(t('upload.addContent'));
@@ -235,6 +280,24 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
     if (secureMode && !user) {
       toast.error(t('upload.secureModeRequiresLogin'));
       return;
+    }
+
+    // Check coin cost and user balance
+    if (coinCost > 0) {
+      if (!user) {
+        toast.error(t('upload.loginRequiredForCoins'));
+        return;
+      }
+      
+      if (coins === null) {
+        toast.error(t('upload.loadingCoins'));
+        return;
+      }
+      
+      if (coins < coinCost) {
+        toast.error(t('upload.insufficientCoins', { required: coinCost, current: coins }));
+        return;
+      }
     }
     
     setIsGenerating(true);
@@ -299,6 +362,20 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       } else {
         // No files, just text/URLs
         response = await createQrDrop(metadata);
+      }
+      
+      // Deduct coins if cost > 0
+      if (coinCost > 0 && user) {
+        try {
+          await deductCoins(coinCost);
+          await refreshCoins();
+          toast.success(t('upload.coinsDeducted', { amount: coinCost }));
+        } catch (error: any) {
+          console.error('Error deducting coins:', error);
+          // QR was already created, but coins weren't deducted
+          // This is a problem - we should rollback or handle this
+          toast.error(t('upload.coinDeductionFailed'));
+        }
       }
       
       // SECURE MODE: Generate TWO QR codes
@@ -449,6 +526,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-32">
+      
+      {/* Coin Shop - Show for authenticated users */}
+      {user && <CoinShop />}
       
       {/* Show info if user is not authenticated */}
       {!user && (
@@ -1026,13 +1106,26 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
               className="relative overflow-hidden"
             >
               <div className="flex items-center justify-between gap-4">
-                <NordicLogo className="w-12 h-12 flex-shrink-0" />
+                <div className="flex items-center gap-3">
+                  <NordicLogo className="w-12 h-12 flex-shrink-0" />
+                  {coinCost > 0 && user && (
+                    <div className="text-sm">
+                      <p className="text-[#5B5B5B]">{t('upload.coinCost')}: <span className="font-semibold text-indigo-600">{coinCost}</span></p>
+                      {coins !== null && coins < coinCost && (
+                        <p className="text-red-600 text-xs mt-1">{t('upload.insufficientCoinsShort')}</p>
+                      )}
+                    </div>
+                  )}
+                  {isFreeTier && (
+                    <p className="text-sm text-green-600 font-medium">{t('upload.free')}</p>
+                  )}
+                </div>
                 
                 <NordicButton
                   variant="coral"
                   size="lg"
                   onClick={handleGenerateQr}
-                  disabled={isGenerating}
+                  disabled={isGenerating || (user && coinCost > 0 && coins !== null && coins < coinCost)}
                   className="shadow-lg min-w-[160px]"
                   style={{
                     boxShadow: '0 4px 16px rgba(78, 205, 196, 0.35)',

@@ -9,6 +9,7 @@ import { QrList } from './components/qr-list';
 import { ScanView } from './components/scan-view';
 import { UnlockScreen } from './components/unlock-screen';
 import { QrDetailView } from './components/qr-detail-view';
+import { SuccessPage } from './components/success-page';
 import { getAllQrDrops, deleteQrDrop, type QrDropData } from './utils/api-client';
 import { projectId, publicAnonKey } from './utils/supabase/info';
 import { toast, Toaster } from 'sonner@2.0.3';
@@ -74,7 +75,7 @@ function AppContent() {
   const { user, loading: authLoading } = useAuth();
   const { t } = useTranslation();
   const [qrDrops, setQrDrops] = useState<QrDrop[]>([]);
-  const [currentView, setCurrentView] = useState<'upload' | 'list' | 'scan' | 'detail' | 'unlock'>('upload');
+  const [currentView, setCurrentView] = useState<'upload' | 'list' | 'scan' | 'detail' | 'unlock' | 'success'>('upload');
   const [selectedQrDrop, setSelectedQrDrop] = useState<QrDrop | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [scanId, setScanId] = useState<string | null>(null);
@@ -82,13 +83,16 @@ function AppContent() {
   const [isFetchingKey, setIsFetchingKey] = useState(false); // Track if we're fetching encryption key
   const [showQr2Error, setShowQr2Error] = useState(false); // Track if QR #2 was scanned without QR #1
 
-  // Check if we're on a scan or unlock URL
+  // Check if we're on a scan, unlock, or success URL
   useEffect(() => {
     const path = window.location.pathname;
     const scanMatch = path.match(/\/scan\/([^\/]+)/);
     const unlockMatch = path.match(/\/unlock\/([^\/]+)/);
+    const successMatch = path === '/success';
     
-    if (unlockMatch) {
+    if (successMatch) {
+      setCurrentView('success');
+    } else if (unlockMatch) {
       // We're on an unlock page (QR #2 scanned)
       const id = unlockMatch[1];
       const searchParams = new URLSearchParams(window.location.search);
@@ -424,6 +428,10 @@ function AppContent() {
           )
         ) : (
           <>
+            {currentView === 'success' && (
+              <SuccessPage />
+            )}
+            
             {currentView === 'upload' && (
               <UploadSection onQrCreated={handleQrCreated} />
             )}

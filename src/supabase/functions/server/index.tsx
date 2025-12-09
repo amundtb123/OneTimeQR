@@ -697,4 +697,207 @@ async function deleteQrDrop(id: string) {
   await kv.del(`qrdrop:index:${id}`);
 }
 
+// Stripe Checkout - Create session
+app.post('/make-server-c3c9181e/checkout', async (c) => {
+  try {
+    // Get user ID from auth token
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    if (!accessToken || accessToken === Deno.env.get('SUPABASE_ANON_KEY')) {
+      return c.json({ error: 'Authentication required' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    if (authError || !user) {
+      return c.json({ error: 'Invalid authentication' }, 401);
+    }
+
+    // Initialize Stripe
+    const Stripe = (await import('npm:stripe@17.3.1')).default;
+    const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
+      apiVersion: '2024-12-18.acacia',
+    });
+
+    const origin = c.req.header('Origin') || c.req.header('Referer') || 'https://onetimeqr.com';
+    const baseUrl = new URL(origin).origin;
+
+    // Create Stripe Checkout session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'nok',
+            product_data: {
+              name: '50 Coins',
+              description: 'Kjøp 50 coins for OneTimeQR',
+            },
+            unit_amount: 2900, // 29 NOK in øre
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/`,
+      customer_email: user.email || undefined,
+      metadata: {
+        userId: user.id,
+        coins: '50',
+      },
+    });
+
+    return c.json({ url: session.url });
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
+    return c.json({ error: `Failed to create checkout session: ${error.message}` }, 500);
+  }
+});
+
+// Stripe Webhook - Handle payment completion
+app.post('/make-server-c3c9181e/webhook', async (c) => {
+  try {
+    const signature = c.req.header('stripe-signature');
+    if (!signature) {
+      return c.json({ error: 'Missing stripe-signature header' }, 400);
+    }
+
+    const body = await c.req.text();
+    const Stripe = (await import('npm:stripe@17.3.1')).default;
+    const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
+      apiVersion: '2024-12-18.acacia',
+    });
+
+    const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
+    if (!webhookSecret) {
+      console.error('STRIPE_WEBHOOK_SECRET not set');
+      return c.json({ error: 'Webhook secret not configured' }, 500);
+    }
+
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+    } catch (err) {
+      console.error('Webhook signature verification failed:', err);
+      return c.json({ error: `Webhook Error: ${err.message}` }, 400);
+    }
+
+    // Handle the checkout.session.completed event
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const userId = session.metadata?.userId;
+      const coinsToAdd = parseInt(session.metadata?.coins || '50', 10);
+
+      if (!userId) {
+        console.error('No userId in session metadata');
+        return c.json({ error: 'Missing userId in session metadata' }, 400);
+      }
+
+      // Add coins to user profile
+      const { data: profile, error: fetchError } = await supabase
+        .from('user_profiles')
+        .select('coins')
+        .eq('id', userId)
+        .single();
+
+      if (fetchError) {
+        // Profile doesn't exist, create it
+        const { error: insertError } = await supabase
+          .from('user_profiles')
+          .insert({ id: userId, coins: coinsToAdd });
+        
+        if (insertError) {
+          console.error('Error creating user profile:', insertError);
+          return c.json({ error: 'Failed to create user profile' }, 500);
+        }
+      } else {
+        // Update existing profile
+        const { error: updateError } = await supabase
+          .from('user_profiles')
+          .update({ coins: (profile.coins || 0) + coinsToAdd })
+          .eq('id', userId);
+
+        if (updateError) {
+          console.error('Error updating coins:', updateError);
+          return c.json({ error: 'Failed to update coins' }, 500);
+        }
+      }
+
+      console.log(`Added ${coinsToAdd} coins to user ${userId}`);
+      return c.json({ received: true });
+    }
+
+    return c.json({ received: true });
+  } catch (error) {
+    console.error('Error processing webhook:', error);
+    return c.json({ error: `Webhook error: ${error.message}` }, 500);
+  }
+});
+
+// Deduct coins endpoint
+app.post('/make-server-c3c9181e/deduct-coins', async (c) => {
+  try {
+    const { amount } = await c.req.json();
+    
+    if (!amount || amount <= 0) {
+      return c.json({ error: 'Invalid amount' }, 400);
+    }
+
+    // Get user ID from auth token
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    if (!accessToken || accessToken === Deno.env.get('SUPABASE_ANON_KEY')) {
+      return c.json({ error: 'Authentication required' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    if (authError || !user) {
+      return c.json({ error: 'Invalid authentication' }, 401);
+    }
+
+    // Get current coins
+    const { data: profile, error: fetchError } = await supabase
+      .from('user_profiles')
+      .select('coins')
+      .eq('id', user.id)
+      .single();
+
+    if (fetchError) {
+      // Profile doesn't exist, create it with 0 coins
+      const { error: insertError } = await supabase
+        .from('user_profiles')
+        .insert({ id: user.id, coins: 0 });
+      
+      if (insertError) {
+        console.error('Error creating user profile:', insertError);
+        return c.json({ error: 'Failed to create user profile' }, 500);
+      }
+      
+      return c.json({ error: 'Insufficient coins' }, 400);
+    }
+
+    const currentCoins = profile?.coins || 0;
+    
+    if (currentCoins < amount) {
+      return c.json({ error: 'Insufficient coins' }, 400);
+    }
+
+    // Deduct coins
+    const { data: updatedProfile, error: updateError } = await supabase
+      .from('user_profiles')
+      .update({ coins: currentCoins - amount })
+      .eq('id', user.id)
+      .select('coins')
+      .single();
+
+    if (updateError) {
+      console.error('Error deducting coins:', updateError);
+      return c.json({ error: 'Failed to deduct coins' }, 500);
+    }
+
+    return c.json({ success: true, coins: updatedProfile.coins });
+  } catch (error) {
+    console.error('Error in deduct-coins endpoint:', error);
+    return c.json({ error: `Server error: ${error.message}` }, 500);
+  }
+});
+
 Deno.serve(app.fetch);

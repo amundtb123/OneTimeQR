@@ -74,8 +74,8 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
     // Initialize QR code instance if it doesn't exist
     if (!qrCodeRef.current) {
       qrCodeRef.current = new QRCodeStyling({
-        width: 400,
-        height: 400,
+        width: 250,
+        height: 250,
         data: qrUrl,
         margin: 2,
         qrOptions: {
@@ -172,7 +172,7 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
         <div className="bg-black rounded-xl p-6 flex items-center justify-center overflow-hidden">
           <div 
             ref={canvasRef} 
-            className="bg-white rounded-lg p-3 max-w-[250px] w-full"
+            className="bg-white rounded-lg p-3 w-[250px] h-[250px] flex items-center justify-center overflow-hidden"
           />
         </div>
 

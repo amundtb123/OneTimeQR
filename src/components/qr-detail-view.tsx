@@ -134,7 +134,7 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
                     <h3 className="text-[#3F3F3F]">{t('qrDetail.accessCode')}</h3>
                 </div>
                 <div 
-                  className="inline-block p-6 bg-white rounded-2xl border-4"
+                  className="inline-block p-3 bg-white rounded-2xl border-4"
                   style={{ 
                     borderColor: '#5D8CC9',
                     boxShadow: '0 8px 24px rgba(93, 140, 201, 0.15)',
@@ -143,7 +143,7 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
                   <img 
                     src={qrDrop.qrCodeUrl} 
                     alt="QR Code 1" 
-                    className="w-48 h-48 rounded-xl"
+                    className="w-56 h-56 rounded-xl"
                   />
                 </div>
                 <p className="text-[#5B5B5B] text-sm mt-3">{t('qrDetail.shareWithRecipient')}</p>
@@ -158,7 +158,7 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
                   <h3 className="text-[#3F3F3F]">{t('qrDetail.unlockCode')}</h3>
                 </div>
                 <div 
-                  className="inline-block p-6 bg-white rounded-2xl border-4"
+                  className="inline-block p-3 bg-white rounded-2xl border-4"
                   style={{ 
                     borderColor: '#E8927E',
                     boxShadow: '0 8px 24px rgba(232, 146, 126, 0.15)',
@@ -167,7 +167,7 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
                   <img 
                     src={qrDrop.qrCodeUrl2} 
                     alt="QR Code 2" 
-                    className="w-48 h-48 rounded-xl"
+                    className="w-56 h-56 rounded-xl"
                   />
                 </div>
                 <p className="text-[#5B5B5B] text-sm mt-3">{t('qrDetail.keyToUnlock')}</p>
@@ -207,7 +207,7 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
             
             {/* Large QR Code with pastel frame */}
             <div 
-              className="inline-block p-8 bg-white rounded-2xl border-8"
+              className="inline-block p-4 bg-white rounded-2xl border-8"
               style={{ 
                 borderColor: '#D5C5BD',
                 boxShadow: '0 12px 36px rgba(63, 63, 63, 0.08), 0 4px 12px rgba(63, 63, 63, 0.04)',
@@ -216,7 +216,7 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
               <img 
                 src={qrDrop.qrCodeUrl} 
                 alt="QR Code" 
-                className="w-64 h-64 md:w-80 md:h-80 rounded-xl"
+                className="w-72 h-72 md:w-96 md:h-96 rounded-xl"
               />
             </div>
 

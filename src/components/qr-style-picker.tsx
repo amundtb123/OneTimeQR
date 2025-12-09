@@ -169,15 +169,15 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Preview */}
-        <div className="bg-black rounded-xl p-8 flex items-center justify-center">
+        <div className="bg-black rounded-xl p-8 flex items-center justify-center relative z-0">
           <div 
             ref={canvasRef} 
-            className="bg-white rounded-lg p-4 max-w-[300px] w-full"
+            className="bg-white rounded-lg p-4 max-w-[300px] w-full relative z-10"
           />
         </div>
 
         {/* Style Options */}
-        <div className="space-y-4">
+        <div className="space-y-4 relative z-20">
           <Tabs defaultValue="colors">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="colors">

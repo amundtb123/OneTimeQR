@@ -485,7 +485,7 @@ export function QrList({ qrDrops, onDelete, onScan, onDetail, isLoading }: QrLis
                     <img 
                       src={selectedQrForView.qrCodeUrl} 
                       alt="QR Code 1"
-                      className="w-64 h-64 rounded-2xl border-4"
+                      className="w-72 h-72 rounded-2xl border-4"
                       style={{ 
                         backgroundColor: '#000000',
                         borderColor: '#5D8CC9'
@@ -594,7 +594,7 @@ export function QrList({ qrDrops, onDelete, onScan, onDetail, isLoading }: QrLis
                 <img 
                   src={selectedQrForView?.qrCodeUrl} 
                   alt="QR Code"
-                  className="w-80 h-80 rounded-2xl"
+                  className="w-96 h-96 rounded-2xl"
                   style={{ backgroundColor: '#000000' }}
                 />
               </div>

@@ -99,7 +99,7 @@ export function DualQrDisplay({ qr1Url, qr2Url, qr1LinkUrl, qr2LinkUrl, title, o
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl p-4 mb-4">
+              <div className="bg-white rounded-xl p-2 mb-4">
                 <img 
                   src={qr1Url} 
                   alt="QR Code 1"
@@ -180,7 +180,7 @@ export function DualQrDisplay({ qr1Url, qr2Url, qr1LinkUrl, qr2LinkUrl, title, o
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl p-4 mb-4 relative">
+              <div className="bg-white rounded-xl p-2 mb-4 relative">
                 <img 
                   src={qr2Url} 
                   alt="QR Code 2"

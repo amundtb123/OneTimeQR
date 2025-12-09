@@ -167,17 +167,17 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
         <h3 className="text-gray-900">Tilpass QR-kode</h3>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-start">
         {/* Preview */}
-        <div className="bg-black rounded-xl p-8 flex items-center justify-center relative z-0">
+        <div className="bg-black rounded-xl p-6 flex items-center justify-center overflow-hidden">
           <div 
             ref={canvasRef} 
-            className="bg-white rounded-lg p-4 max-w-[300px] w-full relative z-10"
+            className="bg-white rounded-lg p-3 max-w-[250px] w-full"
           />
         </div>
 
         {/* Style Options */}
-        <div className="space-y-4 relative z-20">
+        <div className="space-y-4 min-w-0 flex-shrink-0">
           <Tabs defaultValue="colors">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="colors">

@@ -42,7 +42,7 @@ export function CoinShop() {
           <div>
             <p className="text-sm text-gray-600">{t('coins.yourCoins')}</p>
             <p className="text-2xl font-bold text-indigo-600">
-              {user ? (coins !== null ? coins : '...') : '—'}
+              {user ? (coins !== null ? coins : '0') : '—'}
             </p>
           </div>
         </div>

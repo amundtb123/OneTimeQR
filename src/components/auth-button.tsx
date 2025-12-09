@@ -47,8 +47,12 @@ export function AuthButton() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="relative size-8 sm:size-10 rounded-full hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-[#5D8CC9] focus:ring-offset-2">
-          <Avatar className="size-8 sm:size-10">
+        <button 
+          className="relative size-8 sm:size-10 rounded-full hover:opacity-80 transition-all hover:ring-2 hover:ring-[#5D8CC9] focus:outline-none focus:ring-2 focus:ring-[#5D8CC9] focus:ring-offset-2 cursor-pointer"
+          title={t('common.user')}
+          aria-label={t('common.user')}
+        >
+          <Avatar className="size-8 sm:size-10 ring-2 ring-transparent hover:ring-[#5D8CC9] transition-all">
             <AvatarImage src={user.user_metadata?.avatar_url} alt={user.user_metadata?.name || user.email || ''} />
             <AvatarFallback style={{ backgroundColor: '#5D8CC9', color: '#ffffff' }}>
               {user.user_metadata?.name?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U'}

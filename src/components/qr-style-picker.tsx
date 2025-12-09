@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
-import { Palette, Image as ImageIcon, Grid3x3, Sparkles } from 'lucide-react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import { Palette, Image as ImageIcon, Sparkles } from 'lucide-react';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { generateStyledQrCode } from '../utils/qr-generator';
+import QRCodeStyling from 'qr-code-styling';
 
 export interface QrStyle {
   // Colors
@@ -37,7 +37,8 @@ interface QrStylePickerProps {
 }
 
 export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
-  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const qrCodeRef = useRef<QRCodeStyling | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const presetColors = [
@@ -66,23 +67,82 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
     { value: 'extra-rounded', label: 'Ekstra avrundet' },
   ];
 
+  // Initialize and update QR Code with qr-code-styling library
   useEffect(() => {
-    generatePreview();
-  }, [JSON.stringify(style), qrUrl]); // Use JSON.stringify to detect deep changes in style object
+    if (!qrUrl || !canvasRef.current) return;
 
-  const generatePreview = async () => {
-    if (!qrUrl) return;
+    // Initialize QR code instance if it doesn't exist
+    if (!qrCodeRef.current) {
+      qrCodeRef.current = new QRCodeStyling({
+        width: 400,
+        height: 400,
+        data: qrUrl,
+        margin: 2,
+        qrOptions: {
+          typeNumber: 0,
+          mode: 'Byte',
+          errorCorrectionLevel: style.logo ? 'H' : 'M',
+        },
+        imageOptions: {
+          hideBackgroundDots: true,
+          imageSize: style.logoSize || 0.2,
+          margin: style.logoMargin || 4,
+        },
+        dotsOptions: {
+          color: style.dotsColor,
+          type: style.dotsType,
+        },
+        backgroundOptions: {
+          color: style.backgroundColor,
+        },
+        cornersSquareOptions: {
+          color: style.cornersSquareColor || style.dotsColor,
+          type: style.cornersSquareType,
+        },
+        cornersDotOptions: {
+          color: style.cornersDotColor || style.dotsColor,
+          type: style.cornersDotType,
+        },
+        image: style.logo || undefined,
+      });
 
-    try {
-      // Use the advanced styled generator
-      const dataUrl = await generateStyledQrCode(qrUrl, style);
-      setPreviewUrl(dataUrl);
-    } catch (error) {
-      console.error('Error generating QR preview:', error);
+      canvasRef.current.innerHTML = '';
+      qrCodeRef.current.append(canvasRef.current);
+    } else {
+      // Update existing QR code instance when URL or style changes
+      qrCodeRef.current.update({
+        data: qrUrl,
+        qrOptions: {
+          typeNumber: 0,
+          mode: 'Byte',
+          errorCorrectionLevel: style.logo ? 'H' : 'M',
+        },
+        image: style.logo || undefined,
+        imageOptions: {
+          hideBackgroundDots: true,
+          imageSize: style.logoSize || 0.2,
+          margin: style.logoMargin || 4,
+        },
+        dotsOptions: {
+          color: style.dotsColor,
+          type: style.dotsType,
+        },
+        backgroundOptions: {
+          color: style.backgroundColor,
+        },
+        cornersSquareOptions: {
+          color: style.cornersSquareColor || style.dotsColor,
+          type: style.cornersSquareType,
+        },
+        cornersDotOptions: {
+          color: style.cornersDotColor || style.dotsColor,
+          type: style.cornersDotType,
+        },
+      });
     }
-  };
+  }, [qrUrl, JSON.stringify(style)]); // Update when URL or style changes
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -110,13 +170,10 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Preview */}
         <div className="bg-black rounded-xl p-8 flex items-center justify-center">
-          {previewUrl && (
-            <img 
-              src={previewUrl} 
-              alt="QR Preview" 
-              className="w-full max-w-[300px]"
-            />
-          )}
+          <div 
+            ref={canvasRef} 
+            className="bg-white rounded-lg p-4 max-w-[300px] w-full"
+          />
         </div>
 
         {/* Style Options */}
@@ -144,7 +201,9 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
                       onClick={() => {
                         onChange({ 
                           ...style, 
-                          dotsColor: color.value, 
+                          dotsColor: color.value,
+                          cornersSquareColor: color.value,
+                          cornersDotColor: color.value,
                           gradientType: 'none' 
                         });
                       }}
@@ -171,7 +230,9 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
                     onChange={(e) => {
                       onChange({ 
                         ...style, 
-                        dotsColor: e.target.value, 
+                        dotsColor: e.target.value,
+                        cornersSquareColor: e.target.value,
+                        cornersDotColor: e.target.value,
                         gradientType: 'none' 
                       });
                     }}
@@ -186,12 +247,20 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
                       if (/^#[0-9A-F]{6}$/i.test(newDotsColor)) {
                         onChange({ 
                           ...style, 
-                          dotsColor: newDotsColor, 
+                          dotsColor: newDotsColor,
+                          cornersSquareColor: newDotsColor,
+                          cornersDotColor: newDotsColor,
                           gradientType: 'none' 
                         });
                       } else {
                         // Allow typing even if not valid yet
-                        onChange({ ...style, dotsColor: newDotsColor, gradientType: 'none' });
+                        onChange({ 
+                          ...style, 
+                          dotsColor: newDotsColor,
+                          cornersSquareColor: newDotsColor,
+                          cornersDotColor: newDotsColor,
+                          gradientType: 'none' 
+                        });
                       }
                     }}
                     className="flex-1"

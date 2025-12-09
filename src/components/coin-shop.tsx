@@ -48,11 +48,11 @@ export function CoinShop() {
         </div>
         <Button
           onClick={handleBuyCoins}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white"
-          size="sm"
+          className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-md hover:shadow-lg transition-all"
+          size="default"
         >
           <ShoppingCart className="size-4 mr-2" />
-          {t('coins.buy50Coins')}
+          <span className="font-semibold">{t('coins.buy50Coins')}</span>
         </Button>
       </div>
     </Card>

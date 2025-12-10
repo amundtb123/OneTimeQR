@@ -374,8 +374,18 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       } else {
         // No files, just text/URLs
         console.log('📝 Creating QR drop without file');
-        response = await createQrDrop(metadata);
-        console.log('✅ Create response:', response);
+        try {
+          response = await createQrDrop(metadata);
+          console.log('✅ Create response:', response);
+        } catch (createError: any) {
+          console.error('❌ createQrDrop failed:', createError);
+          console.error('❌ Error details:', {
+            message: createError?.message,
+            status: createError?.status,
+            stack: createError?.stack
+          });
+          throw createError;
+        }
       }
       
       // Deduct coins if cost > 0

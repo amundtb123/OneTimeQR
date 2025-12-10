@@ -47,12 +47,33 @@ async function fetchApi(endpoint: string, options: RequestInit = {}) {
   
   try {
     console.log('🔐 Getting session...');
-    // Try to get the current session
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError) {
-      console.warn('⚠️ Session error (non-critical):', sessionError);
+    let authToken = publicAnonKey; // Default to anon key
+    
+    try {
+      // Try to get the current session with timeout
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Session timeout')), 2000)
+      );
+      
+      const { data: { session }, error: sessionError } = await Promise.race([
+        sessionPromise,
+        timeoutPromise
+      ]) as any;
+      
+      if (sessionError) {
+        console.warn('⚠️ Session error (non-critical):', sessionError);
+      } else if (session?.access_token) {
+        authToken = session.access_token;
+        console.log('🔑 Using user session token');
+      } else {
+        console.log('🔑 No session, using anon key');
+      }
+    } catch (error: any) {
+      console.warn('⚠️ Session fetch failed or timed out, using anon key:', error?.message);
+      // Continue with anon key
     }
-    const authToken = session?.access_token || publicAnonKey;
+    
     console.log('🔑 Auth token prepared:', authToken ? `${authToken.substring(0, 20)}...` : 'MISSING');
     
     const url = `${API_BASE}${endpoint}`;

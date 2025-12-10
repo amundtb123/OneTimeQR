@@ -797,13 +797,21 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
 
 // Stripe Webhook - Handle payment completion
 app.post('/make-server-c3c9181e/webhook', async (c) => {
+  console.log('🔔 Webhook received!');
+  console.log('📋 Headers:', JSON.stringify(Object.fromEntries(c.req.headers.entries()), null, 2));
+  
   try {
     const signature = c.req.header('stripe-signature');
     if (!signature) {
+      console.error('❌ Missing stripe-signature header');
       return c.json({ error: 'Missing stripe-signature header' }, 400);
     }
+    console.log('✅ Stripe signature found');
 
     const body = await c.req.text();
+    console.log('📦 Webhook body length:', body.length);
+    console.log('📦 Webhook body preview:', body.substring(0, 200));
+    
     const Stripe = (await import('npm:stripe@17.3.1')).default;
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
       apiVersion: '2024-12-18.acacia',
@@ -811,15 +819,20 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
 
     const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
     if (!webhookSecret) {
-      console.error('STRIPE_WEBHOOK_SECRET not set');
+      console.error('❌ STRIPE_WEBHOOK_SECRET not set');
       return c.json({ error: 'Webhook secret not configured' }, 500);
     }
+    console.log('✅ Webhook secret found');
 
     let event;
     try {
       event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+      console.log('✅ Webhook signature verified');
+      console.log('📋 Event type:', event.type);
+      console.log('📋 Event ID:', event.id);
     } catch (err) {
-      console.error('Webhook signature verification failed:', err);
+      console.error('❌ Webhook signature verification failed:', err);
+      console.error('❌ Error details:', JSON.stringify(err, null, 2));
       return c.json({ error: `Webhook Error: ${err.message}` }, 400);
     }
 

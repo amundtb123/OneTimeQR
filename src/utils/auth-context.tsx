@@ -24,6 +24,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchUserCoins = async (userId: string) => {
     try {
       console.log('💰 Fetching coins for user:', userId);
+      
+      // Ensure we have a valid session
+      const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !currentSession) {
+        console.error('❌ No valid session for fetching coins:', sessionError);
+        return;
+      }
+      console.log('✅ Session valid, proceeding with coin fetch');
+      
       const { data, error } = await supabase
         .from('user_profiles')
         .select('coins')
@@ -32,6 +41,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (error) {
         console.error('❌ Error fetching coins:', error);
+        console.error('❌ Error code:', error.code);
+        console.error('❌ Error message:', error.message);
+        console.error('❌ Error details:', JSON.stringify(error, null, 2));
+        
         // If profile doesn't exist, create it with 0 coins
         if (error.code === 'PGRST116') {
           console.log('📝 Creating new user profile with 0 coins...');
@@ -43,16 +56,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log('✅ Created profile with 0 coins');
           } else {
             console.error('❌ Error creating profile:', insertError);
+            console.error('❌ Insert error details:', JSON.stringify(insertError, null, 2));
           }
         }
         return;
       }
       
       const newCoins = data?.coins ?? 0;
-      console.log('💰 Fetched coins:', newCoins, '(previous:', coins, ')');
+      console.log('💰 Fetched coins successfully:', newCoins, '(previous:', coins, ')');
+      console.log('💰 Full profile data:', JSON.stringify(data, null, 2));
       setCoins(newCoins);
     } catch (error) {
       console.error('❌ Exception fetching coins:', error);
+      console.error('❌ Exception details:', JSON.stringify(error, null, 2));
     }
   };
 

@@ -46,26 +46,49 @@ async function fetchApi(endpoint: string, options: RequestInit = {}) {
   console.log('🌐 fetchApi called:', endpoint, options.method || 'GET');
   
   try {
+    console.log('🔐 Getting session...');
     // Try to get the current session
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      console.warn('⚠️ Session error (non-critical):', sessionError);
+    }
     const authToken = session?.access_token || publicAnonKey;
+    console.log('🔑 Auth token prepared:', authToken ? `${authToken.substring(0, 20)}...` : 'MISSING');
     
     const url = `${API_BASE}${endpoint}`;
     console.log('🔗 Fetching URL:', url);
+    console.log('📦 Request options:', {
+      method: options.method || 'GET',
+      headers: { ...options.headers, 'Authorization': 'Bearer ***' },
+      hasBody: !!options.body,
+      bodyLength: options.body ? (typeof options.body === 'string' ? options.body.length : 'FormData') : 0
+    });
     
-    const response = await fetch(url, {
+    const fetchPromise = fetch(url, {
       ...options,
       headers: {
         'Authorization': `Bearer ${authToken}`,
         ...options.headers,
       },
     });
-
-    console.log('📡 Response received:', response.status, response.statusText);
+    
+    console.log('⏳ Fetch promise created, waiting for response...');
+    const response = await fetchPromise;
+    console.log('📡 Response received:', response.status, response.statusText, response.headers.get('content-type'));
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      const errorMessage = error.error || `API error: ${response.status}`;
+      const errorText = await response.text();
+      console.error('❌ Response not OK. Status:', response.status);
+      console.error('❌ Response body:', errorText);
+      
+      let error;
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { error: errorText || 'Unknown error' };
+      }
+      
+      const errorMessage = error.error || error.message || `API error: ${response.status}`;
       console.error('❌ API error:', errorMessage, error);
       const errorWithStatus = new Error(errorMessage);
       (errorWithStatus as any).status = response.status;
@@ -75,8 +98,11 @@ async function fetchApi(endpoint: string, options: RequestInit = {}) {
     const json = await response.json();
     console.log('✅ Response JSON:', json);
     return json;
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ fetchApi error:', error);
+    console.error('❌ Error type:', error?.constructor?.name);
+    console.error('❌ Error message:', error?.message);
+    console.error('❌ Error stack:', error?.stack);
     throw error;
   }
 }

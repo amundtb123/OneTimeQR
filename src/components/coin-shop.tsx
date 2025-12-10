@@ -49,30 +49,33 @@ export function CoinShop() {
 
   return (
     <div className="flex items-center gap-3">
-      {/* Your Coins - White card with shadow */}
-      <Card className="p-4 bg-white border-gray-200 shadow-sm flex items-center gap-3 flex-1">
-        <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
-          <Coins className="size-5 text-white" />
+      {/* Your Coins - Smaller white card with shadow */}
+      <Card className="p-3 bg-white border-gray-200 shadow-sm flex items-center gap-2.5">
+        <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
+          <Coins className="size-4 text-white" />
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs text-gray-600 mb-0.5">{t('coins.yourCoins')}</p>
-          <div className="flex items-center gap-2">
-            <p className="text-2xl font-bold text-gray-900">
+        <div className="min-w-0">
+          <p className="text-xs text-gray-600 mb-0.5 leading-tight">{t('coins.yourCoins')}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-xl font-bold text-gray-900 leading-tight">
               {user ? (coins !== null ? coins : '0') : '—'}
             </p>
-            <Star className="size-4 text-indigo-400 fill-indigo-400" />
+            <Star className="size-3.5 text-indigo-400 fill-indigo-400" />
           </div>
         </div>
       </Card>
 
-      {/* Buy Coins Button - Purple gradient */}
+      {/* Buy Coins Button - Blue with info */}
       <Button
         onClick={handleBuyCoins}
-        className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold shadow-md hover:shadow-lg transition-all flex items-center gap-2 px-4 py-3 h-auto rounded-lg"
+        className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md hover:shadow-lg transition-all flex flex-col items-center justify-center px-4 py-2.5 h-auto rounded-lg"
         disabled={false}
       >
-        <Plus className="size-5" />
-        <span className="font-semibold">{t('coins.buyCoins') || 'Kjøp mynter'}</span>
+        <div className="flex items-center gap-1.5">
+          <Plus className="size-4" />
+          <span className="font-semibold text-sm">{t('coins.buyCoins') || 'Kjøp mynter'}</span>
+        </div>
+        <span className="text-xs font-medium mt-0.5 opacity-90">50 coins • 29 kr</span>
       </Button>
     </div>
   );

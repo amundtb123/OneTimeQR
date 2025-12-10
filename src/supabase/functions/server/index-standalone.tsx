@@ -903,14 +903,30 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       }
 
       console.log(`🎊 Successfully added ${coinsToAdd} coins to user ${userId}`);
+      
+      // Verify the coins were actually added
+      const { data: verifyProfile, error: verifyError } = await supabase
+        .from('user_profiles')
+        .select('coins')
+        .eq('id', userId)
+        .single();
+      
+      if (verifyError) {
+        console.error('❌ Error verifying coins after update:', verifyError);
+      } else {
+        console.log(`✅ Verified: User ${userId} now has ${verifyProfile.coins} coins`);
+      }
+      
       return c.json({ 
         received: true, 
         userId: userId,
-        coinsAdded: coinsToAdd 
+        coinsAdded: coinsToAdd,
+        newBalance: verifyProfile?.coins ?? 0
       });
     }
 
-    return c.json({ received: true });
+    console.log('ℹ️ Webhook event received but not handled:', event.type);
+    return c.json({ received: true, eventType: event.type });
   } catch (error) {
     console.error('Error processing webhook:', error);
     return c.json({ error: `Webhook error: ${error.message}` }, 500);
@@ -978,6 +994,45 @@ app.post('/make-server-c3c9181e/deduct-coins', async (c) => {
     return c.json({ success: true, coins: updatedProfile.coins });
   } catch (error) {
     console.error('Error in deduct-coins endpoint:', error);
+    return c.json({ error: `Server error: ${error.message}` }, 500);
+  }
+});
+
+// Manual test endpoint to check coins (for debugging)
+app.get('/make-server-c3c9181e/test-coins', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    if (!accessToken || accessToken === Deno.env.get('SUPABASE_ANON_KEY')) {
+      return c.json({ error: 'Authentication required' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    if (authError || !user) {
+      return c.json({ error: 'Invalid authentication' }, 401);
+    }
+
+    // Get coins directly
+    const { data: profile, error: fetchError } = await supabase
+      .from('user_profiles')
+      .select('coins')
+      .eq('id', user.id)
+      .single();
+
+    if (fetchError) {
+      return c.json({ 
+        error: 'Failed to fetch coins', 
+        details: fetchError,
+        userId: user.id 
+      }, 500);
+    }
+
+    return c.json({ 
+      userId: user.id,
+      email: user.email,
+      coins: profile?.coins ?? 0,
+      profileExists: !!profile
+    });
+  } catch (error) {
     return c.json({ error: `Server error: ${error.message}` }, 500);
   }
 });

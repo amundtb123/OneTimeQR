@@ -629,7 +629,16 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                       
                       <div className="flex-1 min-w-0">
                         <p className="text-[#3F3F3F] truncate text-sm">{file.name}</p>
-                        <p className="text-[#5B5B5B] text-xs">{formatFileSize(file.size)}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[#5B5B5B] text-xs">{formatFileSize(file.size)}</p>
+                          {file.size > 1 * 1024 * 1024 && (() => {
+                            const extraMB = (file.size - 1 * 1024 * 1024) / (2 * 1024 * 1024);
+                            const coinCostForFile = Math.ceil(extraMB);
+                            return coinCostForFile > 0 ? (
+                              <span className="text-xs text-indigo-600 font-medium">+{coinCostForFile} coin{coinCostForFile > 1 ? 's' : ''}</span>
+                            ) : null;
+                          })()}
+                        </div>
                       </div>
                       
                       <button
@@ -765,6 +774,20 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {expiryOptions.map((option) => {
                 const isPro = option.isPro || false;
+                // Calculate coin cost for this expiry option
+                const expiryMinutes = {
+                  '10m': 10,
+                  '30m': 30,
+                  '1h': 60,
+                  '24h': 24 * 60,
+                  '7d': 7 * 24 * 60,
+                  'scan': 7 * 24 * 60,
+                }[option.value] || 10;
+                const freeExpiryMinutes = 10;
+                const extraHours = expiryMinutes > freeExpiryMinutes ? (expiryMinutes - freeExpiryMinutes) / 60 : 0;
+                const extra24HourPeriods = extraHours / 24;
+                const coinCostForExpiry = expiryMinutes > freeExpiryMinutes ? Math.ceil(extra24HourPeriods) : 0;
+                
                 return (
                   <button
                     key={option.value}
@@ -787,7 +810,12 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                     )}
                     <option.icon className="size-5 mx-auto mb-2" />
                     <p className="text-sm">{option.label}</p>
-                    {isPro && (
+                    {coinCostForExpiry > 0 && (
+                      <p className={`text-xs mt-1 ${expiryType === option.value ? 'text-white/90' : 'text-indigo-600'}`}>
+                        +{coinCostForExpiry} coin{coinCostForExpiry > 1 ? 's' : ''}
+                      </p>
+                    )}
+                    {isPro && coinCostForExpiry === 0 && (
                       <p className="text-xs mt-1 opacity-75">{t('upload.pro')}</p>
                     )}
                   </button>
@@ -1019,6 +1047,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                               <div className="flex items-center gap-2">
                                 <Label className="text-[#3F3F3F]">{t('upload.passwordProtection')}</Label>
                                 <Crown className="size-4 text-[#E8927E] opacity-60" />
+                                <span className="text-xs text-indigo-600 font-medium">+1 coin</span>
                               </div>
                               <p className="text-[#5B5B5B] text-sm mt-1">{t('upload.passwordNote')}</p>
                             </div>
@@ -1056,8 +1085,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         </>
       )}
 
-      {/* Info Cards - Why OneTimeQR? (shown for everyone as upsale) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+      {/* Info Cards - Why OneTimeQR? (shown for everyone as upsale) - Hide when QR is shown */}
+      {!showDualQr && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
         {/* Card 1: Ingen delbar lenke */}
         <div 
           className="rounded-2xl p-6 border shadow-sm"
@@ -1127,6 +1157,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           </p>
         </div>
       </div>
+      )}
 
       {/* Generate Button - Sticky at bottom */}
       {hasContent() && (

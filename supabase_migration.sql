@@ -23,6 +23,12 @@ CREATE POLICY "Users can update own profile"
   FOR UPDATE
   USING (auth.uid() = id);
 
+-- Policy: Users can insert their own profile (for creating profile if missing)
+CREATE POLICY "Users can insert own profile"
+  ON public.user_profiles
+  FOR INSERT
+  WITH CHECK (auth.uid() = id);
+
 -- Policy: Service role can do everything (for backend operations)
 CREATE POLICY "Service role full access"
   ON public.user_profiles

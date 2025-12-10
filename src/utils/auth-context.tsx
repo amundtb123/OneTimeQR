@@ -25,19 +25,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       console.log('💰 Fetching coins for user:', userId);
       
-      // Ensure we have a valid session
-      const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !currentSession) {
-        console.error('❌ No valid session for fetching coins:', sessionError);
+      // Ensure we have a valid session with timeout
+      let currentSession = null;
+      try {
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Session timeout')), 3000)
+        );
+        const result = await Promise.race([sessionPromise, timeoutPromise]) as any;
+        if (result?.data?.session) {
+          currentSession = result.data.session;
+        } else if (result?.error) {
+          throw result.error;
+        }
+      } catch (sessionErr: any) {
+        console.warn('⚠️ Session fetch timeout or error, using existing session:', sessionErr?.message);
+        // Use existing session from state if available
+        if (session) {
+          currentSession = session;
+          console.log('✅ Using existing session from state');
+        } else {
+          console.error('❌ No valid session available for fetching coins');
+          return;
+        }
+      }
+      
+      if (!currentSession) {
+        console.error('❌ No valid session for fetching coins');
         return;
       }
       console.log('✅ Session valid, proceeding with coin fetch');
       
+      console.log('📡 Making Supabase query to user_profiles...');
       const { data, error } = await supabase
         .from('user_profiles')
         .select('coins')
         .eq('id', userId)
         .single();
+      
+      console.log('📡 Query completed. Data:', data, 'Error:', error);
       
       if (error) {
         console.error('❌ Error fetching coins:', error);

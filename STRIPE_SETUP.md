@@ -86,3 +86,4 @@ Dette dokumentet beskriver hvordan du setter opp Stripe-betaling for coin-shop f
 - Sjekk at `STRIPE_SECRET_KEY` er satt
 - Verifiser at checkout-endepunktet returnerer riktig URL
 - Sjekk browser console for feilmeldinger
+

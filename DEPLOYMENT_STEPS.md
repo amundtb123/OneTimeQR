@@ -56,3 +56,4 @@ supabase functions deploy make-server-c3c9181e
 - [ ] Stripe secrets lagt til i Supabase (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET)
 - [ ] Test at checkout fungerer
 - [ ] Test at webhook mottar events
+

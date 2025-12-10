@@ -99,3 +99,4 @@ I Supabase Edge Function secrets:
 - [ ] Test coin-trekk ved QR-generering
 - [ ] Test med utilstrekkelig coins (skal blokkere generering)
 - [ ] Test gratis tier (skal fungere uten coins)
+

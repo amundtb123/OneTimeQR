@@ -6,10 +6,11 @@ import { useAuth } from '../utils/auth-context';
 import { useTranslation } from 'react-i18next';
 
 export function SuccessPage() {
-  const { user, coins, refreshCoins } = useAuth();
+  const { user, coins, refreshCoins, loading: authLoading, session } = useAuth();
   const { t } = useTranslation();
   const [isRefreshing, setIsRefreshing] = useState(true);
   const [canNavigate, setCanNavigate] = useState(false);
+  const [hasStartedRefresh, setHasStartedRefresh] = useState(false);
 
   useEffect(() => {
     // Clean up session_id from URL if present (Stripe redirect)
@@ -21,15 +22,37 @@ export function SuccessPage() {
       const newUrl = window.location.pathname;
       window.history.replaceState({}, document.title, newUrl);
     }
+  }, []);
 
-    // Refresh coins when page loads, with retry logic
+  // Wait for auth to be ready before starting refresh
+  useEffect(() => {
+    // Don't start refresh until auth is loaded
+    if (authLoading) {
+      console.log('⏳ Waiting for auth to load...');
+      return;
+    }
+
+    // If we've already started refresh, don't start again
+    if (hasStartedRefresh) {
+      return;
+    }
+
+    // Refresh coins when user is logged in, with retry logic
     const refresh = async () => {
       if (!user) {
-        console.warn('⚠️ No user logged in on success page - cannot refresh coins');
-        setIsRefreshing(false);
-        setCanNavigate(true);
+        console.warn('⚠️ No user logged in on success page - waiting for login...');
+        // Wait a bit more in case user is logging in
+        setTimeout(() => {
+          if (!user) {
+            console.warn('⚠️ Still no user after wait - cannot refresh coins');
+            setIsRefreshing(false);
+            setCanNavigate(true);
+          }
+        }, 2000);
         return;
       }
+
+      setHasStartedRefresh(true);
 
       console.log('👤 User logged in:', user.id, user.email);
       console.log('💰 Current coins state:', coins);
@@ -139,7 +162,113 @@ export function SuccessPage() {
     };
     
     refresh();
-  }, [user, refreshCoins, coins]);
+  }, [user, refreshCoins, coins, authLoading, hasStartedRefresh]);
+
+  // Also listen for auth state changes to trigger refresh when user logs in
+  useEffect(() => {
+    if (user && !hasStartedRefresh && !authLoading) {
+      console.log('👤 User logged in, starting coin refresh...');
+      setHasStartedRefresh(true);
+      
+      // Start refresh after a short delay
+      setTimeout(async () => {
+        const maxAttempts = 10;
+        const delayMs = 2000;
+        let attempts = 0;
+        let lastCoinsValue = coins;
+
+        const tryRefresh = async () => {
+          attempts++;
+          console.log(`🔄 Refreshing coins (attempt ${attempts}/${maxAttempts})...`);
+          console.log(`💰 Previous coins value: ${lastCoinsValue}`);
+          
+          try {
+            await refreshCoins();
+            
+            // Wait a bit for state to update
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            // Force a direct database query to verify coins
+            const { supabase } = await import('../utils/supabase-client');
+            
+            // Get current session to ensure we have auth token
+            const { data: { session: currentSession } } = await supabase.auth.getSession();
+            if (!currentSession) {
+              console.error('❌ No active session - cannot fetch coins');
+              if (attempts >= 3) {
+                setIsRefreshing(false);
+                setCanNavigate(true);
+                return;
+              }
+            } else {
+              console.log('✅ Active session found, fetching coins...');
+              
+              const { data: profileData, error: profileError } = await supabase
+                .from('user_profiles')
+                .select('coins')
+                .eq('id', user.id)
+                .single();
+              
+              if (profileError) {
+                console.error('❌ Error fetching coins directly:', profileError);
+                console.error('❌ Error code:', profileError.code);
+                console.error('❌ Error message:', profileError.message);
+                
+                // If it's a permission error, try to create profile
+                if (profileError.code === 'PGRST116' || profileError.message?.includes('permission') || profileError.message?.includes('policy')) {
+                  console.log('📝 Profile might not exist or RLS issue, trying to create...');
+                  const { error: insertError } = await supabase
+                    .from('user_profiles')
+                    .insert({ id: user.id, coins: 0 });
+                  if (insertError) {
+                    console.error('❌ Failed to create profile:', insertError);
+                  } else {
+                    console.log('✅ Created profile with 0 coins');
+                    // Force refresh to update coins state
+                    await refreshCoins();
+                  }
+                }
+              } else {
+                const dbCoins = profileData?.coins ?? 0;
+                console.log(`💰 Database coins value: ${dbCoins}`);
+                console.log(`💰 Context coins value: ${coins}`);
+                
+                // If coins changed, we're done
+                if (dbCoins > 0 && dbCoins !== lastCoinsValue) {
+                  console.log(`✅ Coins updated! New balance: ${dbCoins}`);
+                  setIsRefreshing(false);
+                  setCanNavigate(true);
+                  return;
+                }
+                
+                lastCoinsValue = dbCoins;
+              }
+            }
+            
+            // After first successful refresh, allow navigation
+            if (attempts === 1) {
+              setCanNavigate(true);
+            }
+          } catch (error) {
+            console.error('❌ Error refreshing coins:', error);
+          }
+
+          // If we haven't reached max attempts, schedule next retry
+          if (attempts < maxAttempts) {
+            setTimeout(tryRefresh, delayMs);
+          } else {
+            setIsRefreshing(false);
+            setCanNavigate(true);
+            console.log('✅ Finished refreshing coins (max attempts reached)');
+            console.log(`💰 Final coins value: ${coins}`);
+          }
+        };
+
+        // Start first attempt after delay to let webhook process
+        setTimeout(tryRefresh, 3000);
+      }, 500);
+    }
+  }, [user, hasStartedRefresh, authLoading, refreshCoins, coins]);
 
   const handleGoHome = () => {
     // Update URL and trigger navigation

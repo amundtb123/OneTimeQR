@@ -128,6 +128,8 @@ const resources = {
         thankYou: 'Thank you for your purchase!',
         purchaseComplete: 'Your purchase has been completed successfully.',
         backToHome: 'Back to home',
+        processing: 'Processing...',
+        waitingForCoins: 'Waiting for coins to be updated...',
       },
       qrList: {
         noQrsYet: 'No QR codes yet',
@@ -673,6 +675,8 @@ const resources = {
         thankYou: 'Takk for kjøpet!',
         purchaseComplete: 'Kjøpet ditt har blitt fullført.',
         backToHome: 'Tilbake til hjem',
+        processing: 'Behandler...',
+        waitingForCoins: 'Venter på at coins skal oppdateres...',
       },
       qrList: {
         noQrsYet: 'Ingen QR-koder ennå',

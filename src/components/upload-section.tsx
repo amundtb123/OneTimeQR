@@ -346,7 +346,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         textContent: secureMode ? encryptedTextContent : textContent.trim() || undefined,
         urlContent: secureMode ? encryptedUrlContent : (urls.length > 0 ? JSON.stringify(urls) : undefined),
         expiryType,
-        expiryDate,
+        expiryDate: expiryDate ? expiryDate.toISOString() : undefined, // Convert Date to ISO string for JSON
         maxScans: maxScans ? parseInt(maxScans) : undefined,
         maxDownloads: maxDownloads ? parseInt(maxDownloads) : undefined,
         viewOnly,
@@ -358,6 +358,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         encrypted: secureMode, // Flag for backend to know data is encrypted
         encryptionKey: secureMode ? encryptionKey : undefined, // Store encryption key on server
       };
+      
+      console.log('📋 Metadata prepared:', { ...metadata, qrCodeDataUrl: metadata.qrCodeDataUrl?.substring(0, 50) + '...' });
 
       let response;
       

@@ -335,13 +335,21 @@ function AppContent() {
           {/* Top row: Logo + Title + Auth */}
           <div className="px-4 py-3 sm:py-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  setCurrentView('upload');
+                  window.history.pushState({}, '', '/');
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }}
+                className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
+                aria-label="Go to home"
+              >
                 <NordicLogo className="w-10 h-10 sm:w-12 sm:h-12" />
                 <div>
                   <h1 className="text-[#3F3F3F]">{t('common.appName')}</h1>
                   <p className="text-[#5B5B5B] text-xs sm:text-sm">{t('common.tagline')}</p>
                 </div>
-              </div>
+              </button>
               
               <div className="flex items-center gap-3">
                 {!scanId && <AuthButton />}

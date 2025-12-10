@@ -142,3 +142,5 @@ Gå gjennom hver punkt:
 
 
 
+
+

@@ -57,3 +57,4 @@ supabase functions deploy make-server-c3c9181e
 - [ ] Test at checkout fungerer
 - [ ] Test at webhook mottar events
 
+

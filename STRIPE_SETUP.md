@@ -87,3 +87,4 @@ Dette dokumentet beskriver hvordan du setter opp Stripe-betaling for coin-shop f
 - Verifiser at checkout-endepunktet returnerer riktig URL
 - Sjekk browser console for feilmeldinger
 
+

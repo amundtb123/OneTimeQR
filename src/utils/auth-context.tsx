@@ -52,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Helper to update session and cache token
     const updateSession = async (session: Session | null) => {
+      console.log('🔄 Updating session:', session ? `User: ${session.user.email}` : 'No session');
       setSession(session);
       setUser(session?.user ?? null);
       
@@ -62,6 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('✅ Cached access token updated');
       } else {
         updateCachedToken(null, 0);
+        console.log('⚠️ No access token in session');
       }
       
       if (session?.user) {
@@ -71,15 +73,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Check active session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      await updateSession(session);
-      setLoading(false);
-    });
+    // Check for OAuth callback in URL first
+    const checkOAuthCallback = async () => {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const searchParams = new URLSearchParams(window.location.search);
+      
+      const hasAccessToken = hashParams.has('access_token') || searchParams.has('access_token');
+      const hasCode = hashParams.has('code') || searchParams.has('code');
+      
+      if (hasAccessToken || hasCode) {
+        console.log('🔐 OAuth callback detected in URL, waiting for Supabase to process...');
+        // Wait a bit for Supabase to process the callback
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Force getSession after callback processing
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('❌ Error getting session after callback:', error);
+        } else if (session) {
+          console.log('✅ Session found after OAuth callback');
+          await updateSession(session);
+          // Clean up URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
+    };
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    // Initial session check
+    const initializeAuth = async () => {
+      await checkOAuthCallback();
+      
+      // Then check for existing session
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('❌ Error getting initial session:', error);
+        }
+        await updateSession(session);
+      } catch (error) {
+        console.error('❌ Failed to get initial session:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeAuth();
+
+    // Listen for auth changes (including OAuth callbacks)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔔 Auth state changed:', event, session ? `User: ${session.user?.email}` : 'No session');
+      
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        console.log('✅ User signed in or token refreshed');
+      } else if (event === 'SIGNED_OUT') {
+        console.log('👋 User signed out');
+      }
+      
       await updateSession(session);
+      
+      // Clean up OAuth callback URL if present
+      if (event === 'SIGNED_IN') {
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const searchParams = new URLSearchParams(window.location.search);
+        if (hashParams.has('access_token') || searchParams.has('access_token') || 
+            hashParams.has('code') || searchParams.has('code')) {
+          setTimeout(() => {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }, 100);
+        }
+      }
     });
 
     return () => subscription.unsubscribe();

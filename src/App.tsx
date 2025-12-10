@@ -171,19 +171,7 @@ function AppContent() {
         setCurrentView('scan');
       }
     } else {
-      // Check for OAuth redirect (both PKCE code and implicit token)
-      const searchParams = new URLSearchParams(window.location.search);
-      const hash = window.location.hash;
-      
-      if (searchParams.has('code') || (hash && hash.includes('access_token'))) {
-        // Supabase will handle the authentication automatically via detectSessionInUrl
-        // Just clean up the URL after a short delay to allow Supabase to process
-        setTimeout(() => {
-          window.history.replaceState({}, document.title, '/');
-        }, 100);
-      }
-      
-      // Normal app flow
+      // Normal app flow - OAuth callback is now handled in AuthContext
       loadQrDrops();
     }
   }, []);

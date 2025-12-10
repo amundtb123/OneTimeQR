@@ -753,8 +753,7 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
     const baseUrl = new URL(origin).origin;
 
     // Create Stripe Checkout session
-    // Note: Apple Pay and Google Pay are automatically available when using 'card'
-    // They don't need to be specified separately in payment_method_types
+    // Apple Pay and Google Pay are automatically available when supported
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card', 'link'],
       line_items: [
@@ -776,6 +775,7 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
       customer_email: user.email || undefined,
       metadata: {
         userId: user.id,
+        userEmail: user.email || '',
         coins: '50',
       },
       // Enable automatic payment methods (Apple Pay, Google Pay)
@@ -784,6 +784,8 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
           request_three_d_secure: 'automatic',
         },
       },
+      // Enable Apple Pay and Google Pay automatically
+      allow_promotion_codes: false,
     });
 
     return c.json({ url: session.url });
@@ -825,14 +827,27 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
       const userId = session.metadata?.userId;
+      const userEmail = session.metadata?.userEmail || session.customer_email || 'unknown';
       const coinsToAdd = parseInt(session.metadata?.coins || '50', 10);
 
+      console.log('🎉 Checkout session completed!');
+      console.log('📋 Session details:', {
+        sessionId: session.id,
+        userId: userId,
+        userEmail: userEmail,
+        paymentStatus: session.payment_status,
+        amountTotal: session.amount_total,
+        currency: session.currency,
+        coinsToAdd: coinsToAdd,
+      });
+
       if (!userId) {
-        console.error('No userId in session metadata');
+        console.error('❌ No userId in session metadata');
+        console.error('Session metadata:', session.metadata);
         return c.json({ error: 'Missing userId in session metadata' }, 400);
       }
 
-      // Add coins to user profile
+      // Add coins to user profile using service role (bypasses RLS)
       const { data: profile, error: fetchError } = await supabase
         .from('user_profiles')
         .select('coins')
@@ -840,30 +855,46 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
         .single();
 
       if (fetchError) {
+        console.log('📝 Profile does not exist, creating new profile...');
         // Profile doesn't exist, create it
-        const { error: insertError } = await supabase
+        const { data: newProfile, error: insertError } = await supabase
           .from('user_profiles')
-          .insert({ id: userId, coins: coinsToAdd });
+          .insert({ id: userId, coins: coinsToAdd })
+          .select('coins')
+          .single();
         
         if (insertError) {
-          console.error('Error creating user profile:', insertError);
+          console.error('❌ Error creating user profile:', insertError);
           return c.json({ error: 'Failed to create user profile' }, 500);
         }
+        console.log(`✅ Created profile and added ${coinsToAdd} coins. New balance: ${newProfile.coins}`);
       } else {
+        const oldCoins = profile.coins || 0;
+        const newCoins = oldCoins + coinsToAdd;
+        console.log(`💰 Current coins: ${oldCoins}, Adding: ${coinsToAdd}, New total: ${newCoins}`);
+        
         // Update existing profile
-        const { error: updateError } = await supabase
+        const { data: updatedProfile, error: updateError } = await supabase
           .from('user_profiles')
-          .update({ coins: (profile.coins || 0) + coinsToAdd })
-          .eq('id', userId);
+          .update({ coins: newCoins })
+          .eq('id', userId)
+          .select('coins')
+          .single();
 
         if (updateError) {
-          console.error('Error updating coins:', updateError);
+          console.error('❌ Error updating coins:', updateError);
+          console.error('Update error details:', JSON.stringify(updateError, null, 2));
           return c.json({ error: 'Failed to update coins' }, 500);
         }
+        console.log(`✅ Updated coins. New balance: ${updatedProfile.coins}`);
       }
 
-      console.log(`Added ${coinsToAdd} coins to user ${userId}`);
-      return c.json({ received: true });
+      console.log(`🎊 Successfully added ${coinsToAdd} coins to user ${userId}`);
+      return c.json({ 
+        received: true, 
+        userId: userId,
+        coinsAdded: coinsToAdd 
+      });
     }
 
     return c.json({ received: true });

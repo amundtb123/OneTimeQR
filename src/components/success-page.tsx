@@ -134,7 +134,8 @@ export function SuccessPage() {
       };
 
       // Start first attempt after a short delay to let webhook process
-      setTimeout(tryRefresh, 1500);
+      // Webhook usually takes 2-5 seconds to process
+      setTimeout(tryRefresh, 3000);
     };
     
     refresh();

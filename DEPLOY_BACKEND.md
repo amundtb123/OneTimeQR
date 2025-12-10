@@ -28,7 +28,20 @@
 2. Slett all eksisterende kode (hvis noen)
 3. Lim inn den kopierte koden (Ctrl+V / Cmd+V)
 
-### Steg 6: Deploy
+### Steg 6: Deaktiver JWT Verification (VIKTIG for webhook!)
+**⚠️ VIKTIG:** Webhook-endepunktet må ha JWT verification deaktivert, ellers får du 401-feil!
+
+**I Supabase Dashboard:**
+1. Etter at du har limt inn koden, se etter en innstilling som heter:
+   - **"Verify JWT"** eller **"JWT Verification"**
+   - **"Require Authentication"** eller lignende
+2. **Deaktiver** denne innstillingen (sett til "Off" eller "Disabled")
+3. Hvis du ikke ser denne innstillingen, må du bruke CLI-metoden nedenfor
+
+**Alternativt - Via CLI (anbefalt for webhook):**
+Se "Metode 2" nedenfor - bruk `--no-verify-jwt` flag.
+
+### Steg 7: Deploy
 1. Klikk på **"Deploy"** eller **"Save"** knappen
 2. Vent til deploy er ferdig (vanligvis 1-2 minutter)
 3. Du skal se en bekreftelse når det er ferdig
@@ -57,11 +70,20 @@ supabase link --project-ref ofrtokcrfovjwfkcnjef
 ```
 *(Erstatt med ditt prosjekt-ID hvis det er annerledes)*
 
-### Steg 4: Deploy funksjonen
+### Steg 4: Deploy funksjonen (MED --no-verify-jwt for webhook!)
+**⚠️ VIKTIG:** Bruk `--no-verify-jwt` flag for å tillate webhook-requests uten auth!
+
 ```bash
-cd src/supabase/functions/server
+cd /Users/a01546/OneTimeQR
+supabase functions deploy make-server-c3c9181e --no-verify-jwt --project-ref ofrtokcrfovjwfkcnjef
+```
+
+**Eller hvis du allerede er linket:**
+```bash
 supabase functions deploy make-server-c3c9181e --no-verify-jwt
 ```
+
+Dette deaktiverer JWT verification for hele funksjonen, som er nødvendig for at Stripe webhook skal fungere.
 
 ---
 

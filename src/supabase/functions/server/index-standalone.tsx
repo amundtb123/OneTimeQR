@@ -10,9 +10,18 @@ app.use('*', cors());
 app.use('*', logger(console.log));
 
 // Initialize Supabase client
+const supabaseUrl = Deno.env.get('SUPABASE_URL');
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('❌ Missing Supabase configuration!');
+  console.error('SUPABASE_URL:', supabaseUrl ? '✅ Set' : '❌ Missing');
+  console.error('SUPABASE_SERVICE_ROLE_KEY:', supabaseServiceKey ? '✅ Set' : '❌ Missing');
+}
+
 const supabase = createClient(
-  Deno.env.get('SUPABASE_URL') ?? '',
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  supabaseUrl ?? '',
+  supabaseServiceKey ?? ''
 );
 
 // KV Store functions (inline from kv_store.tsx)
@@ -936,8 +945,16 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
     console.log('ℹ️ Webhook event received but not handled:', event.type);
     return c.json({ received: true, eventType: event.type });
   } catch (error) {
-    console.error('Error processing webhook:', error);
-    return c.json({ error: `Webhook error: ${error.message}` }, 500);
+    console.error('❌ Error processing webhook:', error);
+    console.error('❌ Error type:', error?.constructor?.name);
+    console.error('❌ Error message:', error?.message);
+    console.error('❌ Error stack:', error?.stack);
+    console.error('❌ Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+    return c.json({ 
+      error: `Webhook error: ${error?.message || 'Unknown error'}`,
+      errorType: error?.constructor?.name,
+      details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+    }, 500);
   }
 });
 

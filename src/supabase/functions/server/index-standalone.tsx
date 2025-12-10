@@ -753,8 +753,10 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
     const baseUrl = new URL(origin).origin;
 
     // Create Stripe Checkout session
+    // Note: Apple Pay and Google Pay are automatically available when using 'card'
+    // They don't need to be specified separately in payment_method_types
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card', 'apple_pay', 'google_pay'],
+      payment_method_types: ['card', 'link'],
       line_items: [
         {
           price_data: {
@@ -775,6 +777,12 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
       metadata: {
         userId: user.id,
         coins: '50',
+      },
+      // Enable automatic payment methods (Apple Pay, Google Pay)
+      payment_method_options: {
+        card: {
+          request_three_d_secure: 'automatic',
+        },
       },
     });
 

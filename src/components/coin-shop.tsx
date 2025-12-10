@@ -49,8 +49,8 @@ export function CoinShop() {
 
   return (
     <div className="flex items-center gap-3">
-      {/* Your Coins - Smaller white card with shadow */}
-      <Card className="p-3 bg-white border-gray-200 shadow-sm flex items-center gap-2.5">
+      {/* Your Coins - White card with shadow */}
+      <Card className="p-3 bg-white border-gray-200 shadow-sm flex items-center gap-2.5 flex-shrink-0">
         <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
           <Coins className="size-4 text-white" />
         </div>
@@ -65,17 +65,21 @@ export function CoinShop() {
         </div>
       </Card>
 
-      {/* Buy Coins Button - Blue with info */}
+      {/* Buy Coins Button - SOLID BLUE with info */}
       <Button
         onClick={handleBuyCoins}
-        className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md hover:shadow-lg transition-all flex flex-col items-center justify-center px-4 py-2.5 h-auto rounded-lg"
+        className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold shadow-md hover:shadow-lg transition-all flex flex-col items-center justify-center px-4 py-2.5 h-auto rounded-lg border-0"
         disabled={false}
+        style={{
+          backgroundColor: '#2563eb',
+          minWidth: '140px',
+        }}
       >
         <div className="flex items-center gap-1.5">
-          <Plus className="size-4" />
-          <span className="font-semibold text-sm">{t('coins.buyCoins') || 'Kjøp mynter'}</span>
+          <Plus className="size-4" style={{ color: '#ffffff' }} />
+          <span className="font-semibold text-sm" style={{ color: '#ffffff' }}>{t('coins.buyCoins') || 'Kjøp mynter'}</span>
         </div>
-        <span className="text-xs font-medium mt-0.5 opacity-90">50 coins • 29 kr</span>
+        <span className="text-xs font-medium mt-0.5" style={{ color: '#ffffff', opacity: 0.95 }}>50 coins • 29 kr</span>
       </Button>
     </div>
   );

@@ -85,14 +85,15 @@ function AppContent() {
 
   // Check if we're on a scan, unlock, or success URL
   useEffect(() => {
-    const path = window.location.pathname;
-    const scanMatch = path.match(/\/scan\/([^\/]+)/);
-    const unlockMatch = path.match(/\/unlock\/([^\/]+)/);
-    const successMatch = path === '/success';
-    
-    if (successMatch) {
-      setCurrentView('success');
-    } else if (unlockMatch) {
+    const updateViewFromPath = () => {
+      const path = window.location.pathname;
+      const scanMatch = path.match(/\/scan\/([^\/]+)/);
+      const unlockMatch = path.match(/\/unlock\/([^\/]+)/);
+      const successMatch = path === '/success';
+      
+      if (successMatch) {
+        setCurrentView('success');
+      } else if (unlockMatch) {
       // We're on an unlock page (QR #2 scanned)
       const id = unlockMatch[1];
       const searchParams = new URLSearchParams(window.location.search);
@@ -174,7 +175,32 @@ function AppContent() {
       // Normal app flow - OAuth callback is now handled in AuthContext
       loadQrDrops();
     }
-  }, []);
+    
+    // Initial view update
+    updateViewFromPath();
+    
+    // Listen for pathname changes (including browser back/forward)
+    const handlePopState = () => {
+      updateViewFromPath();
+    };
+    
+    window.addEventListener('popstate', handlePopState);
+    
+    // Also check pathname periodically in case it changes without popstate
+    const interval = setInterval(() => {
+      const currentPath = window.location.pathname;
+      if (currentPath === '/success' && currentView !== 'success') {
+        setCurrentView('success');
+      } else if (currentPath === '/' && currentView === 'success') {
+        setCurrentView('upload');
+      }
+    }, 100);
+    
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      clearInterval(interval);
+    };
+  }, [currentView]);
 
   // Reload QR drops when user changes (login/logout)
   useEffect(() => {
@@ -328,7 +354,10 @@ function AppContent() {
             <div className="border-t border-[#D5C5BD]/50">
               <nav className="flex px-4">
                 <button
-                  onClick={() => setCurrentView('upload')}
+                  onClick={() => {
+                    setCurrentView('upload');
+                    window.history.pushState({}, '', '/');
+                  }}
                   className={`flex-1 sm:flex-none sm:px-8 py-3 border-b-2 transition-all duration-200 ${
                     currentView === 'upload'
                       ? 'border-[#5D8CC9] text-[#5D8CC9]'
@@ -338,7 +367,10 @@ function AppContent() {
                   {t('common.upload')}
                 </button>
                 <button
-                  onClick={() => setCurrentView('list')}
+                  onClick={() => {
+                    setCurrentView('list');
+                    // Keep URL as is for list view
+                  }}
                   className={`flex-1 sm:flex-none sm:px-8 py-3 border-b-2 transition-all duration-200 ${
                     currentView === 'list'
                       ? 'border-[#5D8CC9] text-[#5D8CC9]'

@@ -68,8 +68,17 @@ export function SuccessPage() {
   }, [user, refreshCoins]);
 
   const handleGoHome = () => {
-    // Use window.location for reliable navigation
-    window.location.href = '/';
+    // Update URL and trigger navigation
+    window.history.pushState({}, '', '/');
+    // Trigger popstate event to update view
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    // Also force a small delay to ensure state updates
+    setTimeout(() => {
+      // Fallback: full reload if navigation didn't work
+      if (window.location.pathname === '/success') {
+        window.location.href = '/';
+      }
+    }, 100);
   };
 
   return (

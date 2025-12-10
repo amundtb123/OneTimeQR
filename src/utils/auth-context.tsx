@@ -186,7 +186,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user) {
       console.log('💰 Refreshing coins for user:', user.id);
       await fetchUserCoins(user.id);
-      console.log('💰 Coins refreshed, current balance:', coins);
+      // Force a re-render by checking coins again after a short delay
+      setTimeout(async () => {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('coins')
+          .eq('id', user.id)
+          .single();
+        if (data) {
+          console.log('💰 Final coins balance:', data.coins);
+          setCoins(data.coins ?? 0);
+        }
+      }, 500);
     } else {
       console.warn('⚠️ Cannot refresh coins: no user logged in');
     }

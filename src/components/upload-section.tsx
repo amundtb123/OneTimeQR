@@ -260,6 +260,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
   const isFreeTier = coinCost === 0;
 
   const handleGenerateQr = async () => {
+    console.log('🔵 handleGenerateQr called', { coinCost, isFreeTier, user: !!user, coins, hasContent: hasContent() });
+    
     if (!hasContent()) {
       toast.error(t('upload.addContent'));
       return;
@@ -284,6 +286,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
 
     // Check coin cost and user balance
     // Only check coins if cost > 0 (premium features)
+    // Free tier (coinCost === 0) should work for everyone, logged in or not
     if (coinCost > 0) {
       if (!user) {
         toast.error(t('upload.loginRequiredForCoins'));
@@ -302,8 +305,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       }
     }
     
-    // Free tier (coinCost === 0) should work for everyone, logged in or not
-    
+    console.log('✅ All checks passed, generating QR...');
     setIsGenerating(true);
     
     try {
@@ -1134,6 +1136,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                   style={{
                     boxShadow: '0 4px 16px rgba(78, 205, 196, 0.35)',
                   }}
+                  title={isFreeTier ? t('upload.free') : coinCost > 0 ? `${t('upload.coinCost')}: ${coinCost}` : ''}
                 >
                   {isGenerating ? t('upload.generating') : t('upload.generateQr')}
                 </NordicButton>

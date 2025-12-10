@@ -63,12 +63,19 @@ export function CoinShop() {
         </div>
         <Button
           onClick={handleBuyCoins}
-          className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold shadow-md hover:shadow-lg transition-all"
+          className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold shadow-md hover:shadow-lg transition-all flex flex-col items-center justify-center py-1.5 px-3 h-auto"
           size="sm"
           disabled={false}
+          style={{
+            minWidth: '90px',
+            maxWidth: '110px',
+          }}
         >
-          <ShoppingCart className="size-4 mr-1.5" />
-          <span className="text-sm">{t('coins.buy50Coins')}</span>
+          <div className="flex items-center gap-1">
+            <ShoppingCart className="size-3.5" />
+            <span className="text-xs font-semibold leading-tight whitespace-nowrap">Buy 50 coins</span>
+          </div>
+          <span className="text-xs font-medium leading-tight mt-0.5">29 kr</span>
         </Button>
       </div>
     </Card>

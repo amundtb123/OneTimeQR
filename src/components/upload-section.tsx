@@ -1085,8 +1085,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         </>
       )}
 
-      {/* Info Cards - Why OneTimeQR? (shown for everyone as upsale) - Hide when QR is shown */}
-      {!showDualQr && (
+      {/* Info Cards - Why OneTimeQR? (shown for everyone as upsale) - Hide when QR is shown or when Generate button is visible */}
+      {!showDualQr && !hasContent() && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
         {/* Card 1: Ingen delbar lenke */}
         <div 

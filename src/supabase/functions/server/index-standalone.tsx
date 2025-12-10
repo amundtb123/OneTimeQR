@@ -899,17 +899,27 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
 
       // Idempotency check: Check if this session has already been processed
       const sessionId = session.id;
+      console.log('🔍 Checking idempotency for session:', sessionId);
+      
       const { data: existingSession, error: checkError } = await supabase
         .from('processed_checkout_sessions')
-        .select('coins_added, processed_at')
+        .select('coins_added, processed_at, user_id')
         .eq('session_id', sessionId)
         .single();
 
+      console.log('🔍 Idempotency check result:', {
+        found: !!existingSession,
+        error: checkError?.code,
+        coinsAdded: existingSession?.coins_added,
+        processedAt: existingSession?.processed_at,
+      });
+
       if (existingSession && !checkError) {
-        console.log('⚠️ Session already processed:', {
+        console.log('⚠️ Session already processed - skipping coin addition:', {
           sessionId: sessionId,
           coinsAdded: existingSession.coins_added,
           processedAt: existingSession.processed_at,
+          userId: existingSession.user_id,
         });
         // Return success but don't add coins again
         return c.json({ 
@@ -919,6 +929,13 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
           alreadyProcessed: true,
           message: 'Session already processed'
         });
+      }
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        // PGRST116 = no rows returned (expected if not processed)
+        // Other errors are unexpected
+        console.error('❌ Error checking idempotency:', checkError);
+        // Continue anyway - better to add coins twice than not at all
       }
 
       // Add coins to user profile using service role (bypasses RLS)
@@ -963,7 +980,7 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
         console.log(`✅ Updated coins. New balance: ${updatedProfile.coins}`);
       }
 
-      // Mark this session as processed (idempotency)
+      // Mark this session as processed (idempotency) - BEFORE adding coins to prevent race conditions
       const { error: insertSessionError } = await supabase
         .from('processed_checkout_sessions')
         .insert({
@@ -974,6 +991,17 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
         });
 
       if (insertSessionError) {
+        // If insert fails, check if it's because session already exists (race condition)
+        if (insertSessionError.code === '23505') { // Unique violation
+          console.log('⚠️ Session already exists in processed table (race condition) - skipping coin addition');
+          return c.json({ 
+            received: true, 
+            userId: userId,
+            coinsAdded: coinsToAdd,
+            alreadyProcessed: true,
+            message: 'Session already processed (race condition)'
+          });
+        }
         console.error('❌ Error saving processed session:', insertSessionError);
         // Don't fail the webhook, but log the error
       } else {

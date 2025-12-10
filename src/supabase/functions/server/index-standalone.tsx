@@ -807,7 +807,19 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
 // Stripe Webhook - Handle payment completion
 app.post('/make-server-c3c9181e/webhook', async (c) => {
   console.log('🔔 Webhook received!');
-  console.log('📋 Headers:', JSON.stringify(Object.fromEntries(c.req.headers.entries()), null, 2));
+  
+  // Safely log headers
+  try {
+    const headers: Record<string, string> = {};
+    if (c.req.headers) {
+      c.req.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+    }
+    console.log('📋 Headers:', JSON.stringify(headers, null, 2));
+  } catch (headerError) {
+    console.log('⚠️ Could not log headers:', headerError);
+  }
   
   // Check if service role key is set
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');

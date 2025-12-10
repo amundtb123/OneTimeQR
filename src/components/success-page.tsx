@@ -11,15 +11,42 @@ export function SuccessPage() {
   const [isRefreshing, setIsRefreshing] = useState(true);
 
   useEffect(() => {
-    // Refresh coins when page loads
+    // Refresh coins when page loads, with retry logic
     const refresh = async () => {
-      if (user) {
-        await refreshCoins();
+      if (!user) {
         setIsRefreshing(false);
-      } else {
-        setIsRefreshing(false);
+        return;
       }
+
+      // Webhook can take a few seconds to process, so retry multiple times
+      let attempts = 0;
+      const maxAttempts = 5;
+      const delayMs = 2000; // 2 seconds between attempts
+
+      const tryRefresh = async () => {
+        attempts++;
+        console.log(`🔄 Refreshing coins (attempt ${attempts}/${maxAttempts})...`);
+        
+        try {
+          await refreshCoins();
+          console.log('✅ Coins refreshed successfully');
+        } catch (error) {
+          console.error('❌ Error refreshing coins:', error);
+        }
+
+        // If we haven't reached max attempts, schedule next retry
+        if (attempts < maxAttempts) {
+          setTimeout(tryRefresh, delayMs);
+        } else {
+          setIsRefreshing(false);
+          console.log('✅ Finished refreshing coins');
+        }
+      };
+
+      // Start first attempt immediately
+      tryRefresh();
     };
+    
     refresh();
   }, [user, refreshCoins]);
 
@@ -62,4 +89,5 @@ export function SuccessPage() {
     </div>
   );
 }
+
 

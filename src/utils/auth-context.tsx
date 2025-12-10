@@ -23,6 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUserCoins = async (userId: string) => {
     try {
+      console.log('💰 Fetching coins for user:', userId);
       const { data, error } = await supabase
         .from('user_profiles')
         .select('coins')
@@ -30,22 +31,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single();
       
       if (error) {
-        console.error('Error fetching coins:', error);
+        console.error('❌ Error fetching coins:', error);
         // If profile doesn't exist, create it with 0 coins
         if (error.code === 'PGRST116') {
+          console.log('📝 Creating new user profile with 0 coins...');
           const { error: insertError } = await supabase
             .from('user_profiles')
             .insert({ id: userId, coins: 0 });
           if (!insertError) {
             setCoins(0);
+            console.log('✅ Created profile with 0 coins');
+          } else {
+            console.error('❌ Error creating profile:', insertError);
           }
         }
         return;
       }
       
-      setCoins(data?.coins ?? 0);
+      const newCoins = data?.coins ?? 0;
+      console.log('💰 Fetched coins:', newCoins, '(previous:', coins, ')');
+      setCoins(newCoins);
     } catch (error) {
-      console.error('Error fetching coins:', error);
+      console.error('❌ Exception fetching coins:', error);
     }
   };
 
@@ -149,7 +156,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshCoins = async () => {
     if (user) {
+      console.log('💰 Refreshing coins for user:', user.id);
       await fetchUserCoins(user.id);
+      console.log('💰 Coins refreshed, current balance:', coins);
+    } else {
+      console.warn('⚠️ Cannot refresh coins: no user logged in');
     }
   };
 

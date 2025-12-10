@@ -1,4 +1,4 @@
-import { Coins, ShoppingCart } from 'lucide-react';
+import { Coins, Plus, Star } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { useAuth } from '../utils/auth-context';
@@ -48,37 +48,33 @@ export function CoinShop() {
   };
 
   return (
-    <Card className="p-2.5 bg-gradient-to-br from-indigo-50 to-blue-50 border-indigo-200">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 bg-indigo-100 rounded-lg">
-            <Coins className="size-4 text-indigo-600" />
-          </div>
-          <div>
-            <p className="text-xs text-gray-600">{t('coins.yourCoins')}</p>
-            <p className="text-lg font-bold text-indigo-600">
+    <div className="flex items-center gap-3">
+      {/* Your Coins - White card with shadow */}
+      <Card className="p-4 bg-white border-gray-200 shadow-sm flex items-center gap-3 flex-1">
+        <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
+          <Coins className="size-5 text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-gray-600 mb-0.5">{t('coins.yourCoins')}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-2xl font-bold text-gray-900">
               {user ? (coins !== null ? coins : '0') : '—'}
             </p>
+            <Star className="size-4 text-indigo-400 fill-indigo-400" />
           </div>
         </div>
-        <Button
-          onClick={handleBuyCoins}
-          className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold shadow-md hover:shadow-lg transition-all flex flex-col items-center justify-center py-1.5 px-3 h-auto"
-          size="sm"
-          disabled={false}
-          style={{
-            minWidth: '90px',
-            maxWidth: '110px',
-          }}
-        >
-          <div className="flex items-center gap-1">
-            <ShoppingCart className="size-3.5" />
-            <span className="text-xs font-semibold leading-tight whitespace-nowrap">Buy 50 coins</span>
-          </div>
-          <span className="text-xs font-medium leading-tight mt-0.5">29 kr</span>
-        </Button>
-      </div>
-    </Card>
+      </Card>
+
+      {/* Buy Coins Button - Purple gradient */}
+      <Button
+        onClick={handleBuyCoins}
+        className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold shadow-md hover:shadow-lg transition-all flex items-center gap-2 px-4 py-3 h-auto rounded-lg"
+        disabled={false}
+      >
+        <Plus className="size-5" />
+        <span className="font-semibold">{t('coins.buyCoins') || 'Kjøp mynter'}</span>
+      </Button>
+    </div>
   );
 }
 

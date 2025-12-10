@@ -857,7 +857,8 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
 
     let event;
     try {
-      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+      // Use constructEventAsync for Deno Edge Functions (async crypto required)
+      event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret);
       console.log('✅ Webhook signature verified');
       console.log('📋 Event type:', event.type);
       console.log('📋 Event ID:', event.id);
@@ -894,6 +895,30 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
         console.error('❌ No userId in session metadata');
         console.error('Session metadata:', session.metadata);
         return c.json({ error: 'Missing userId in session metadata' }, 400);
+      }
+
+      // Idempotency check: Check if this session has already been processed
+      const sessionId = session.id;
+      const { data: existingSession, error: checkError } = await supabase
+        .from('processed_checkout_sessions')
+        .select('coins_added, processed_at')
+        .eq('session_id', sessionId)
+        .single();
+
+      if (existingSession && !checkError) {
+        console.log('⚠️ Session already processed:', {
+          sessionId: sessionId,
+          coinsAdded: existingSession.coins_added,
+          processedAt: existingSession.processed_at,
+        });
+        // Return success but don't add coins again
+        return c.json({ 
+          received: true, 
+          userId: userId,
+          coinsAdded: existingSession.coins_added,
+          alreadyProcessed: true,
+          message: 'Session already processed'
+        });
       }
 
       // Add coins to user profile using service role (bypasses RLS)
@@ -936,6 +961,23 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
           return c.json({ error: 'Failed to update coins' }, 500);
         }
         console.log(`✅ Updated coins. New balance: ${updatedProfile.coins}`);
+      }
+
+      // Mark this session as processed (idempotency)
+      const { error: insertSessionError } = await supabase
+        .from('processed_checkout_sessions')
+        .insert({
+          session_id: sessionId,
+          user_id: userId,
+          coins_added: coinsToAdd,
+          event_id: event.id,
+        });
+
+      if (insertSessionError) {
+        console.error('❌ Error saving processed session:', insertSessionError);
+        // Don't fail the webhook, but log the error
+      } else {
+        console.log('✅ Session marked as processed:', sessionId);
       }
 
       console.log(`🎊 Successfully added ${coinsToAdd} coins to user ${userId}`);

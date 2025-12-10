@@ -121,6 +121,7 @@ const resources = {
       coins: {
         yourCoins: 'Your coins',
         buy50Coins: 'Buy 50 coins – 29 kr',
+        buyCoins: 'Kjøp mynter',
         loginRequired: 'Please log in to buy coins',
         checkoutError: 'Could not start checkout',
       },
@@ -295,6 +296,7 @@ const resources = {
       coins: {
         yourCoins: 'Your coins',
         buy50Coins: 'Buy 50 coins – 29 kr',
+        buyCoins: 'Kjøp mynter',
         loginRequired: 'Please log in to buy coins',
         checkoutError: 'Could not start checkout',
       },
@@ -560,8 +562,9 @@ const resources = {
         qr1ScanExpired: '⚠️ QR #1 scan utløpt. Skann QR #1 på nytt!',
       },
       coins: {
-        yourCoins: 'Dine coins',
+        yourCoins: 'Dine mynter',
         buy50Coins: 'Kjøp 50 coins – 29 kr',
+        buyCoins: 'Kjøp mynter',
         loginRequired: 'Vennligst logg inn for å kjøpe coins',
         checkoutError: 'Kunne ikke starte betaling',
       },
@@ -666,8 +669,9 @@ const resources = {
         coinDeductionFailed: 'QR opprettet, men coins kunne ikke trekkes. Vennligst kontakt support.',
       },
       coins: {
-        yourCoins: 'Dine coins',
+        yourCoins: 'Dine mynter',
         buy50Coins: 'Kjøp 50 coins – 29 kr',
+        buyCoins: 'Kjøp mynter',
         loginRequired: 'Vennligst logg inn for å kjøpe coins',
         checkoutError: 'Kunne ikke starte betaling',
       },

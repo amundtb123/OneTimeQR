@@ -249,7 +249,7 @@ export async function cleanupExpired(): Promise<{ success: boolean; deletedCount
 export async function createCheckoutSession(): Promise<{ url: string }> {
   return fetchApi('/checkout', {
     method: 'POST',
-  });
+  }, true); // requireAuth: true
 }
 
 export async function deductCoins(amount: number): Promise<{ success: boolean; coins: number }> {

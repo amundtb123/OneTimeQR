@@ -1,4 +1,4 @@
-import { Coins, Plus, Star } from 'lucide-react';
+import { Coins, ShoppingCart } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { useAuth } from '../utils/auth-context';
@@ -48,39 +48,36 @@ export function CoinShop() {
   };
 
   return (
-    <Card className="p-4 bg-white border-gray-200 shadow-sm relative">
+    <Card className="p-4 bg-gradient-to-br from-indigo-50 to-blue-50 border-indigo-200">
       <div className="flex items-center justify-between gap-4">
-        {/* Your Coins - Left side */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
-            <Coins className="size-5 text-white" />
+          <div className="p-2 bg-indigo-100 rounded-lg">
+            <Coins className="size-5 text-indigo-600" />
           </div>
           <div>
-            <p className="text-xs text-gray-600 mb-0.5">{t('coins.yourCoins')}</p>
-            <div className="flex items-center gap-2">
-              <p className="text-2xl font-bold text-gray-900">
-                {user ? (coins !== null ? coins : '0') : '—'}
-              </p>
-              <Star className="size-4 text-indigo-400 fill-indigo-400" />
-            </div>
+            <p className="text-sm text-gray-600">{t('coins.yourCoins')}</p>
+            <p className="text-2xl font-bold text-indigo-600">
+              {user ? (coins !== null ? coins : '0') : '—'}
+            </p>
           </div>
         </div>
-
-        {/* Buy Coins Button - Right side, outside card */}
         <Button
           onClick={handleBuyCoins}
-          className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold shadow-md hover:shadow-lg transition-all flex flex-col items-center justify-center px-4 py-2.5 h-auto rounded-lg border-0 flex-shrink-0"
+          className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold shadow-lg hover:shadow-xl transition-all border-2 border-indigo-800"
+          size="lg"
           disabled={false}
           style={{
-            backgroundColor: '#2563eb',
-            minWidth: '140px',
+            backgroundColor: '#4F46E5',
+            borderColor: '#4338CA',
+            color: '#FFFFFF',
+            fontWeight: '700',
+            fontSize: '16px',
+            minHeight: '48px',
+            padding: '12px 24px'
           }}
         >
-          <div className="flex items-center gap-1.5">
-            <Plus className="size-4" style={{ color: '#ffffff' }} />
-            <span className="font-semibold text-sm" style={{ color: '#ffffff' }}>{t('coins.buyCoins') || 'Kjøp mynter'}</span>
-          </div>
-          <span className="text-xs font-medium mt-0.5" style={{ color: '#ffffff', opacity: 0.95 }}>50 coins • 29 kr</span>
+          <ShoppingCart className="size-5 mr-2" style={{ color: '#FFFFFF' }} />
+          <span className="font-bold text-base" style={{ color: '#FFFFFF' }}>{t('coins.buy50Coins')}</span>
         </Button>
       </div>
     </Card>

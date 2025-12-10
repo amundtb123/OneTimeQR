@@ -283,13 +283,15 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
     }
 
     // Check coin cost and user balance
+    // Only check coins if cost > 0 (premium features)
     if (coinCost > 0) {
       if (!user) {
         toast.error(t('upload.loginRequiredForCoins'));
         return;
       }
       
-      if (coins === null) {
+      // Only check coins if user is logged in and cost > 0
+      if (coins === null || coins === undefined) {
         toast.error(t('upload.loadingCoins'));
         return;
       }
@@ -299,6 +301,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         return;
       }
     }
+    
+    // Free tier (coinCost === 0) should work for everyone, logged in or not
     
     setIsGenerating(true);
     
@@ -1125,7 +1129,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                   variant="coral"
                   size="lg"
                   onClick={handleGenerateQr}
-                  disabled={isGenerating || (user && coinCost > 0 && coins !== null && coins < coinCost)}
+                  disabled={isGenerating || (user && coinCost > 0 && (coins === null || coins === undefined || coins < coinCost))}
                   className="shadow-lg min-w-[160px]"
                   style={{
                     boxShadow: '0 4px 16px rgba(78, 205, 196, 0.35)',

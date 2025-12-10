@@ -9,18 +9,29 @@ export function SuccessPage() {
   const { user, coins, refreshCoins } = useAuth();
   const { t } = useTranslation();
   const [isRefreshing, setIsRefreshing] = useState(true);
+  const [canNavigate, setCanNavigate] = useState(false);
 
   useEffect(() => {
+    // Clean up session_id from URL if present (Stripe redirect)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('session_id')) {
+      // Remove session_id from URL but keep the page
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+    }
+
     // Refresh coins when page loads, with retry logic
     const refresh = async () => {
       if (!user) {
+        console.warn('⚠️ No user logged in on success page');
         setIsRefreshing(false);
+        setCanNavigate(true);
         return;
       }
 
       // Webhook can take a few seconds to process, so retry multiple times
       let attempts = 0;
-      const maxAttempts = 5;
+      const maxAttempts = 8; // Increased attempts
       const delayMs = 2000; // 2 seconds between attempts
 
       const tryRefresh = async () => {
@@ -30,6 +41,11 @@ export function SuccessPage() {
         try {
           await refreshCoins();
           console.log('✅ Coins refreshed successfully');
+          
+          // After first successful refresh, allow navigation
+          if (attempts === 1) {
+            setCanNavigate(true);
+          }
         } catch (error) {
           console.error('❌ Error refreshing coins:', error);
         }
@@ -39,16 +55,22 @@ export function SuccessPage() {
           setTimeout(tryRefresh, delayMs);
         } else {
           setIsRefreshing(false);
+          setCanNavigate(true);
           console.log('✅ Finished refreshing coins');
         }
       };
 
-      // Start first attempt immediately
-      tryRefresh();
+      // Start first attempt after a short delay to let webhook process
+      setTimeout(tryRefresh, 1000);
     };
     
     refresh();
   }, [user, refreshCoins]);
+
+  const handleGoHome = () => {
+    // Use window.location for reliable navigation
+    window.location.href = '/';
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
@@ -76,15 +98,19 @@ export function SuccessPage() {
         </div>
 
         <Button
-          onClick={() => {
-            // Navigate to home
-            window.location.href = '/';
-          }}
-          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+          onClick={handleGoHome}
+          disabled={!canNavigate}
+          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <ArrowLeft className="size-4 mr-2" />
-          {t('success.backToHome')}
+          {canNavigate ? t('success.backToHome') : t('success.processing') || 'Behandler...'}
         </Button>
+        
+        {!canNavigate && (
+          <p className="text-sm text-gray-500 mt-2">
+            {t('success.waitingForCoins') || 'Venter på at coins skal oppdateres...'}
+          </p>
+        )}
       </Card>
     </div>
   );

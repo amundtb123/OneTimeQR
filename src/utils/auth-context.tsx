@@ -90,19 +90,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (hasAccessToken || hasCode) {
         console.log('🔐 OAuth callback detected in URL, waiting for Supabase to process...');
-        // Wait a bit for Supabase to process the callback
-        await new Promise(resolve => setTimeout(resolve, 500));
         
-        // Force getSession after callback processing
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) {
-          console.error('❌ Error getting session after callback:', error);
-        } else if (session) {
-          console.log('✅ Session found after OAuth callback');
-          await updateSession(session);
-          // Clean up URL
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
+        // With PKCE flow, Supabase needs to exchange the code for a session
+        // detectSessionInUrl: true should handle this, but we need to wait for it
+        // Use a Promise that resolves when onAuthStateChange fires with SIGNED_IN
+        return new Promise<void>((resolve) => {
+          let resolved = false;
+          const timeout = setTimeout(() => {
+            if (!resolved) {
+              resolved = true;
+              console.warn('⚠️ OAuth callback timeout - trying getSession anyway');
+              supabase.auth.getSession().then(({ data: { session }, error }) => {
+                if (!error && session) {
+                  updateSession(session);
+                  window.history.replaceState({}, document.title, window.location.pathname);
+                }
+                resolve();
+              });
+            }
+          }, 5000); // 5 second timeout
+          
+          // Listen for auth state change - this should fire when Supabase processes the callback
+          const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            if (event === 'SIGNED_IN' && session && !resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              console.log('✅ SIGNED_IN event received after OAuth callback!');
+              await updateSession(session);
+              window.history.replaceState({}, document.title, window.location.pathname);
+              subscription.unsubscribe();
+              resolve();
+            } else if (event === 'TOKEN_REFRESHED' && session && !resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              console.log('✅ TOKEN_REFRESHED event received');
+              await updateSession(session);
+              window.history.replaceState({}, document.title, window.location.pathname);
+              subscription.unsubscribe();
+              resolve();
+            }
+          });
+        });
       }
     };
 

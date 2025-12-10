@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from './supabase-client';
+import { updateCachedToken } from './api-client';
 
 interface AuthContextType {
   user: User | null;
@@ -49,27 +50,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    // Check active session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // Helper to update session and cache token
+    const updateSession = async (session: Session | null) => {
       setSession(session);
       setUser(session?.user ?? null);
+      
+      // Update cached token for API calls
+      if (session?.access_token) {
+        const expiresAt = session.expires_at ? session.expires_at * 1000 : Date.now() + 3600000;
+        updateCachedToken(session.access_token, expiresAt);
+        console.log('✅ Cached access token updated');
+      } else {
+        updateCachedToken(null, 0);
+      }
+      
       if (session?.user) {
         await fetchUserCoins(session.user.id);
       } else {
         setCoins(null);
       }
+    };
+
+    // Check active session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      await updateSession(session);
       setLoading(false);
     });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchUserCoins(session.user.id);
-      } else {
-        setCoins(null);
-      }
+      await updateSession(session);
     });
 
     return () => subscription.unsubscribe();

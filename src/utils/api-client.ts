@@ -3,6 +3,57 @@ import { supabase } from './supabase-client';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e`;
 
+// Global cache for access token to avoid repeated getSession() calls
+let cachedAccessToken: string | null = null;
+let tokenExpiryTime: number = 0;
+
+// Function to update cached token (called from AuthContext)
+export function updateCachedToken(accessToken: string | null, expiresAt?: number) {
+  cachedAccessToken = accessToken;
+  if (expiresAt) {
+    tokenExpiryTime = expiresAt;
+  } else {
+    // Default to 1 hour if no expiry provided
+    tokenExpiryTime = Date.now() + 3600000;
+  }
+}
+
+// Function to get auth token, preferring cache over getSession()
+async function getAuthToken(): Promise<string> {
+  // Check if cached token is still valid
+  if (cachedAccessToken && Date.now() < tokenExpiryTime) {
+    console.log('🔑 Using cached access token');
+    return cachedAccessToken;
+  }
+
+  // Try to get session, but with shorter timeout for authenticated requests
+  try {
+    const sessionPromise = supabase.auth.getSession();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Session timeout')), 1000)
+    );
+    
+    const { data: { session }, error: sessionError } = await Promise.race([
+      sessionPromise,
+      timeoutPromise
+    ]) as any;
+    
+    if (!sessionError && session?.access_token) {
+      const token = session.access_token;
+      const expiresAt = session.expires_at ? session.expires_at * 1000 : Date.now() + 3600000;
+      updateCachedToken(token, expiresAt);
+      console.log('🔑 Retrieved fresh access token');
+      return token;
+    }
+  } catch (error: any) {
+    console.warn('⚠️ Session fetch failed or timed out:', error?.message);
+  }
+
+  // Fallback to anon key
+  console.log('🔑 Using anon key (no valid session)');
+  return publicAnonKey;
+}
+
 export interface QrDropMetadata {
   title?: string;
   contentType: 'file' | 'text' | 'url' | 'bundle';
@@ -42,36 +93,16 @@ export interface QrDropData {
   expiredAt?: number; // Timestamp when marked as expired
 }
 
-async function fetchApi(endpoint: string, options: RequestInit = {}) {
-  console.log('🌐 fetchApi called:', endpoint, options.method || 'GET');
+async function fetchApi(endpoint: string, options: RequestInit = {}, requireAuth: boolean = false) {
+  console.log('🌐 fetchApi called:', endpoint, options.method || 'GET', requireAuth ? '(auth required)' : '');
   
   try {
-    console.log('🔐 Getting session...');
-    let authToken = publicAnonKey; // Default to anon key
+    const authToken = await getAuthToken();
     
-    try {
-      // Try to get the current session with timeout
-      const sessionPromise = supabase.auth.getSession();
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Session timeout')), 2000)
-      );
-      
-      const { data: { session }, error: sessionError } = await Promise.race([
-        sessionPromise,
-        timeoutPromise
-      ]) as any;
-      
-      if (sessionError) {
-        console.warn('⚠️ Session error (non-critical):', sessionError);
-      } else if (session?.access_token) {
-        authToken = session.access_token;
-        console.log('🔑 Using user session token');
-      } else {
-        console.log('🔑 No session, using anon key');
-      }
-    } catch (error: any) {
-      console.warn('⚠️ Session fetch failed or timed out, using anon key:', error?.message);
-      // Continue with anon key
+    // If auth is required but we got anon key, that's a problem
+    if (requireAuth && authToken === publicAnonKey) {
+      console.error('❌ Authentication required but no valid session token available');
+      throw new Error('Authentication required');
     }
     
     console.log('🔑 Auth token prepared:', authToken ? `${authToken.substring(0, 20)}...` : 'MISSING');
@@ -228,5 +259,5 @@ export async function deductCoins(amount: number): Promise<{ success: boolean; c
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ amount }),
-  });
+  }, true); // Require authentication
 }

@@ -852,6 +852,8 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       return c.json({ error: 'Webhook secret not configured' }, 500);
     }
     console.log('✅ Webhook secret found');
+    console.log('🔑 Webhook secret preview:', webhookSecret.substring(0, 10) + '...' + webhookSecret.substring(webhookSecret.length - 5));
+    console.log('🔑 Signature preview:', signature.substring(0, 20) + '...');
 
     let event;
     try {
@@ -861,8 +863,13 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       console.log('📋 Event ID:', event.id);
     } catch (err) {
       console.error('❌ Webhook signature verification failed:', err);
-      console.error('❌ Error details:', JSON.stringify(err, null, 2));
-      return c.json({ error: `Webhook Error: ${err.message}` }, 400);
+      console.error('❌ Error message:', err?.message);
+      console.error('❌ Error type:', err?.constructor?.name);
+      console.error('❌ Body length:', body.length);
+      console.error('❌ Signature length:', signature?.length);
+      console.error('❌ Webhook secret length:', webhookSecret?.length);
+      console.error('❌ Full error:', JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
+      return c.json({ error: `Webhook Error: ${err?.message || 'Signature verification failed'}` }, 400);
     }
 
     // Handle the checkout.session.completed event

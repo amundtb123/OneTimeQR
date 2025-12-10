@@ -111,7 +111,8 @@ export function SuccessPage() {
                   console.error('❌ Failed to create profile:', insertError);
                 } else {
                   console.log('✅ Created profile with 0 coins');
-                  setCoins(0);
+                  // Force refresh to update coins state
+                  await refreshCoins();
                 }
               }
             } else {

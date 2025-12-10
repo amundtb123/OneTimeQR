@@ -800,6 +800,14 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
   console.log('🔔 Webhook received!');
   console.log('📋 Headers:', JSON.stringify(Object.fromEntries(c.req.headers.entries()), null, 2));
   
+  // Check if service role key is set
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!serviceRoleKey) {
+    console.error('❌ SUPABASE_SERVICE_ROLE_KEY not set!');
+    return c.json({ error: 'Service role key not configured' }, 500);
+  }
+  console.log('✅ Service role key found');
+  
   try {
     const signature = c.req.header('stripe-signature');
     if (!signature) {

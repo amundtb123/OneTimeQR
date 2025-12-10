@@ -285,9 +285,26 @@ export function SuccessPage() {
     }, 100);
   };
 
+  const coinsDisplay = !user 
+    ? 'Logg inn' 
+    : isRefreshing 
+      ? null // Will show loading message instead
+      : coins !== null 
+        ? coins 
+        : 0; // Show 0 instead of "—"
+
+  const isComplete = !isRefreshing && coins !== null && user;
+
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-screen flex items-start justify-center px-4 pt-16 sm:pt-24">
       <Card className="max-w-md w-full p-8 text-center">
+        {/* Waiting message at top */}
+        {isRefreshing && (
+          <p className="text-sm text-gray-500 mb-6">
+            {t('success.waitingForCoins') || 'Venter på at coins skal oppdateres...'}
+          </p>
+        )}
+
         <div className="mb-6">
           <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="size-12 text-green-600" />
@@ -300,42 +317,43 @@ export function SuccessPage() {
           </p>
         </div>
 
+        {/* Coins display - always show a number */}
         <div className="bg-indigo-50 rounded-lg p-6 mb-6">
           <div className="flex items-center justify-center gap-3 mb-2">
             <Coins className="size-6 text-indigo-600" />
             <p className="text-sm text-gray-600">{t('coins.yourCoins')}</p>
           </div>
-          <p className="text-3xl font-bold text-indigo-600">
-            {!user ? (
-              <span className="text-gray-400">Logg inn</span>
-            ) : isRefreshing ? (
-              <span className="animate-pulse">...</span>
-            ) : coins !== null ? (
-              coins
-            ) : (
-              '—'
-            )}
-          </p>
-          {user && coins === null && !isRefreshing && (
-            <p className="text-xs text-gray-500 mt-1">
-              Kunne ikke hente coins. Prøv å refreshe siden.
+          {isRefreshing ? (
+            <p className="text-3xl font-bold text-indigo-600 animate-pulse">
+              {coins !== null ? coins : 0}
+            </p>
+          ) : (
+            <p className="text-3xl font-bold text-indigo-600">
+              {coinsDisplay}
+            </p>
+          )}
+          {isComplete && (
+            <p className="text-sm text-indigo-600 mt-2 font-medium">
+              Ny total: {coins} coins
             </p>
           )}
         </div>
 
-        <Button
-          onClick={handleGoHome}
-          disabled={!canNavigate}
-          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <ArrowLeft className="size-4 mr-2" />
-          {canNavigate ? t('success.backToHome') : t('success.processing') || 'Behandler...'}
-        </Button>
-        
-        {!canNavigate && (
-          <p className="text-sm text-gray-500 mt-2">
-            {t('success.waitingForCoins') || 'Venter på at coins skal oppdateres...'}
-          </p>
+        {/* OK button - only show when complete */}
+        {isComplete ? (
+          <Button
+            onClick={handleGoHome}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3"
+          >
+            OK
+          </Button>
+        ) : (
+          <Button
+            disabled
+            className="w-full bg-gray-300 text-gray-500 cursor-not-allowed font-semibold py-3"
+          >
+            {t('success.processing') || 'Behandler...'}
+          </Button>
         )}
       </Card>
     </div>

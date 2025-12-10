@@ -361,13 +361,19 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
 
       let response;
       
+      console.log('📤 Sending to backend...', { hasFiles: files.length > 0, metadataKeys: Object.keys(metadata) });
+      
       // If we have files, use upload endpoint
       if (files.length > 0) {
         // For now, upload the first file (we'll enhance backend to support multiple files later)
+        console.log('📁 Uploading file:', files[0].name, files[0].size);
         response = await uploadFile(files[0], metadata);
+        console.log('✅ Upload response:', response);
       } else {
         // No files, just text/URLs
+        console.log('📝 Creating QR drop without file');
         response = await createQrDrop(metadata);
+        console.log('✅ Create response:', response);
       }
       
       // Deduct coins if cost > 0
@@ -511,13 +517,20 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       setPassword('');
       setUsePassword(false);
       setQrStyle(defaultQrStyle);
-    } catch (error) {
-      console.error('Error creating QR drop:', error);
-      
-      if ((error as any).status === 401) {
+    } catch (error: any) {
+      console.error('❌ Error creating QR drop:', error);
+      console.error('Error details:', {
+        message: error?.message,
+        status: error?.status,
+        stack: error?.stack
+      });
+
+      if (error?.status === 401) {
         toast.error(t('upload.mustBeLoggedIn'));
       } else {
-        toast.error(t('upload.createQrError'));
+        const errorMessage = error?.message || t('upload.createQrError');
+        toast.error(errorMessage);
+        console.error('Full error object:', error);
       }
     } finally {
       setIsGenerating(false);

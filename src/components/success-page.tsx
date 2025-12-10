@@ -53,28 +53,65 @@ export function SuccessPage() {
           
           // Force a direct database query to verify coins
           const { supabase } = await import('../utils/supabase-client');
-          const { data: profileData, error: profileError } = await supabase
-            .from('user_profiles')
-            .select('coins')
-            .eq('id', user.id)
-            .single();
           
-          if (profileError) {
-            console.error('❌ Error fetching coins directly:', profileError);
-          } else {
-            const dbCoins = profileData?.coins ?? 0;
-            console.log(`💰 Database coins value: ${dbCoins}`);
-            console.log(`💰 Context coins value: ${coins}`);
-            
-            // If coins changed, we're done
-            if (dbCoins > 0 && dbCoins !== lastCoinsValue) {
-              console.log(`✅ Coins updated! New balance: ${dbCoins}`);
+          // Get current session to ensure we have auth token
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          if (!currentSession) {
+            console.error('❌ No active session - cannot fetch coins');
+            if (attempts >= 3) {
               setIsRefreshing(false);
               setCanNavigate(true);
               return;
             }
+          } else {
+            console.log('✅ Active session found, fetching coins...');
             
-            lastCoinsValue = dbCoins;
+            const { data: profileData, error: profileError } = await supabase
+              .from('user_profiles')
+              .select('coins')
+              .eq('id', user.id)
+              .single();
+            
+            if (profileError) {
+              console.error('❌ Error fetching coins directly:', profileError);
+              console.error('❌ Error code:', profileError.code);
+              console.error('❌ Error message:', profileError.message);
+              console.error('❌ Error details:', profileError);
+              
+              // If it's a permission error, try to create profile
+              if (profileError.code === 'PGRST116' || profileError.message?.includes('permission') || profileError.message?.includes('policy')) {
+                console.log('📝 Profile might not exist or RLS issue, trying to create...');
+                const { error: insertError } = await supabase
+                  .from('user_profiles')
+                  .insert({ id: user.id, coins: 0 });
+                if (insertError) {
+                  console.error('❌ Failed to create profile:', insertError);
+                } else {
+                  console.log('✅ Created profile with 0 coins');
+                  setCoins(0);
+                }
+              }
+            } else {
+              const dbCoins = profileData?.coins ?? 0;
+              console.log(`💰 Database coins value: ${dbCoins}`);
+              console.log(`💰 Context coins value: ${coins}`);
+              
+              // Update coins state if we got a value
+              if (dbCoins !== coins) {
+                console.log(`🔄 Updating coins state from ${coins} to ${dbCoins}`);
+                // Force update via refreshCoins which will update state
+              }
+              
+              // If coins changed, we're done
+              if (dbCoins > 0 && dbCoins !== lastCoinsValue) {
+                console.log(`✅ Coins updated! New balance: ${dbCoins}`);
+                setIsRefreshing(false);
+                setCanNavigate(true);
+                return;
+              }
+              
+              lastCoinsValue = dbCoins;
+            }
           }
           
           // After first successful refresh, allow navigation (even if coins not updated yet)

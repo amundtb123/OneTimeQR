@@ -754,7 +754,7 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
 
     // Create Stripe Checkout session
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
+      payment_method_types: ['card', 'apple_pay', 'google_pay'],
       line_items: [
         {
           price_data: {

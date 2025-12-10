@@ -185,17 +185,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshCoins = async () => {
     if (user) {
       console.log('💰 Refreshing coins for user:', user.id);
+      
+      // Ensure we have a valid session
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (!currentSession) {
+        console.error('❌ No active session for refreshCoins');
+        return;
+      }
+      
       await fetchUserCoins(user.id);
+      
       // Force a re-render by checking coins again after a short delay
       setTimeout(async () => {
-        const { data } = await supabase
-          .from('user_profiles')
-          .select('coins')
-          .eq('id', user.id)
-          .single();
-        if (data) {
-          console.log('💰 Final coins balance:', data.coins);
-          setCoins(data.coins ?? 0);
+        try {
+          const { data, error } = await supabase
+            .from('user_profiles')
+            .select('coins')
+            .eq('id', user.id)
+            .single();
+          
+          if (error) {
+            console.error('❌ Error in refreshCoins timeout:', error);
+            if (error.code === 'PGRST116') {
+              // Profile doesn't exist, create it
+              const { error: insertError } = await supabase
+                .from('user_profiles')
+                .insert({ id: user.id, coins: 0 });
+              if (!insertError) {
+                setCoins(0);
+                console.log('✅ Created profile with 0 coins in refreshCoins');
+              }
+            }
+          } else if (data) {
+            console.log('💰 Final coins balance:', data.coins);
+            setCoins(data.coins ?? 0);
+          }
+        } catch (err) {
+          console.error('❌ Exception in refreshCoins timeout:', err);
         }
       }, 500);
     } else {

@@ -14,7 +14,9 @@ export function SuccessPage() {
   useEffect(() => {
     // Clean up session_id from URL if present (Stripe redirect)
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('session_id')) {
+    const sessionId = urlParams.get('session_id');
+    if (sessionId) {
+      console.log('🎫 Stripe session_id detected:', sessionId);
       // Remove session_id from URL but keep the page
       const newUrl = window.location.pathname;
       window.history.replaceState({}, document.title, newUrl);
@@ -23,26 +25,59 @@ export function SuccessPage() {
     // Refresh coins when page loads, with retry logic
     const refresh = async () => {
       if (!user) {
-        console.warn('⚠️ No user logged in on success page');
+        console.warn('⚠️ No user logged in on success page - cannot refresh coins');
         setIsRefreshing(false);
         setCanNavigate(true);
         return;
       }
 
+      console.log('👤 User logged in:', user.id, user.email);
+      console.log('💰 Current coins state:', coins);
+
       // Webhook can take a few seconds to process, so retry multiple times
       let attempts = 0;
-      const maxAttempts = 8; // Increased attempts
+      const maxAttempts = 10; // Increased to 10 attempts (20 seconds total)
       const delayMs = 2000; // 2 seconds between attempts
+      let lastCoinsValue = coins;
 
       const tryRefresh = async () => {
         attempts++;
         console.log(`🔄 Refreshing coins (attempt ${attempts}/${maxAttempts})...`);
+        console.log(`💰 Previous coins value: ${lastCoinsValue}`);
         
         try {
           await refreshCoins();
-          console.log('✅ Coins refreshed successfully');
           
-          // After first successful refresh, allow navigation
+          // Wait a bit for state to update, then check again
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          // Force a direct database query to verify coins
+          const { supabase } = await import('../utils/supabase-client');
+          const { data: profileData, error: profileError } = await supabase
+            .from('user_profiles')
+            .select('coins')
+            .eq('id', user.id)
+            .single();
+          
+          if (profileError) {
+            console.error('❌ Error fetching coins directly:', profileError);
+          } else {
+            const dbCoins = profileData?.coins ?? 0;
+            console.log(`💰 Database coins value: ${dbCoins}`);
+            console.log(`💰 Context coins value: ${coins}`);
+            
+            // If coins changed, we're done
+            if (dbCoins > 0 && dbCoins !== lastCoinsValue) {
+              console.log(`✅ Coins updated! New balance: ${dbCoins}`);
+              setIsRefreshing(false);
+              setCanNavigate(true);
+              return;
+            }
+            
+            lastCoinsValue = dbCoins;
+          }
+          
+          // After first successful refresh, allow navigation (even if coins not updated yet)
           if (attempts === 1) {
             setCanNavigate(true);
           }
@@ -56,16 +91,17 @@ export function SuccessPage() {
         } else {
           setIsRefreshing(false);
           setCanNavigate(true);
-          console.log('✅ Finished refreshing coins');
+          console.log('✅ Finished refreshing coins (max attempts reached)');
+          console.log(`💰 Final coins value: ${coins}`);
         }
       };
 
       // Start first attempt after a short delay to let webhook process
-      setTimeout(tryRefresh, 1000);
+      setTimeout(tryRefresh, 1500);
     };
     
     refresh();
-  }, [user, refreshCoins]);
+  }, [user, refreshCoins, coins]);
 
   const handleGoHome = () => {
     // Update URL and trigger navigation
@@ -102,8 +138,21 @@ export function SuccessPage() {
             <p className="text-sm text-gray-600">{t('coins.yourCoins')}</p>
           </div>
           <p className="text-3xl font-bold text-indigo-600">
-            {isRefreshing ? '...' : (coins !== null ? coins : '—')}
+            {!user ? (
+              <span className="text-gray-400">Logg inn</span>
+            ) : isRefreshing ? (
+              <span className="animate-pulse">...</span>
+            ) : coins !== null ? (
+              coins
+            ) : (
+              '—'
+            )}
           </p>
+          {user && coins === null && !isRefreshing && (
+            <p className="text-xs text-gray-500 mt-1">
+              Kunne ikke hente coins. Prøv å refreshe siden.
+            </p>
+          )}
         </div>
 
         <Button

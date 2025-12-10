@@ -43,27 +43,42 @@ export interface QrDropData {
 }
 
 async function fetchApi(endpoint: string, options: RequestInit = {}) {
-  // Try to get the current session
-  const { data: { session } } = await supabase.auth.getSession();
-  const authToken = session?.access_token || publicAnonKey;
+  console.log('🌐 fetchApi called:', endpoint, options.method || 'GET');
   
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${authToken}`,
-      ...options.headers,
-    },
-  });
+  try {
+    // Try to get the current session
+    const { data: { session } } = await supabase.auth.getSession();
+    const authToken = session?.access_token || publicAnonKey;
+    
+    const url = `${API_BASE}${endpoint}`;
+    console.log('🔗 Fetching URL:', url);
+    
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        ...options.headers,
+      },
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    const errorMessage = error.error || `API error: ${response.status}`;
-    const errorWithStatus = new Error(errorMessage);
-    (errorWithStatus as any).status = response.status;
-    throw errorWithStatus;
+    console.log('📡 Response received:', response.status, response.statusText);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      const errorMessage = error.error || `API error: ${response.status}`;
+      console.error('❌ API error:', errorMessage, error);
+      const errorWithStatus = new Error(errorMessage);
+      (errorWithStatus as any).status = response.status;
+      throw errorWithStatus;
+    }
+
+    const json = await response.json();
+    console.log('✅ Response JSON:', json);
+    return json;
+  } catch (error) {
+    console.error('❌ fetchApi error:', error);
+    throw error;
   }
-
-  return response.json();
 }
 
 export async function uploadFile(file: File, metadata: QrDropMetadata) {
@@ -81,13 +96,23 @@ export async function uploadFile(file: File, metadata: QrDropMetadata) {
 }
 
 export async function createQrDrop(metadata: QrDropMetadata) {
-  return fetchApi('/create', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(metadata),
-  });
+  console.log('📤 createQrDrop called with metadata:', metadata);
+  try {
+    const jsonBody = JSON.stringify(metadata);
+    console.log('📦 JSON body prepared, length:', jsonBody.length);
+    const result = await fetchApi('/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonBody,
+    });
+    console.log('✅ createQrDrop success:', result);
+    return result;
+  } catch (error) {
+    console.error('❌ createQrDrop error:', error);
+    throw error;
+  }
 }
 
 export async function getQrDrop(id: string, accessToken?: string): Promise<{ qrDrop: QrDropData }> {

@@ -15,6 +15,7 @@ import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Switch } from './ui/switch';
+import { Checkbox } from './ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { QrStylePicker, type QrStyle } from './qr-style-picker';
 import { useAuth } from '../utils/auth-context';
@@ -69,6 +70,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
   const [showDualQr, setShowDualQr] = useState(false);
   const [dualQrData, setDualQrData] = useState<{ qr1: string; qr2: string; qr1Url: string; qr2Url: string; title?: string } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [oneTimeAccess, setOneTimeAccess] = useState(false);
 
   const handleFilesChange = (selectedFiles: File[]) => {
     if (selectedFiles.length > 0) {
@@ -267,6 +270,12 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       return;
     }
 
+    // Check if terms are accepted
+    if (!acceptedTerms) {
+      toast.error(t('upload.acceptTermsRequired'));
+      return;
+    }
+
     // Check file size limits based on login status
     const totalFileSize = files.reduce((sum, file) => sum + file.size, 0);
     const maxSize = user ? 20 * 1024 * 1024 : 1 * 1024 * 1024; // 20 MB logged in, 1 MB not logged in
@@ -364,7 +373,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         contentType: 'bundle' as const, // New type for mixed content
         textContent: secureMode ? encryptedTextContent : textContent.trim() || undefined,
         urlContent: secureMode ? encryptedUrlContent : (urls.length > 0 ? JSON.stringify(urls) : undefined),
-        expiryType,
+        expiryType: oneTimeAccess ? 'scan' : expiryType, // Use 'scan' if one-time access is selected
         expiryDate: expiryDate ? expiryDate.toISOString() : undefined, // Convert Date to ISO string for JSON
         maxScans: maxScans ? parseInt(maxScans) : undefined,
         maxDownloads: maxDownloads ? parseInt(maxDownloads) : undefined,
@@ -378,6 +387,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         // Store original file info for encrypted files (needed for preview/decryption)
         originalFileType: secureMode && originalFileType ? originalFileType : undefined,
         originalFileName: secureMode && originalFileName ? originalFileName : undefined,
+        acceptedTerms: true, // Backend validation - user must accept terms
+        oneTimeAccess, // Optional one-time access toggle
         // encryptionKey is NOT sent to server - it's only in QR codes!
       };
       
@@ -1207,16 +1218,46 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                   )}
                 </div>
                 
+                {/* Terms acceptance checkbox */}
+                <div className="flex items-start gap-2 mb-4">
+                  <Checkbox
+                    id="accept-terms"
+                    checked={acceptedTerms}
+                    onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                    className="mt-1"
+                  />
+                  <Label htmlFor="accept-terms" className="text-sm text-[#3F3F3F] cursor-pointer">
+                    {t('upload.acceptTerms')}{' '}
+                    <a href="/legal" target="_blank" rel="noopener noreferrer" className="text-[#5D8CC9] underline hover:text-[#4A6FA5]">
+                      {t('upload.termsAndPrivacy')}
+                    </a>
+                    .
+                  </Label>
+                </div>
+
+                {/* Optional one-time access toggle */}
+                <div className="flex items-start gap-2 mb-4">
+                  <Checkbox
+                    id="one-time-access"
+                    checked={oneTimeAccess}
+                    onCheckedChange={(checked) => setOneTimeAccess(checked === true)}
+                    className="mt-1"
+                  />
+                  <Label htmlFor="one-time-access" className="text-sm text-[#3F3F3F] cursor-pointer">
+                    {t('upload.oneTimeAccess')}
+                  </Label>
+                </div>
+
                 <NordicButton
                   variant="coral"
                   size="lg"
                   onClick={handleGenerateQr}
-                  disabled={isGenerating || (user && coinCost > 0 && (coins === null || coins === undefined || coins < coinCost))}
+                  disabled={isGenerating || !acceptedTerms || (user && coinCost > 0 && (coins === null || coins === undefined || coins < coinCost))}
                   className="shadow-lg min-w-[160px]"
                   style={{
                     boxShadow: '0 4px 16px rgba(78, 205, 196, 0.35)',
                   }}
-                  title={isFreeTier ? t('upload.free') : coinCost > 0 ? `${t('upload.coinCost')}: ${coinCost}` : ''}
+                  title={!acceptedTerms ? t('upload.acceptTermsRequired') : isFreeTier ? t('upload.free') : coinCost > 0 ? `${t('upload.coinCost')}: ${coinCost}` : ''}
                 >
                   {isGenerating ? t('upload.generating') : t('upload.generateQr')}
                 </NordicButton>

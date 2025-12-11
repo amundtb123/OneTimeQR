@@ -117,6 +117,10 @@ const resources = {
         loadingCoins: 'Loading coins...',
         coinsDeducted: '{{amount}} coins deducted',
         coinDeductionFailed: 'QR created but coins could not be deducted. Please contact support.',
+        acceptTerms: 'I accept',
+        termsAndPrivacy: 'Terms & Privacy',
+        acceptTermsRequired: 'You must accept the Terms & Privacy to generate a QR code',
+        oneTimeAccess: 'One-time access (file deleted after first scan)',
       },
       coins: {
         yourCoins: 'Your coins',
@@ -399,6 +403,10 @@ const resources = {
         loadingCoins: 'Laster coins...',
         coinsDeducted: '{{amount}} coins trukket',
         coinDeductionFailed: 'QR opprettet, men coins kunne ikke trekkes. Vennligst kontakt support.',
+        acceptTerms: 'Jeg godtar',
+        termsAndPrivacy: 'Vilkår & Personvern',
+        acceptTermsRequired: 'Du må godta Vilkår & Personvern for å generere QR-kode',
+        oneTimeAccess: 'Engangsvisning (fil slettes etter første skanning)',
       },
       qrList: {
         noQrsYet: 'Ingen QR-koder ennå',

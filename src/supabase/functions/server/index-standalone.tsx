@@ -200,6 +200,11 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
 
     console.log('Upload endpoint - received metadata:', JSON.stringify(metadata, null, 2));
 
+    // Validate that terms are accepted
+    if (!metadata.acceptedTerms) {
+      return c.json({ error: 'Terms and Privacy must be accepted' }, 400);
+    }
+
     if (!file) {
       return c.json({ error: 'No file provided' }, 400);
     }
@@ -305,6 +310,11 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
 app.post('/make-server-c3c9181e/create', async (c) => {
   try {
     const metadata = await c.req.json();
+
+    // Validate that terms are accepted
+    if (!metadata.acceptedTerms) {
+      return c.json({ error: 'Terms and Privacy must be accepted' }, 400);
+    }
 
     // Get user ID from auth token (OPTIONAL - allows anonymous creation)
     let userId: string | null = null;

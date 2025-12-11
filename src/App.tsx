@@ -10,6 +10,7 @@ import { ScanView } from './components/scan-view';
 import { UnlockScreen } from './components/unlock-screen';
 import { QrDetailView } from './components/qr-detail-view';
 import { SuccessPage } from './components/success-page';
+import { LegalPage } from './components/legal-page';
 import { getAllQrDrops, deleteQrDrop, type QrDropData } from './utils/api-client';
 import { projectId, publicAnonKey } from './utils/supabase/info';
 import { toast, Toaster } from 'sonner@2.0.3';
@@ -75,7 +76,7 @@ function AppContent() {
   const { user, loading: authLoading } = useAuth();
   const { t } = useTranslation();
   const [qrDrops, setQrDrops] = useState<QrDrop[]>([]);
-  const [currentView, setCurrentView] = useState<'upload' | 'list' | 'scan' | 'detail' | 'unlock' | 'success'>('upload');
+  const [currentView, setCurrentView] = useState<'upload' | 'list' | 'scan' | 'detail' | 'unlock' | 'success' | 'legal'>('upload');
   const [selectedQrDrop, setSelectedQrDrop] = useState<QrDrop | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [scanId, setScanId] = useState<string | null>(null);
@@ -90,8 +91,11 @@ function AppContent() {
       const scanMatch = path.match(/\/scan\/([^\/]+)/);
       const unlockMatch = path.match(/\/unlock\/([^\/]+)/);
       const successMatch = path === '/success';
+      const legalMatch = path === '/legal';
       
-      if (successMatch) {
+      if (legalMatch) {
+        setCurrentView('legal');
+      } else if (successMatch) {
         setCurrentView('success');
       } else if (unlockMatch) {
         // We're on an unlock page (QR #2 scanned)
@@ -414,6 +418,13 @@ function AppContent() {
           )
         ) : (
           <>
+            {currentView === 'legal' && (
+              <LegalPage onBack={() => {
+                window.history.back();
+                setCurrentView('upload');
+              }} />
+            )}
+            
             {currentView === 'success' && (
               <SuccessPage />
             )}

@@ -6,7 +6,7 @@ import type { QrDrop } from '../App';
 import { uploadFile, createQrDrop } from '../utils/api-client';
 import { generateStyledQrCode } from '../utils/qr-generator';
 import { createBrandedQrCode } from '../utils/qr-with-branding';
-import { generateEncryptionKey, encryptData, createDecryptionKeyUrl } from '../utils/encryption';
+import { generateEncryptionKey, encryptData, encryptFile, createDecryptionKeyUrl } from '../utils/encryption';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { NordicLogo } from './nordic-logo';
@@ -312,9 +312,11 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       const expiryDate = calculateExpiryDate(expiryType);
       
       // SECURE MODE: Generate encryption key and encrypt content
+      // IMPORTANT: encryptionKey is NEVER sent to server - it's only in QR codes
       let encryptionKey: string | undefined;
       let encryptedTextContent: string | undefined;
       let encryptedUrlContent: string | undefined;
+      let fileToUpload: File | undefined;
       
       if (secureMode) {
         encryptionKey = await generateEncryptionKey();
@@ -328,6 +330,19 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         if (urls.length > 0) {
           const urlJson = JSON.stringify(urls);
           encryptedUrlContent = await encryptData(urlJson, encryptionKey);
+        }
+        
+        // Encrypt file if exists (on client side, before upload)
+        if (files.length > 0) {
+          console.log('🔒 Encrypting file before upload...');
+          const encryptedBlob = await encryptFile(files[0], encryptionKey);
+          // Create a new File object with encrypted data
+          // Use original filename but mark as encrypted
+          fileToUpload = new File([encryptedBlob], files[0].name + '.encrypted', {
+            type: 'application/octet-stream',
+            lastModified: files[0].lastModified
+          });
+          console.log('✅ File encrypted:', fileToUpload.name, fileToUpload.size);
         }
       }
       
@@ -356,10 +371,11 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         qrCodeDataUrl: brandedQrCode, // Already generated
         secureMode, // Flag to indicate Secure Mode
         encrypted: secureMode, // Flag for backend to know data is encrypted
-        encryptionKey: secureMode ? encryptionKey : undefined, // Store encryption key on server
+        // encryptionKey is NOT sent to server - it's only in QR codes!
       };
       
       console.log('📋 Metadata prepared:', { ...metadata, qrCodeDataUrl: metadata.qrCodeDataUrl?.substring(0, 50) + '...' });
+      console.log('🔒 Secure Mode:', secureMode, 'Encryption Key:', encryptionKey ? 'Generated (NOT sent to server)' : 'None');
 
       let response;
       
@@ -367,9 +383,10 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       
       // If we have files, use upload endpoint
       if (files.length > 0) {
-        // For now, upload the first file (we'll enhance backend to support multiple files later)
-        console.log('📁 Uploading file:', files[0].name, files[0].size);
-        response = await uploadFile(files[0], metadata);
+        // Use encrypted file if Secure Mode, otherwise original file
+        const file = secureMode && fileToUpload ? fileToUpload : files[0];
+        console.log('📁 Uploading file:', file.name, file.size, secureMode ? '(encrypted)' : '(plain)');
+        response = await uploadFile(file, metadata);
         console.log('✅ Upload response:', response);
       } else {
         // No files, just text/URLs

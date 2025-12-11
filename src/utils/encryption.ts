@@ -81,10 +81,86 @@ export async function decryptData(encryptedBase64: string, keyHex: string): Prom
 }
 
 /**
+ * Encrypt a File object using AES-GCM
+ * Returns encrypted data as a Blob
+ */
+export async function encryptFile(file: File, keyHex: string): Promise<Blob> {
+  // Read file as ArrayBuffer
+  const fileBuffer = await file.arrayBuffer();
+  
+  // Convert hex key to CryptoKey
+  const keyBytes = new Uint8Array(keyHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt']
+  );
+
+  // Generate random IV
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  
+  // Encrypt file data
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    fileBuffer
+  );
+
+  // Combine IV + encrypted data
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  
+  // Return as Blob with a marker to indicate it's encrypted
+  return new Blob([combined], { type: 'application/octet-stream' });
+}
+
+/**
+ * Decrypt a Blob that was encrypted with encryptFile
+ */
+export async function decryptFile(encryptedBlob: Blob, keyHex: string): Promise<Blob> {
+  try {
+    // Read encrypted blob as ArrayBuffer
+    const encryptedBuffer = await encryptedBlob.arrayBuffer();
+    const combined = new Uint8Array(encryptedBuffer);
+    
+    // Extract IV and encrypted data
+    const iv = combined.slice(0, 12);
+    const encrypted = combined.slice(12);
+
+    // Convert hex key to CryptoKey
+    const keyBytes = new Uint8Array(keyHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+    const key = await crypto.subtle.importKey(
+      'raw',
+      keyBytes,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['decrypt']
+    );
+
+    // Decrypt
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      encrypted
+    );
+
+    return new Blob([decrypted]);
+  } catch (error) {
+    console.error('File decryption failed:', error);
+    throw new Error('Failed to decrypt file. Invalid key or corrupted data.');
+  }
+}
+
+/**
  * Create a shareable decryption key URL (for QR #2)
- * Now uses a simple unlock flag instead of embedding the full key
+ * Embed the key directly in the URL (base64 encoded for safety)
  */
 export function createDecryptionKeyUrl(baseUrl: string, qrId: string, key: string): string {
-  // Use simple unlock parameter - server will provide the key
-  return `${baseUrl}/scan/${qrId}?unlock=1`;
+  // Encode key in base64 and embed in URL
+  // This way the key is ONLY in the QR code, never on the server
+  const encodedKey = btoa(key).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  return `${baseUrl}/scan/${qrId}?key=${encodedKey}`;
 }

@@ -278,7 +278,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       qrCodeDataUrl: metadata.qrCodeDataUrl || null,
       encrypted: metadata.encrypted || false,
       secureMode: metadata.secureMode || false,
-      encryptionKey: metadata.encryptionKey || null,
+      // encryptionKey is NEVER stored on server - it's only in QR codes for security
       createdAt: timestamp,
     };
 
@@ -375,7 +375,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       qrCodeDataUrl: metadata.qrCodeDataUrl || null,
       encrypted: metadata.encrypted || false,
       secureMode: metadata.secureMode || false,
-      encryptionKey: metadata.encryptionKey || null,
+      // encryptionKey is NEVER stored on server - it's only in QR codes for security
       createdAt: timestamp,
     };
 
@@ -578,29 +578,9 @@ app.post('/make-server-c3c9181e/qr/:id/verify', async (c) => {
   }
 });
 
-// Get encryption key for Secure Mode (QR #2)
-app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
-  try {
-    const id = c.req.param('id');
-    const qrDrop = await kv.get(`qrdrop:${id}`);
-
-    if (!qrDrop) {
-      return c.json({ error: 'QR drop not found' }, 404);
-    }
-
-    // Only return encryption key if it exists (Secure Mode)
-    if (!qrDrop.encryptionKey) {
-      return c.json({ error: 'This QR drop is not in Secure Mode' }, 400);
-    }
-
-    console.log(`Returning encryption key for QR drop ${id}`);
-    
-    return c.json({ encryptionKey: qrDrop.encryptionKey });
-  } catch (error) {
-    console.error('Error fetching encryption key:', error);
-    return c.json({ error: `Failed to fetch encryption key: ${error.message}` }, 500);
-  }
-});
+// Encryption key endpoint removed for security
+// Keys are now ONLY in QR codes, never stored on server
+// This ensures admin cannot access encrypted content
 
 // Lightweight check endpoint
 app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {

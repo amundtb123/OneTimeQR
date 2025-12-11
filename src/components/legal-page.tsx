@@ -23,215 +23,353 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
         {/* Content */}
         <div className="bg-white rounded-2xl p-8 shadow-lg space-y-8">
-          {/* Terms of Service */}
+          {/* 1. Terms of Service */}
           <section>
             <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
-              {isNorwegian ? 'Bruksvilkår' : 'Terms of Service'}
+              1. {isNorwegian ? 'Bruksvilkår' : 'Terms of Service'}
             </h2>
             <div className="space-y-4 text-[#5B5B5B]">
               <p>
                 {isNorwegian 
-                  ? 'Ved å bruke OneTimeQR godtar du disse vilkårene. Tjenesten lar deg dele filer, tekst og URL-er via QR-koder med valgfri utløpstid og sikkerhetsfunksjoner.'
-                  : 'By using OneTimeQR, you agree to these terms. The service allows you to share files, text, and URLs via QR codes with optional expiration and security features.'}
+                  ? 'Ved å bruke OneTimeQR godtar du disse vilkårene.'
+                  : 'By using OneTimeQR, you agree to these terms.'}
+              </p>
+              <p>
+                {isNorwegian
+                  ? 'OneTimeQR er en teknisk tjeneste som lar brukere generere QR-koder og knytte innhold til dem, som filer, tekst, lenker eller annen informasjon.'
+                  : 'OneTimeQR is a technical service that allows users to generate QR codes and link content to them, such as files, text, links, or other information.'}
+              </p>
+              <p>
+                {isNorwegian
+                  ? 'Brukeren velger selv innstillinger som levetid, sikkerhetsnivå, antall skanninger, passord og visuelle tilpasninger.'
+                  : 'Users choose their own settings such as lifetime, security level, number of scans, password, and visual customizations.'}
+              </p>
+              <p>
+                {isNorwegian
+                  ? 'OneTimeQR gjør ingen vurdering av innholdet som lastes opp og har ingen innsyn i hva som deles.'
+                  : 'OneTimeQR makes no assessment of uploaded content and has no access to what is shared.'}
               </p>
             </div>
           </section>
 
-          {/* Disclaimers */}
+          {/* 2. Disclaimers */}
           <section>
             <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
-              {isNorwegian ? 'Ansvarsfraskrivelser' : 'Disclaimers'}
+              2. {isNorwegian ? 'Ansvarsfraskrivelser' : 'Disclaimers'}
             </h2>
             <div className="space-y-4 text-[#5B5B5B]">
               <p>
                 {isNorwegian
-                  ? 'OneTimeQR leveres "som den er" uten garantier. Vi påtar oss ikke ansvar for tap av data eller misbruk av tjenesten.'
-                  : 'OneTimeQR is provided "as is" without warranties. We are not responsible for data loss or misuse of the service.'}
+                  ? 'OneTimeQR leveres "som den er" og "som tilgjengelig" uten noen garanti for:'
+                  : 'OneTimeQR is provided "as is" and "as available" without any guarantee for:'}
               </p>
-            </div>
-          </section>
-
-          {/* User-Generated Content */}
-          <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
-              {isNorwegian ? 'Brukergenerert innhold og ansvar' : 'User-Generated Content and Liability'}
-            </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
-              <p>
-                {isNorwegian
-                  ? 'Brukere er ansvarlige for innholdet de deler. OneTimeQR har ingen innsyn i filer eller innhold (se Safe Harbour nedenfor).'
-                  : 'Users are responsible for the content they share. OneTimeQR has no access to files or content (see Safe Harbour below).'}
-              </p>
-            </div>
-          </section>
-
-          {/* Safe Harbour */}
-          <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
-              {isNorwegian ? 'Safe Harbour / Ingen innsyn i filer' : 'Safe Harbour / No File Access'}
-            </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
-              <p>
-                {isNorwegian
-                  ? 'OneTimeQR logger ikke IP-adresser. Med Secure Mode er filer kryptert end-to-end, og admin kan ikke se innholdet. Vi har ingen innsyn i delt innhold.'
-                  : 'OneTimeQR does not log IP addresses. With Secure Mode, files are encrypted end-to-end, and admin cannot see content. We have no access to shared content.'}
-              </p>
-            </div>
-          </section>
-
-          {/* One-Time Access */}
-          <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
-              {isNorwegian ? 'Valgfri engangsvisning' : 'Optional One-Time Access'}
-            </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
-              <p>
-                {isNorwegian
-                  ? 'Brukere kan velge engangsvisning hvor filen slettes etter første skanning. Dette er valgfritt og påvirker ikke andre vilkår.'
-                  : 'Users can choose one-time access where the file is deleted after first scan. This is optional and does not affect other terms.'}
-              </p>
-            </div>
-          </section>
-
-          {/* Automatic Deletion */}
-          <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
-              {isNorwegian ? 'Automatisk sletting etter 10 min' : 'Automatic Deletion After 10 Minutes'}
-            </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
-              <p>
-                {isNorwegian
-                  ? 'I gratis-modus slettes filer automatisk etter 10 minutter. Premium-brukere kan velge lengre utløpstider.'
-                  : 'In free mode, files are automatically deleted after 10 minutes. Premium users can choose longer expiration times.'}
-              </p>
-            </div>
-          </section>
-
-          {/* Free Mode Requirements */}
-          <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
-              {isNorwegian ? 'Gratis-modus krav' : 'Free Mode Requirements'}
-            </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
-              <p>
-                {isNorwegian
-                  ? 'Gratis-modus tillater opptil 1 MB filstørrelse og 10 minutters utløpstid uten innlogging. Ingen konto nødvendig, men vilkår må godtas.'
-                  : 'Free mode allows up to 1 MB file size and 10 minutes expiration without login. No account required, but terms must be accepted.'}
-              </p>
-            </div>
-          </section>
-
-          {/* Privacy Policy */}
-          <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
-              {isNorwegian ? 'Personvernerklæring' : 'Privacy Policy'}
-            </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
-              <h3 className="font-semibold text-[#3F3F3F]">
-                {isNorwegian ? 'IP-adresser' : 'IP Addresses'}
-              </h3>
-              <p>
-                {isNorwegian
-                  ? 'OneTimeQR logger ikke IP-adresser. Vi samler ikke persondata utover det som er nødvendig for tjenesten.'
-                  : 'OneTimeQR does not log IP addresses. We do not collect personal data beyond what is necessary for the service.'}
-              </p>
-
-              <h3 className="font-semibold text-[#3F3F3F] mt-4">
-                {isNorwegian ? 'Stripe og betalingsinformasjon' : 'Stripe and Payment Information'}
-              </h3>
-              <p>
-                {isNorwegian
-                  ? 'Stripe håndterer all betalingsinformasjon. Vi lagrer ikke kortdata lokalt. Se Stripes personvernpolicy for mer informasjon.'
-                  : 'Stripe handles all payment information. We do not store card data locally. See Stripe\'s privacy policy for more information.'}
-              </p>
-
-              <h3 className="font-semibold text-[#3F3F3F] mt-4">
-                {isNorwegian ? 'Ingen innlogging på gratis modus' : 'No Login Required for Free Mode'}
-              </h3>
-              <p>
-                {isNorwegian
-                  ? 'Gratis-modus krever ingen innlogging eller konto. Premium-funksjoner krever Google-innlogging.'
-                  : 'Free mode requires no login or account. Premium features require Google login.'}
-              </p>
-
-              <h3 className="font-semibold text-[#3F3F3F] mt-4">
-                {isNorwegian ? 'Hva som lagres' : 'What is Stored'}
-              </h3>
-              <p>
-                {isNorwegian
-                  ? 'Vi lagrer kun metadata (filnavn, størrelse, utløpstid) og kryptert innhold hvis Secure Mode er aktivert. Med Secure Mode kan admin ikke se innholdet.'
-                  : 'We only store metadata (filename, size, expiration) and encrypted content if Secure Mode is enabled. With Secure Mode, admin cannot see content.'}
-              </p>
-
-              <h3 className="font-semibold text-[#3F3F3F] mt-4">
-                GDPR
-              </h3>
-              <p>
-                {isNorwegian
-                  ? 'Vi overholder GDPR. Du har rett til å få innsyn i, rette eller slette dine data. Kontakt oss for å utøve dine rettigheter.'
-                  : 'We comply with GDPR. You have the right to access, correct, or delete your data. Contact us to exercise your rights.'}
-              </p>
-            </div>
-          </section>
-
-          {/* Acceptable Use Policy */}
-          <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
-              {isNorwegian ? 'Akseptabel bruk' : 'Acceptable Use Policy'}
-            </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
-              <h3 className="font-semibold text-[#3F3F3F]">
-                {isNorwegian ? 'Forbudt innhold' : 'Prohibited Content'}
-              </h3>
               <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>{isNorwegian ? 'Ulovlig innhold' : 'Illegal content'}</li>
-                <li>{isNorwegian ? 'Virus eller skadelig programvare' : 'Viruses or malicious software'}</li>
-                <li>{isNorwegian ? 'Opphavsrettsbeskyttet materiale uten tillatelse' : 'Copyrighted material without permission'}</li>
-                <li>{isNorwegian ? 'Personangrep eller trakassering' : 'Personal attacks or harassment'}</li>
+                <li>{isNorwegian ? 'tilgjengelighet' : 'availability'}</li>
+                <li>{isNorwegian ? 'lagring' : 'storage'}</li>
+                <li>{isNorwegian ? 'funksjonalitet' : 'functionality'}</li>
+                <li>{isNorwegian ? 'sikkerhet' : 'security'}</li>
+                <li>{isNorwegian ? 'hastighet' : 'speed'}</li>
+                <li>{isNorwegian ? 'kompatibilitet' : 'compatibility'}</li>
+                <li>{isNorwegian ? 'korrekt sletting' : 'correct deletion'}</li>
+                <li>{isNorwegian ? 'kontinuerlig drift' : 'continuous operation'}</li>
               </ul>
-
-              <h3 className="font-semibold text-[#3F3F3F] mt-4">
-                {isNorwegian ? 'Forbud mot misbruk' : 'Prohibition of Abuse'}
-              </h3>
               <p>
                 {isNorwegian
-                  ? 'Misbruk av tjenesten, inkludert misbruk av Coins-systemet eller Stripe-betalinger, kan føre til sperring av konto.'
-                  : 'Abuse of the service, including abuse of the Coins system or Stripe payments, may result in account suspension.'}
+                  ? 'Vi påtar oss ikke ansvar for:'
+                  : 'We assume no responsibility for:'}
+              </p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>{isNorwegian ? 'tap av data' : 'data loss'}</li>
+                <li>{isNorwegian ? 'tapt tilgang til QR-koder' : 'lost access to QR codes'}</li>
+                <li>{isNorwegian ? 'at innhold slettes for tidlig eller for sent' : 'content being deleted too early or too late'}</li>
+                <li>{isNorwegian ? 'misbruk av tjenesten' : 'abuse of the service'}</li>
+                <li>{isNorwegian ? 'brukerfeil' : 'user errors'}</li>
+                <li>{isNorwegian ? 'feil i applikasjonen' : 'application errors'}</li>
+                <li>{isNorwegian ? 'ekstern lagring eller caching som skjer utenfor vår kontroll' : 'external storage or caching that occurs outside our control'}</li>
+              </ul>
+              <p>
+                {isNorwegian
+                  ? 'Brukeren benytter tjenesten på eget ansvar.'
+                  : 'Users use the service at their own risk.'}
               </p>
             </div>
           </section>
 
-          {/* Payment Terms */}
+          {/* 3. User-Generated Content */}
           <section>
             <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
-              {isNorwegian ? 'Betalingsvilkår' : 'Payment Terms'}
+              3. {isNorwegian ? 'Brukergenerert innhold og ansvar' : 'User-Generated Content and Liability'}
             </h2>
             <div className="space-y-4 text-[#5B5B5B]">
-              <h3 className="font-semibold text-[#3F3F3F]">
-                {isNorwegian ? 'Coins-systemet' : 'Coins System'}
-              </h3>
               <p>
                 {isNorwegian
-                  ? 'Coins brukes for premium-funksjoner. 50 Coins koster 29 NOK. Coins kan ikke refunderes eller overføres mellom kontoer.'
-                  : 'Coins are used for premium features. 50 Coins cost 29 NOK. Coins cannot be refunded or transferred between accounts.'}
+                  ? 'Brukeren er fullt og helt ansvarlig for:'
+                  : 'The user is fully and completely responsible for:'}
               </p>
-
-              <h3 className="font-semibold text-[#3F3F3F] mt-4">
-                {isNorwegian ? 'Ingen angrerett' : 'No Right of Withdrawal'}
-              </h3>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>{isNorwegian ? 'alt innhold de laster opp' : 'all content they upload'}</li>
+                <li>{isNorwegian ? 'all informasjon de deler' : 'all information they share'}</li>
+                <li>{isNorwegian ? 'alle valg av innstillinger (levetid, sikkerhetsmodus, passord, antall skanninger m.m.)' : 'all choices of settings (lifetime, security mode, password, number of scans, etc.)'}</li>
+                <li>{isNorwegian ? 'hvordan QR-koder deles eller brukes' : 'how QR codes are shared or used'}</li>
+                <li>{isNorwegian ? 'eventuelle konsekvenser av delingen' : 'any consequences of sharing'}</li>
+              </ul>
               <p>
                 {isNorwegian
-                  ? 'Siden vi leverer digitale tjenester umiddelbart, gjelder ikke angrerett i henhold til forbrukerkjøpsloven. Refusjon gis kun ved teknisk feil.'
-                  : 'Since we deliver digital services immediately, the right of withdrawal does not apply under consumer purchase law. Refunds are only given for technical errors.'}
+                  ? 'OneTimeQR overvåker ikke og kan ikke kontrollere eller moderere brukerinnhold.'
+                  : 'OneTimeQR does not monitor and cannot control or moderate user content.'}
               </p>
+            </div>
+          </section>
 
-              <h3 className="font-semibold text-[#3F3F3F] mt-4">
-                {isNorwegian ? 'Stripe som betalingspartner' : 'Stripe as Payment Partner'}
-              </h3>
+          {/* 4. Safe Harbour */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              4. {isNorwegian ? 'Ingen innsyn i filer / Safe Harbour' : 'No File Access / Safe Harbour'}
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
               <p>
                 {isNorwegian
-                  ? 'Stripe håndterer alle betalinger. Vi lagrer ikke kortdata. Se Stripes vilkår for mer informasjon.'
-                  : 'Stripe handles all payments. We do not store card data. See Stripe\'s terms for more information.'}
+                  ? 'OneTimeQR logger ikke IP-adresser og har ingen plikt eller mulighet til å se innhold i filer som lastes opp.'
+                  : 'OneTimeQR does not log IP addresses and has no obligation or ability to view content in uploaded files.'}
+              </p>
+              <p>
+                {isNorwegian
+                  ? 'I Secure Mode oppbevares data på en måte som ikke gir OneTimeQR tilgang til innholdet.'
+                  : 'In Secure Mode, data is stored in a way that does not give OneTimeQR access to the content.'}
+              </p>
+              <p>
+                {isNorwegian
+                  ? 'OneTimeQR er en passiv teknisk formidler og omfattes av Safe Harbour-regler. Vi fjerner innhold kun dersom vi mottar gyldig varsel om misbruk.'
+                  : 'OneTimeQR is a passive technical intermediary and is covered by Safe Harbour rules. We only remove content if we receive valid notice of abuse.'}
+              </p>
+            </div>
+          </section>
+
+          {/* 5. Lifetime and Deletion */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              5. {isNorwegian ? 'Levetid og sletting' : 'Lifetime and Deletion'}
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
+              <p>
+                {isNorwegian
+                  ? 'Brukere kan velge hvor lenge en QR-kode skal være aktiv. Dette inkluderer valg som:'
+                  : 'Users can choose how long a QR code should be active. This includes options such as:'}
+              </p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>{isNorwegian ? '10 minutter' : '10 minutes'}</li>
+                <li>{isNorwegian ? '30 minutter' : '30 minutes'}</li>
+                <li>{isNorwegian ? '1 time' : '1 hour'}</li>
+                <li>{isNorwegian ? '24 timer' : '24 hours'}</li>
+                <li>{isNorwegian ? '7 dager' : '7 days'}</li>
+                <li>{isNorwegian ? '"Til noen scanner"' : '"Until someone scans"'}</li>
+              </ul>
+              <p>
+                {isNorwegian
+                  ? 'OneTimeQR forsøker å slette innhold når perioden utløper, men kan ikke garantere slettingstidspunkt eller teknisk perfekt sletting.'
+                  : 'OneTimeQR attempts to delete content when the period expires, but cannot guarantee deletion timing or technically perfect deletion.'}
+              </p>
+            </div>
+          </section>
+
+          {/* 6. One-Time Access */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              6. {isNorwegian ? 'Engangsvisning (valgfritt)' : 'One-Time Access (Optional)'}
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
+              <p>
+                {isNorwegian
+                  ? 'Brukere kan velge innstillinger som begrenser antall skanninger (inkl. én visning). Dette er et funksjonsvalg, ikke en sikkerhetsgaranti.'
+                  : 'Users can choose settings that limit the number of scans (including one view). This is a feature choice, not a security guarantee.'}
+              </p>
+              <p>
+                {isNorwegian
+                  ? 'OneTimeQR garanterer ikke at engangsvisning alltid håndheves fullt ut i alle nettlesere, nettverk eller enheter.'
+                  : 'OneTimeQR does not guarantee that one-time access is always fully enforced in all browsers, networks, or devices.'}
+              </p>
+            </div>
+          </section>
+
+          {/* 7. Security Levels */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              7. {isNorwegian ? 'Sikkerhetsnivåer' : 'Security Levels'}
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
+              <p>
+                {isNorwegian
+                  ? 'Tjenesten tilbyr valg som:'
+                  : 'The service offers options such as:'}
+              </p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>{isNorwegian ? 'Standard Mode' : 'Standard Mode'}</li>
+                <li>{isNorwegian ? 'Secure Mode (to QR-koder)' : 'Secure Mode (two QR codes)'}</li>
+                <li>{isNorwegian ? 'Passordbeskyttelse' : 'Password protection'}</li>
+                <li>{isNorwegian ? 'Begrenset antall skanninger' : 'Limited number of scans'}</li>
+              </ul>
+              <p>
+                {isNorwegian
+                  ? 'Dette er funksjoner som gir ekstra teknisk kontroll for brukeren, men OneTimeQR garanterer ikke at disse mekanismene alltid fungerer under alle forhold.'
+                  : 'These are features that provide additional technical control for the user, but OneTimeQR does not guarantee that these mechanisms always work under all conditions.'}
+              </p>
+            </div>
+          </section>
+
+          {/* 8. Advanced Settings */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              8. {isNorwegian ? 'Avanserte innstillinger' : 'Advanced Settings'}
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
+              <p>
+                {isNorwegian
+                  ? 'Brukeren kan justere:'
+                  : 'Users can adjust:'}
+              </p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>{isNorwegian ? 'maksimal antall skanninger' : 'maximum number of scans'}</li>
+                <li>{isNorwegian ? 'passordkrav' : 'password requirements'}</li>
+                <li>{isNorwegian ? 'farger og design på QR-koden' : 'colors and design of the QR code'}</li>
+              </ul>
+              <p>
+                {isNorwegian
+                  ? 'OneTimeQR har ingen ansvar for konsekvensene av disse valgene.'
+                  : 'OneTimeQR has no responsibility for the consequences of these choices.'}
+              </p>
+            </div>
+          </section>
+
+          {/* 9. File Types, Size and Free Mode */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              9. {isNorwegian ? 'Filtyper, størrelse og gratis-modus' : 'File Types, Size and Free Mode'}
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
+              <p>
+                {isNorwegian
+                  ? 'I gratis-modus kan brukere laste opp innhold begrenset av:'
+                  : 'In free mode, users can upload content limited by:'}
+              </p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>{isNorwegian ? 'maks størrelse (per nå 1 MB)' : 'maximum size (currently 1 MB)'}</li>
+                <li>{isNorwegian ? 'maks varighet (per nå 10 minutter)' : 'maximum duration (currently 10 minutes)'}</li>
+                <li>{isNorwegian ? 'ingen innlogging nødvendig' : 'no login required'}</li>
+              </ul>
+              <p>
+                {isNorwegian
+                  ? 'OneTimeQR kan endre disse grensene når som helst.'
+                  : 'OneTimeQR can change these limits at any time.'}
+              </p>
+            </div>
+          </section>
+
+          {/* 10. Payment and Coins */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              10. {isNorwegian ? 'Betaling og Coins' : 'Payment and Coins'}
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
+              <p>
+                {isNorwegian
+                  ? 'OneTimeQR tilbyr betalte funksjoner gjennom "Coins".'
+                  : 'OneTimeQR offers paid features through "Coins".'}
+              </p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>{isNorwegian ? '50 Coins koster per nå 29 NOK' : '50 Coins currently cost 29 NOK'}</li>
+                <li>{isNorwegian ? 'Coins kan brukes til premium-funksjoner (lengre levetid, Secure Mode, passord m.m.)' : 'Coins can be used for premium features (longer lifetime, Secure Mode, password, etc.)'}</li>
+                <li>{isNorwegian ? 'Coins er ikke valuta og kan ikke byttes inn i penger' : 'Coins are not currency and cannot be exchanged for money'}</li>
+                <li>{isNorwegian ? 'Coins kan ikke refunderes' : 'Coins cannot be refunded'}</li>
+                <li>{isNorwegian ? 'Coins kan endres, fjernes eller få endret verdi når som helst' : 'Coins can be changed, removed, or have their value changed at any time'}</li>
+                <li>{isNorwegian ? 'Coins legges til etter vellykket betaling, men vi garanterer ikke umiddelbar levering' : 'Coins are added after successful payment, but we do not guarantee immediate delivery'}</li>
+              </ul>
+            </div>
+          </section>
+
+          {/* 11. Right of Withdrawal */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              11. {isNorwegian ? 'Angrerett' : 'Right of Withdrawal'}
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
+              <p>
+                {isNorwegian
+                  ? 'Ved kjøp av Coins godtar du at tjenesten leveres umiddelbart, og at angrerett derfor ikke gjelder for digitale ytelser levert på brukerens forespørsel.'
+                  : 'When purchasing Coins, you agree that the service is delivered immediately, and therefore the right of withdrawal does not apply to digital services delivered at the user\'s request.'}
+              </p>
+            </div>
+          </section>
+
+          {/* 12. Stripe */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              12. Stripe
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
+              <p>
+                {isNorwegian
+                  ? 'Stripe behandler alle betalinger. OneTimeQR lagrer ikke kortinformasjon og er ikke ansvarlig for:'
+                  : 'Stripe processes all payments. OneTimeQR does not store card information and is not responsible for:'}
+              </p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>{isNorwegian ? 'betalingstransaksjoner' : 'payment transactions'}</li>
+                <li>{isNorwegian ? 'tekniske feil hos Stripe' : 'technical errors at Stripe'}</li>
+                <li>{isNorwegian ? 'avviste kort' : 'rejected cards'}</li>
+                <li>{isNorwegian ? 'tilbakeføringer (chargebacks)' : 'chargebacks'}</li>
+              </ul>
+            </div>
+          </section>
+
+          {/* 13. Prohibited Use */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              13. {isNorwegian ? 'Forbudt bruk' : 'Prohibited Use'}
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
+              <p>
+                {isNorwegian
+                  ? 'Brukerne har ikke lov til å laste opp:'
+                  : 'Users are not allowed to upload:'}
+              </p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>{isNorwegian ? 'ulovlig materiale' : 'illegal material'}</li>
+                <li>{isNorwegian ? 'skadelig programvare' : 'malicious software'}</li>
+                <li>{isNorwegian ? 'opphavsrettsbeskyttet materiale uten tillatelse' : 'copyrighted material without permission'}</li>
+                <li>{isNorwegian ? 'innhold som trakasserer, skader eller krenker andre' : 'content that harasses, harms, or violates others'}</li>
+                <li>{isNorwegian ? 'innhold brukt i svindel eller misbruk' : 'content used in fraud or abuse'}</li>
+              </ul>
+              <p>
+                {isNorwegian
+                  ? 'Brudd kan føre til sperring av konto eller sletting av innhold.'
+                  : 'Violations may result in account suspension or content deletion.'}
+              </p>
+            </div>
+          </section>
+
+          {/* 14. Changes */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              14. {isNorwegian ? 'Endringer' : 'Changes'}
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
+              <p>
+                {isNorwegian
+                  ? 'OneTimeQR kan endre funksjoner, priser, grenser, sikkerhetsnivåer og vilkår uten varsel. Videre bruk av tjenesten anses som aksept av nye vilkår.'
+                  : 'OneTimeQR can change features, prices, limits, security levels, and terms without notice. Continued use of the service is considered acceptance of new terms.'}
+              </p>
+            </div>
+          </section>
+
+          {/* 15. Applicable Law */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+              15. {isNorwegian ? 'Gjeldende lov' : 'Applicable Law'}
+            </h2>
+            <div className="space-y-4 text-[#5B5B5B]">
+              <p>
+                {isNorwegian
+                  ? 'Tjenesten reguleres av norsk lov. Eventuelle tvister behandles av Oslo tingrett med mindre annet følger av ufravikelig lov.'
+                  : 'The service is governed by Norwegian law. Any disputes will be handled by Oslo District Court unless otherwise required by mandatory law.'}
               </p>
             </div>
           </section>

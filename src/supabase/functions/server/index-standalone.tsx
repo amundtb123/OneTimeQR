@@ -125,7 +125,7 @@ async function cleanupExpired() {
 
       // Delete immediately if expired
       if (isExpired) {
-        console.log(`Cleanup: Deleting expired QR drop ${qrDrop.id}`);
+        // No logging of QR drop IDs for security
         await deleteQrDrop(qrDrop.id);
         deletedCount++;
       }
@@ -178,10 +178,12 @@ async function deleteQrDrop(id: string) {
           .remove([qrDrop.filePath]);
         
         if (error && error.message !== 'Object not found') {
-          console.error(`Error deleting file ${qrDrop.filePath}:`, error);
+          // Log error without file path
+          console.error('Error deleting file');
         }
       } catch (error) {
-        console.error(`Error during file deletion for ${qrDrop.filePath}:`, error);
+        // Log error without file path
+        console.error('Error during file deletion');
       }
     }
   }
@@ -198,7 +200,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     const file = formData.get('file') as File;
     const metadata = JSON.parse(formData.get('metadata') as string);
 
-    console.log('Upload endpoint - received metadata:', JSON.stringify(metadata, null, 2));
+    // No logging of metadata for security (null-logging architecture)
 
     if (!file) {
       return c.json({ error: 'No file provided' }, 400);
@@ -212,14 +214,13 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
         const { data: { user }, error } = await supabase.auth.getUser(accessToken);
         if (user?.id) {
           userId = user.id;
-          console.log('Authenticated upload from user:', userId);
+          // No logging of user IDs for security
         }
       } catch (error) {
-        console.log('Authentication failed during upload, allowing anonymous upload');
+        // Silent auth failure - allow anonymous upload
       }
-    } else {
-      console.log('Anonymous upload (no auth token provided)');
     }
+    // No logging of authentication status for security
 
     // Generate unique ID
     const id = crypto.randomUUID();
@@ -236,7 +237,8 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       });
 
     if (uploadError) {
-      console.error('Upload error:', uploadError);
+      // Log error without sensitive details
+      console.error('Upload error occurred');
       return c.json({ error: `Failed to upload file: ${uploadError.message}` }, 500);
     }
 
@@ -314,14 +316,13 @@ app.post('/make-server-c3c9181e/create', async (c) => {
         const { data: { user }, error } = await supabase.auth.getUser(accessToken);
         if (user?.id) {
           userId = user.id;
-          console.log('Authenticated creation from user:', userId);
+          // No logging of user IDs for security
         }
       } catch (error) {
-        console.log('Authentication failed during create, allowing anonymous creation');
+        // Silent auth failure - allow anonymous creation
       }
-    } else {
-      console.log('Anonymous creation (no auth token provided)');
     }
+    // No logging of authentication status for security
 
     // Validate content type
     if (!['text', 'url', 'bundle'].includes(metadata.contentType)) {
@@ -406,7 +407,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
     
     // If NO access token is provided, generate one and return it in JSON
     if (!accessToken) {
-      console.log(`No token provided for QR ${id} - generating fresh token`);
+      // No logging of QR IDs for security
       
       // Generate fresh access token
       const token = crypto.randomUUID();
@@ -445,12 +446,11 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
     
     // Token is valid - delete it immediately (one-time use)
     await kv.del(`access:${accessToken}`);
-    console.log(`Access token used and deleted: ${accessToken}`);
-    
+    // No logging of tokens for security
+
     const qrDrop = await kv.get(`qrdrop:${id}`);
 
-    console.log('Getting QR drop:', id);
-    console.log('QR drop data:', JSON.stringify(qrDrop, null, 2));
+    // No logging of QR drop data for security (null-logging architecture)
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
@@ -487,7 +487,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
 
     // If expired, delete it immediately and return 410 Gone
     if (isExpired) {
-      console.log(`QR drop ${id} is expired (${expiredReason}) - deleting immediately`);
+      // No logging of QR IDs for security
       await deleteQrDrop(id);
       return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
     }
@@ -502,7 +502,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
 
         if (!signedUrlError && signedUrlData) {
           fileUrl = signedUrlData.signedUrl;
-          console.log(`✅ Included file URL in response for faster loading`);
+          // No logging of file URLs for security
         }
       } catch (error) {
         console.error('Error getting signed URL (non-critical):', error);
@@ -597,7 +597,7 @@ app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    console.log(`Lightweight check for QR drop ${id} - secureMode: ${qrDrop.secureMode}`);
+    // No logging of QR drop details for security
     
     return c.json({ 
       secureMode: qrDrop.secureMode || false,
@@ -662,7 +662,7 @@ app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
       }, 410);
     }
 
-    console.log('Getting file from path:', qrDrop.filePath);
+    // No logging of file paths for security
 
     const { data: signedUrlData, error: signedUrlError } = await supabase.storage
       .from(BUCKET_NAME)
@@ -716,7 +716,7 @@ app.get('/make-server-c3c9181e/qrdrops', async (c) => {
           userId = user.id;
         }
       } catch (error) {
-        console.log('No authenticated user (showing all QR drops)');
+        // Silent auth failure - show all QR drops
       }
     }
 
@@ -814,27 +814,14 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
 
     return c.json({ url: session.url });
   } catch (error) {
-    console.error('Error creating checkout session:', error);
+      console.error('Error creating checkout session');
     return c.json({ error: `Failed to create checkout session: ${error.message}` }, 500);
   }
 });
 
 // Stripe Webhook - Handle payment completion
 app.post('/make-server-c3c9181e/webhook', async (c) => {
-  console.log('🔔 Webhook received!');
-  
-  // Safely log headers
-  try {
-    const headers: Record<string, string> = {};
-    if (c.req.headers) {
-      c.req.headers.forEach((value, key) => {
-        headers[key] = value;
-      });
-    }
-    console.log('📋 Headers:', JSON.stringify(headers, null, 2));
-  } catch (headerError) {
-    console.log('⚠️ Could not log headers:', headerError);
-  }
+  // No logging of webhook receipt for security (null-logging architecture)
   
   // Check if service role key is set
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -842,7 +829,6 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
     console.error('❌ SUPABASE_SERVICE_ROLE_KEY not set!');
     return c.json({ error: 'Service role key not configured' }, 500);
   }
-  console.log('✅ Service role key found');
   
   try {
     const signature = c.req.header('stripe-signature');
@@ -850,11 +836,9 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       console.error('❌ Missing stripe-signature header');
       return c.json({ error: 'Missing stripe-signature header' }, 400);
     }
-    console.log('✅ Stripe signature found');
 
     const body = await c.req.text();
-    console.log('📦 Webhook body length:', body.length);
-    console.log('📦 Webhook body preview:', body.substring(0, 200));
+    // No logging of webhook body for security
     
     const Stripe = (await import('npm:stripe@17.3.1')).default;
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
@@ -866,25 +850,16 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       console.error('❌ STRIPE_WEBHOOK_SECRET not set');
       return c.json({ error: 'Webhook secret not configured' }, 500);
     }
-    console.log('✅ Webhook secret found');
-    console.log('🔑 Webhook secret preview:', webhookSecret.substring(0, 10) + '...' + webhookSecret.substring(webhookSecret.length - 5));
-    console.log('🔑 Signature preview:', signature.substring(0, 20) + '...');
+    // No logging of secrets or signatures for security
 
     let event;
     try {
       // Use constructEventAsync for Deno Edge Functions (async crypto required)
       event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret);
-      console.log('✅ Webhook signature verified');
-      console.log('📋 Event type:', event.type);
-      console.log('📋 Event ID:', event.id);
+      // No logging of event details for security
     } catch (err) {
-      console.error('❌ Webhook signature verification failed:', err);
-      console.error('❌ Error message:', err?.message);
-      console.error('❌ Error type:', err?.constructor?.name);
-      console.error('❌ Body length:', body.length);
-      console.error('❌ Signature length:', signature?.length);
-      console.error('❌ Webhook secret length:', webhookSecret?.length);
-      console.error('❌ Full error:', JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
+      // Log error without sensitive details
+      console.error('❌ Webhook signature verification failed');
       return c.json({ error: `Webhook Error: ${err?.message || 'Signature verification failed'}` }, 400);
     }
 
@@ -895,26 +870,16 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       const userEmail = session.metadata?.userEmail || session.customer_email || 'unknown';
       const coinsToAdd = parseInt(session.metadata?.coins || '50', 10);
 
-      console.log('🎉 Checkout session completed!');
-      console.log('📋 Session details:', {
-        sessionId: session.id,
-        userId: userId,
-        userEmail: userEmail,
-        paymentStatus: session.payment_status,
-        amountTotal: session.amount_total,
-        currency: session.currency,
-        coinsToAdd: coinsToAdd,
-      });
+      // No logging of session details for security (null-logging architecture)
 
       if (!userId) {
         console.error('❌ No userId in session metadata');
-        console.error('Session metadata:', session.metadata);
         return c.json({ error: 'Missing userId in session metadata' }, 400);
       }
 
       // Idempotency check: Check if this session has already been processed
       const sessionId = session.id;
-      console.log('🔍 Checking idempotency for session:', sessionId);
+      // No logging of session IDs for security
       
       const { data: existingSession, error: checkError } = await supabase
         .from('processed_checkout_sessions')
@@ -922,9 +887,7 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
         .eq('session_id', sessionId)
         .single();
 
-      console.log('🔍 Idempotency check result:', {
-        found: !!existingSession,
-        error: checkError?.code,
+      // No logging of idempotency check results for security
         coinsAdded: existingSession?.coins_added,
         processedAt: existingSession?.processed_at,
       });
@@ -970,14 +933,14 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
           .single();
         
         if (insertError) {
-          console.error('❌ Error creating user profile:', insertError);
+          console.error('❌ Error creating user profile');
           return c.json({ error: 'Failed to create user profile' }, 500);
         }
-        console.log(`✅ Created profile and added ${coinsToAdd} coins. New balance: ${newProfile.coins}`);
+        // No logging of coin amounts or balances for security
       } else {
         const oldCoins = profile.coins || 0;
         const newCoins = oldCoins + coinsToAdd;
-        console.log(`💰 Current coins: ${oldCoins}, Adding: ${coinsToAdd}, New total: ${newCoins}`);
+        // No logging of coin amounts for security
         
         // Update existing profile
         const { data: updatedProfile, error: updateError } = await supabase
@@ -988,11 +951,10 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
           .single();
 
         if (updateError) {
-          console.error('❌ Error updating coins:', updateError);
-          console.error('Update error details:', JSON.stringify(updateError, null, 2));
+          console.error('❌ Error updating coins');
           return c.json({ error: 'Failed to update coins' }, 500);
         }
-        console.log(`✅ Updated coins. New balance: ${updatedProfile.coins}`);
+        // No logging of balances for security
       }
 
       // Mark this session as processed (idempotency) - BEFORE adding coins to prevent race conditions
@@ -1008,7 +970,7 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       if (insertSessionError) {
         // If insert fails, check if it's because session already exists (race condition)
         if (insertSessionError.code === '23505') { // Unique violation
-          console.log('⚠️ Session already exists in processed table (race condition) - skipping coin addition');
+          // No logging of session details for security
           return c.json({ 
             received: true, 
             userId: userId,
@@ -1017,13 +979,10 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
             message: 'Session already processed (race condition)'
           });
         }
-        console.error('❌ Error saving processed session:', insertSessionError);
+        console.error('❌ Error saving processed session');
         // Don't fail the webhook, but log the error
-      } else {
-        console.log('✅ Session marked as processed:', sessionId);
       }
-
-      console.log(`🎊 Successfully added ${coinsToAdd} coins to user ${userId}`);
+      // No logging of processing status for security
       
       // Verify the coins were actually added
       const { data: verifyProfile, error: verifyError } = await supabase
@@ -1033,10 +992,9 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
         .single();
       
       if (verifyError) {
-        console.error('❌ Error verifying coins after update:', verifyError);
-      } else {
-        console.log(`✅ Verified: User ${userId} now has ${verifyProfile.coins} coins`);
+        console.error('❌ Error verifying coins after update');
       }
+      // No logging of verification results for security
       
       return c.json({ 
         received: true, 
@@ -1046,14 +1004,11 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       });
     }
 
-    console.log('ℹ️ Webhook event received but not handled:', event.type);
+    // No logging of unhandled events for security
     return c.json({ received: true, eventType: event.type });
   } catch (error) {
-    console.error('❌ Error processing webhook:', error);
-    console.error('❌ Error type:', error?.constructor?.name);
-    console.error('❌ Error message:', error?.message);
-    console.error('❌ Error stack:', error?.stack);
-    console.error('❌ Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+    // Log error without sensitive details
+    console.error('❌ Error processing webhook');
     return c.json({ 
       error: `Webhook error: ${error?.message || 'Unknown error'}`,
       errorType: error?.constructor?.name,
@@ -1116,13 +1071,13 @@ app.post('/make-server-c3c9181e/deduct-coins', async (c) => {
       .single();
 
     if (updateError) {
-      console.error('Error deducting coins:', updateError);
+      console.error('Error deducting coins');
       return c.json({ error: 'Failed to deduct coins' }, 500);
     }
 
     return c.json({ success: true, coins: updatedProfile.coins });
   } catch (error) {
-    console.error('Error in deduct-coins endpoint:', error);
+    console.error('Error in deduct-coins endpoint');
     return c.json({ error: `Server error: ${error.message}` }, 500);
   }
 });

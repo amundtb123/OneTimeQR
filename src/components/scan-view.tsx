@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from './ui/alert';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { UnlockScreen } from './unlock-screen';
+import { NordicLogo } from './nordic-logo';
 import { getQrDrop, verifyPassword, incrementScanCount, getFileUrl, incrementDownloadCount } from '../utils/api-client';
 import { decryptData, decryptFile } from '../utils/encryption';
 import { toast } from 'sonner@2.0.3';
@@ -22,6 +23,30 @@ interface ScanViewProps {
 
 export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = false, unlockKey = null }: ScanViewProps) {
   const { t } = useTranslation();
+  const [showWelcomeScreen, setShowWelcomeScreen] = useState(false);
+  
+  // Check if this is a shared link (first visit, no access token)
+  useEffect(() => {
+    if (isDirectScan) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const hasAccessToken = urlParams.has('access');
+      const hasKey = urlParams.has('key');
+      
+      // Show welcome screen only on first visit (no access token or key)
+      if (!hasAccessToken && !hasKey) {
+        setShowWelcomeScreen(true);
+        // Auto-hide after 2 seconds
+        const timer = setTimeout(() => {
+          setShowWelcomeScreen(false);
+        }, 2000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isDirectScan]);
+  
+  const handleGoHome = () => {
+    window.location.href = '/';
+  };
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -402,9 +427,43 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     }
   };
 
+  // Welcome screen for shared links
+  if (showWelcomeScreen && isDirectScan) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F7F2EE] to-[#E1C7BA]">
+        <Card className="p-12 text-center max-w-md mx-4">
+          <div className="flex justify-center mb-6">
+            <NordicLogo className="w-20 h-20" />
+          </div>
+          <h1 className="text-2xl font-bold text-[#3F3F3F] mb-3">
+            {t('scanView.somethingShared', { defaultValue: "Something's shared with you!" })}
+          </h1>
+          <p className="text-[#5B5B5B] mb-6">
+            {t('scanView.openingContent', { defaultValue: 'Opening your content...' })}
+          </p>
+          <Loader2 className="size-8 text-indigo-600 mx-auto animate-spin" />
+        </Card>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="max-w-3xl mx-auto">
+        {/* Logo header - always visible and clickable */}
+        <div className="mb-6">
+          <button
+            onClick={handleGoHome}
+            className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
+            aria-label="Go to home"
+          >
+            <NordicLogo className="w-10 h-10 sm:w-12 sm:h-12" />
+            <div>
+              <h1 className="text-[#3F3F3F] text-lg sm:text-xl">{t('common.appName')}</h1>
+            </div>
+          </button>
+        </div>
+        
         {!isDirectScan && (
           <Button variant="ghost" onClick={onBack} className="mb-6">
             <ArrowLeft className="size-4 mr-2" />
@@ -423,6 +482,20 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   if (error) {
     return (
       <div className="max-w-3xl mx-auto">
+        {/* Logo header - always visible and clickable */}
+        <div className="mb-6">
+          <button
+            onClick={handleGoHome}
+            className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
+            aria-label="Go to home"
+          >
+            <NordicLogo className="w-10 h-10 sm:w-12 sm:h-12" />
+            <div>
+              <h1 className="text-[#3F3F3F] text-lg sm:text-xl">{t('common.appName')}</h1>
+            </div>
+          </button>
+        </div>
+        
         {!isDirectScan && (
           <Button variant="ghost" onClick={onBack} className="mb-6">
             <ArrowLeft className="size-4 mr-2" />
@@ -529,6 +602,20 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
 
   return (
     <div className="max-w-3xl mx-auto">
+      {/* Logo header - always visible and clickable */}
+      <div className="mb-6">
+        <button
+          onClick={handleGoHome}
+          className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
+          aria-label="Go to home"
+        >
+          <NordicLogo className="w-10 h-10 sm:w-12 sm:h-12" />
+          <div>
+            <h1 className="text-[#3F3F3F] text-lg sm:text-xl">{t('common.appName')}</h1>
+          </div>
+        </button>
+      </div>
+      
       {!isDirectScan && (
         <Button variant="ghost" onClick={onBack} className="mb-6">
           <ArrowLeft className="size-4 mr-2" />

@@ -183,6 +183,8 @@ const resources = {
         scanToShare: 'Scan QR code to share – no link, no history',
       },
       scanView: {
+        somethingShared: "Something's shared with you!",
+        openingContent: 'Opening your content...',
         back: 'Back',
         loadingQr: 'Loading QR code...',
         couldNotLoadQr: 'Could not load QR code',
@@ -456,6 +458,8 @@ const resources = {
         scanToShare: 'Skann QR-koden for å dele – ingen lenke, ingen historikk',
       },
       scanView: {
+        somethingShared: 'Noe er delt med deg!',
+        openingContent: 'Åpner innholdet ditt...',
         back: 'Tilbake',
         loadingQr: 'Laster QR-kode...',
         couldNotLoadQr: 'Kunne ikke laste QR-kode',
@@ -743,6 +747,8 @@ const resources = {
         scanToShare: 'Skann QR-koden for å dele – ingen lenke, ingen historikk',
       },
       scanView: {
+        somethingShared: 'Noe er delt med deg!',
+        openingContent: 'Åpner innholdet ditt...',
         back: 'Tilbake',
         loadingQr: 'Laster QR-kode...',
         couldNotLoadQr: 'Kunne ikke laste QR-kode',

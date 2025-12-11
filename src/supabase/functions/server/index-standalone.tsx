@@ -283,6 +283,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       password: hashedPassword,
       qrStyle: metadata.qrStyle || null,
       qrCodeDataUrl: metadata.qrCodeDataUrl || null,
+      // QR #2 image is NOT stored on server for security (contains decryption key in URL)
       encrypted: metadata.encrypted || false,
       secureMode: metadata.secureMode || false,
       // encryptionKey is NEVER stored on server - it's only in QR codes for security
@@ -379,6 +380,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       password: hashedPassword,
       qrStyle: metadata.qrStyle || null,
       qrCodeDataUrl: metadata.qrCodeDataUrl || null,
+      // QR #2 image is NOT stored on server for security (contains decryption key in URL)
       encrypted: metadata.encrypted || false,
       secureMode: metadata.secureMode || false,
       // encryptionKey is NEVER stored on server - it's only in QR codes for security

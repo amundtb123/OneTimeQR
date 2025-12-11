@@ -40,7 +40,7 @@ export interface QrDrop {
   qrCodeUrl2?: string; // QR #2 for Secure Mode (unlock code)
 }
 
-function convertToQrDrop(data: QrDropData, qrCodeUrl: string): QrDrop {
+function convertToQrDrop(data: QrDropData, qrCodeUrl: string, qrCode2Url?: string): QrDrop {
   return {
     id: data.id,
     title: data.title || undefined,
@@ -61,6 +61,8 @@ function convertToQrDrop(data: QrDropData, qrCodeUrl: string): QrDrop {
     createdAt: new Date(data.createdAt),
     expiredAt: data.expiredAt ? new Date(data.expiredAt) : undefined,
     qrCodeUrl,
+    secureMode: data.secureMode || false,
+    qrCodeUrl2: qrCode2Url || undefined,
   };
 }
 
@@ -208,30 +210,12 @@ function AppContent() {
               qrCodeUrl = await createBrandedQrCode(baseQr);
             }
             
-            // If Secure Mode, generate QR #2 (unlock code)
-            if (qr.secureMode) {
-              const unlockUrl = `${window.location.origin}/scan/${qr.id}?unlock=1`;
-              
-              if (qr.qrStyle) {
-                const baseQr2 = await generateStyledQrCode(unlockUrl, qr.qrStyle);
-                qrCodeUrl2 = await createBrandedQrCode(baseQr2);
-              } else {
-                const baseQr2 = await QRCode.toDataURL(unlockUrl, {
-                  width: 400,
-                  margin: 2,
-                  color: {
-                    dark: '#E8927E', // Use coral color for QR #2
-                    light: '#FFFFFF',
-                  },
-                });
-                qrCodeUrl2 = await createBrandedQrCode(baseQr2);
-              }
-            }
-            
+            // If Secure Mode, QR #2 cannot be regenerated because:
+            // 1. The encryption key is not stored on server (for security)
+            // 2. QR #2 image is not stored on server (contains key in URL)
+            // QR #2 is only available when first created (stored locally in QrDrop)
+            // After page reload, QR #2 will be undefined and user must download it when created
             const qrDrop = convertToQrDrop(qr, qrCodeUrl);
-            if (qrCodeUrl2) {
-              qrDrop.qrCodeUrl2 = qrCodeUrl2;
-            }
             return qrDrop;
           } catch (error) {
             console.error(`Error generating QR for ${qr.id}:`, error);

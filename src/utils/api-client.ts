@@ -89,6 +89,9 @@ export interface QrDropData {
   viewOnly: boolean;
   password: string | null;
   qrStyle?: any; // QR code styling preferences
+  qrCodeDataUrl?: string; // QR #1 image (data URL)
+  // QR #2 image is NOT stored on server for security (contains decryption key)
+  secureMode?: boolean; // Secure Mode flag
   createdAt: number;
   expiredAt?: number; // Timestamp when marked as expired
 }

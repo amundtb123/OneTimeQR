@@ -107,6 +107,7 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
       {/* QR Code Display */}
       <SoftCard>
         {qrDrop.secureMode && qrDrop.qrCodeUrl2 ? (
+          // QR #2 is available (stored locally when created)
           // Secure Mode: Show BOTH QR codes
           <div>
             <div className="text-center mb-6">
@@ -193,6 +194,31 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
                 <Download className="size-5 mr-2" />
                 {t('qrDetail.downloadBoth')}
               </NordicButton>
+              <NordicButton onClick={handleShare} variant="blue" size="lg">
+                <Share2 className="size-5 mr-2" />
+                {t('qrDetail.shareQr1')}
+              </NordicButton>
+            </div>
+          </div>
+        ) : qrDrop.secureMode ? (
+          // Secure Mode but QR #2 not available (page reloaded)
+          <div className="text-center py-12">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl mb-4"
+              style={{ 
+                background: 'linear-gradient(135deg, #5D8CC9, #E8927E)',
+                color: 'white'
+              }}
+            >
+              <Shield className="size-5" />
+              <span>{t('qrDetail.secureMode')}</span>
+            </div>
+            <h2 className="text-[#3F3F3F] mb-4">{t('qrDetail.qr2NotAvailable', { defaultValue: 'QR #2 not available' })}</h2>
+            <p className="text-[#5B5B5B] mb-6 max-w-md mx-auto">
+              {t('qrDetail.qr2SecurityNote', { 
+                defaultValue: 'For security reasons, QR #2 (unlock code) is only available when first created. Please download both QR codes immediately after creation.' 
+              })}
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <NordicButton onClick={handleShare} variant="blue" size="lg">
                 <Share2 className="size-5 mr-2" />
                 {t('qrDetail.shareQr1')}

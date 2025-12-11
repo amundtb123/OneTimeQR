@@ -367,6 +367,23 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       const originalFileType = files.length > 0 ? files[0].type : undefined;
       const originalFileName = files.length > 0 ? files[0].name : undefined;
       
+      // Generate QR #2 image if Secure Mode (before creating metadata)
+      let qr2DataUrl: string | undefined;
+      if (secureMode && encryptionKey) {
+        const unlockUrl = createDecryptionKeyUrl(window.location.origin, tempId, encryptionKey);
+        const qr2Base = await generateStyledQrCode(unlockUrl, {
+          dotsColor: '#000000',
+          backgroundColor: '#FFFFFF',
+          gradientType: 'none',
+          dotsType: 'square',
+          cornersSquareType: 'square',
+          cornersDotType: 'square',
+          logoSize: 0.2,
+          logoMargin: 4,
+        });
+        qr2DataUrl = await createBrandedQrCode(qr2Base);
+      }
+      
       const metadata = {
         title: title.trim() || undefined,
         contentType: 'bundle' as const, // New type for mixed content
@@ -380,7 +397,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         noPreview,
         password: usePassword ? password : undefined,
         qrStyle, // Store QR styling preferences
-        qrCodeDataUrl: brandedQrCode, // Already generated
+        qrCodeDataUrl: brandedQrCode, // Already generated (QR #1)
+        qrCode2DataUrl: qr2DataUrl, // Store QR #2 image for Secure Mode
         secureMode, // Flag to indicate Secure Mode
         encrypted: secureMode, // Flag for backend to know data is encrypted
         // Store original file info for encrypted files (needed for preview/decryption)
@@ -436,15 +454,15 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       
       // SECURE MODE: Generate TWO QR codes
       if (secureMode && encryptionKey) {
-        // QR #1: Access code (normal URL)
+        // QR #1: Access code (normal URL) - regenerate with actual ID
         const accessUrl = `${window.location.origin}/scan/${response.id}`;
         const qr1Base = await generateStyledQrCode(accessUrl, qrStyle);
         const qr1Final = await createBrandedQrCode(qr1Base);
         
         // QR #2: Unlock code (contains decryption key)
+        // IMPORTANT: QR #2 image is NOT stored on server for security
+        // It's only stored locally in the QrDrop object
         const unlockUrl = createDecryptionKeyUrl(window.location.origin, response.id, encryptionKey);
-        console.log('🔑 QR #2 URL generated:', unlockUrl);
-        // Use high contrast (black on white) with standard square corners for maximum scanner readability
         const qr2Base = await generateStyledQrCode(unlockUrl, {
           dotsColor: '#000000', // Pure black for maximum contrast
           backgroundColor: '#FFFFFF', // Pure white background
@@ -492,7 +510,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           createdAt: new Date(),
           qrCodeUrl: qr1Final, // Store QR #1 as primary
           secureMode: true, // Mark as Secure Mode
-          qrCodeUrl2: qr2Final, // Store QR #2
+          qrCodeUrl2: qr2Final, // Store QR #2 (from metadata)
         };
 
         onQrCreated(newQrDrop);

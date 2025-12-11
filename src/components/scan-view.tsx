@@ -153,7 +153,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             setIsUnlocked(true);
             // Load file URL only if there is actually a file (not just text/URL) AND we don't already have it
             if ((newResponse.qrDrop.contentType === 'file' || newResponse.qrDrop.contentType === 'bundle') && newResponse.qrDrop.filePath && !fileUrl) {
-              await loadFile();
+              // Load file and decrypt if needed - pass qrDrop data directly
+              await loadFileWithData(newResponse.qrDrop);
             }
             
             // Only increment scan count AFTER file is loaded (important for "scan once" type)
@@ -227,7 +228,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           setIsUnlocked(true);
           // Load file URL only if there is actually a file (not just text/URL)
           if ((response.qrDrop.contentType === 'file' || response.qrDrop.contentType === 'bundle') && response.qrDrop.filePath) {
-            await loadFile();
+            // Load file and decrypt if needed - pass qrDrop data directly
+            await loadFileWithData(response.qrDrop);
           }
           
           // Only increment scan count AFTER file is loaded (important for "scan once" type)
@@ -259,26 +261,33 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   }, [qrDropId, isPreview, isDirectScan, unlockKey]);
 
   const loadFile = async () => {
+    // Use current qrDrop from state
+    if (!qrDrop) return;
+    await loadFileWithData(qrDrop);
+  };
+
+  const loadFileWithData = async (qrDropData: any) => {
     try {
       const response = await getFileUrl(currentQrDropId);
       setFileUrl(response.fileUrl);
       
       // If file is encrypted and we have the key, decrypt it for preview
-      const isEncrypted = (qrDrop?.secureMode || qrDrop?.fileName?.endsWith('.encrypted')) && unlockKey;
+      const isEncrypted = (qrDropData?.secureMode || qrDropData?.fileName?.endsWith('.encrypted')) && unlockKey;
       if (isEncrypted && unlockKey && response.fileUrl) {
         try {
-          console.log('🔒 Decrypting file for preview...');
+          console.log('🔒 Decrypting file for preview...', { secureMode: qrDropData?.secureMode, fileType: qrDropData?.fileType });
           const fileResponse = await fetch(response.fileUrl);
           const encryptedBlob = await fileResponse.blob();
           const decryptedBlob = await decryptFile(encryptedBlob, unlockKey);
           
           // Create blob URL with correct MIME type for preview
-          // Use original file type from qrDrop if available
-          const blobType = qrDrop?.fileType || 'application/octet-stream';
+          // Use original file type from qrDropData if available
+          const blobType = qrDropData?.fileType || 'application/octet-stream';
+          console.log('📦 Creating blob with type:', blobType, 'size:', decryptedBlob.size);
           const typedBlob = new Blob([decryptedBlob], { type: blobType });
           const decryptedUrl = URL.createObjectURL(typedBlob);
           setDecryptedFileUrl(decryptedUrl);
-          console.log('✅ File decrypted for preview with type:', blobType);
+          console.log('✅ File decrypted for preview with type:', blobType, 'URL:', decryptedUrl.substring(0, 50) + '...');
         } catch (error) {
           console.error('Error decrypting file for preview:', error);
           // Continue with encrypted file URL - user can still download
@@ -298,9 +307,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         setIsUnlocked(true);
         setPasswordError(false);
         
-        // Load file first if it exists
+        // Load file first if it exists - use qrDrop from state
         if (qrDrop?.filePath) {
-          await loadFile();
+          await loadFileWithData(qrDrop);
         }
         
         // Then increment scan count (important for "scan once" type)

@@ -41,6 +41,7 @@ const resources = {
         language: 'Language',
         english: 'English',
         norwegian: 'Norwegian',
+        back: 'Back',
       },
       upload: {
         getStarted: 'Get started right away',
@@ -117,10 +118,10 @@ const resources = {
         loadingCoins: 'Loading coins...',
         coinsDeducted: '{{amount}} coins deducted',
         coinDeductionFailed: 'QR created but coins could not be deducted. Please contact support.',
-        acceptTerms: 'I accept',
+        acceptTerms: 'I accept the Terms of Use and Privacy Policy',
+        acceptTermsPrefix: 'I accept',
         termsAndPrivacy: 'Terms & Privacy',
-        acceptTermsRequired: 'You must accept the Terms & Privacy to generate a QR code',
-        oneTimeAccess: 'One-time access (file deleted after first scan)',
+        mustAcceptTerms: 'You must accept the Terms of Use to continue',
       },
       coins: {
         yourCoins: 'Your coins',
@@ -327,6 +328,7 @@ const resources = {
         language: 'Språk',
         english: 'Engelsk',
         norwegian: 'Norsk',
+        back: 'Tilbake',
       },
       upload: {
         getStarted: 'Kom i gang direkte',
@@ -403,10 +405,10 @@ const resources = {
         loadingCoins: 'Laster coins...',
         coinsDeducted: '{{amount}} coins trukket',
         coinDeductionFailed: 'QR opprettet, men coins kunne ikke trekkes. Vennligst kontakt support.',
-        acceptTerms: 'Jeg godtar',
+        acceptTerms: 'Jeg godtar Vilkår for bruk og Personvernregler',
+        acceptTermsPrefix: 'Jeg godtar',
         termsAndPrivacy: 'Vilkår & Personvern',
-        acceptTermsRequired: 'Du må godta Vilkår & Personvern for å generere QR-kode',
-        oneTimeAccess: 'Engangsvisning (fil slettes etter første skanning)',
+        mustAcceptTerms: 'Du må godta Vilkår for bruk for å fortsette',
       },
       qrList: {
         noQrsYet: 'Ingen QR-koder ennå',
@@ -599,6 +601,7 @@ const resources = {
         language: 'Språk',
         english: 'Engelsk',
         norwegian: 'Norsk',
+        back: 'Tilbake',
       },
       upload: {
         getStarted: 'Kom i gang direkte',
@@ -675,6 +678,10 @@ const resources = {
         loadingCoins: 'Laster coins...',
         coinsDeducted: '{{amount}} coins trukket',
         coinDeductionFailed: 'QR opprettet, men coins kunne ikke trekkes. Vennligst kontakt support.',
+        acceptTerms: 'Jeg godtar Vilkår for bruk og Personvernregler',
+        acceptTermsPrefix: 'Jeg godtar',
+        termsAndPrivacy: 'Vilkår & Personvern',
+        mustAcceptTerms: 'Du må godta Vilkår for bruk for å fortsette',
       },
       coins: {
         yourCoins: 'Dine mynter',

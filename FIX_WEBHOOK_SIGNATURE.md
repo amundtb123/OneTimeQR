@@ -77,3 +77,4 @@ Etter at du har oppdatert secret:
 1. **Test webhook i Stripe** → Du skal få `200 OK` i stedet for `400 Bad Request`
 2. **Sjekk Supabase logs** → Du skal se `✅ Webhook signature verified`
 3. **Test ekte betaling** → Coins skal oppdateres automatisk
+

@@ -49,3 +49,4 @@ Stripe Webhook Secret ble eksponert i Git (i `VERIFY_WEBHOOK_SECRET.md`).
 - **Aldri** legg secrets i Git eller dokumentasjon
 - Bruk alltid Supabase Secrets eller miljøvariabler
 - Hvis du må dokumentere, bruk placeholders som `whsec_...` eller `[YOUR_SECRET]`
+

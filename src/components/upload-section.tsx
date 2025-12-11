@@ -6,7 +6,7 @@ import type { QrDrop } from '../App';
 import { uploadFile, createQrDrop } from '../utils/api-client';
 import { generateStyledQrCode } from '../utils/qr-generator';
 import { createBrandedQrCode } from '../utils/qr-with-branding';
-import { generateEncryptionKey, encryptData, encryptFile, createDecryptionKeyUrl } from '../utils/encryption';
+import { generateEncryptionKey, encryptData, createDecryptionKeyUrl } from '../utils/encryption';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { NordicLogo } from './nordic-logo';
@@ -269,9 +269,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       return;
     }
 
-    // Check if terms are accepted
+    // Check if terms of use are accepted
     if (!acceptedTerms) {
-      toast.error(t('upload.acceptTermsRequired'));
+      toast.error(t('upload.mustAcceptTerms'));
       return;
     }
 
@@ -320,11 +320,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       const expiryDate = calculateExpiryDate(expiryType);
       
       // SECURE MODE: Generate encryption key and encrypt content
-      // IMPORTANT: encryptionKey is NEVER sent to server - it's only in QR codes
       let encryptionKey: string | undefined;
       let encryptedTextContent: string | undefined;
       let encryptedUrlContent: string | undefined;
-      let fileToUpload: File | undefined;
       
       if (secureMode) {
         encryptionKey = await generateEncryptionKey();
@@ -339,19 +337,6 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           const urlJson = JSON.stringify(urls);
           encryptedUrlContent = await encryptData(urlJson, encryptionKey);
         }
-        
-        // Encrypt file if exists (on client side, before upload)
-        if (files.length > 0) {
-          console.log('🔒 Encrypting file before upload...');
-          const encryptedBlob = await encryptFile(files[0], encryptionKey);
-          // Create a new File object with encrypted data
-          // Use original filename but mark as encrypted
-          fileToUpload = new File([encryptedBlob], files[0].name + '.encrypted', {
-            type: 'application/octet-stream',
-            lastModified: files[0].lastModified
-          });
-          console.log('✅ File encrypted:', fileToUpload.name, fileToUpload.size);
-        }
       }
       
       // Generate QR code FIRST (before sending to backend)
@@ -362,10 +347,6 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       const qrUrl = `${window.location.origin}/scan/${tempId}`;
       const qrCodeDataUrl = await generateStyledQrCode(qrUrl, qrStyle);
       const brandedQrCode = await createBrandedQrCode(qrCodeDataUrl);
-      
-      // Store original file type for encrypted files (needed for preview)
-      const originalFileType = files.length > 0 ? files[0].type : undefined;
-      const originalFileName = files.length > 0 ? files[0].name : undefined;
       
       const metadata = {
         title: title.trim() || undefined,
@@ -383,15 +364,10 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         qrCodeDataUrl: brandedQrCode, // Already generated
         secureMode, // Flag to indicate Secure Mode
         encrypted: secureMode, // Flag for backend to know data is encrypted
-        // Store original file info for encrypted files (needed for preview/decryption)
-        originalFileType: secureMode && originalFileType ? originalFileType : undefined,
-        originalFileName: secureMode && originalFileName ? originalFileName : undefined,
-        acceptedTerms: true, // Backend validation - user must accept terms
-        // encryptionKey is NOT sent to server - it's only in QR codes!
+        encryptionKey: secureMode ? encryptionKey : undefined, // Store encryption key on server
       };
       
       console.log('📋 Metadata prepared:', { ...metadata, qrCodeDataUrl: metadata.qrCodeDataUrl?.substring(0, 50) + '...' });
-      console.log('🔒 Secure Mode:', secureMode, 'Encryption Key:', encryptionKey ? 'Generated (NOT sent to server)' : 'None');
 
       let response;
       
@@ -399,10 +375,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       
       // If we have files, use upload endpoint
       if (files.length > 0) {
-        // Use encrypted file if Secure Mode, otherwise original file
-        const file = secureMode && fileToUpload ? fileToUpload : files[0];
-        console.log('📁 Uploading file:', file.name, file.size, secureMode ? '(encrypted)' : '(plain)');
-        response = await uploadFile(file, metadata);
+        // For now, upload the first file (we'll enhance backend to support multiple files later)
+        console.log('📁 Uploading file:', files[0].name, files[0].size);
+        response = await uploadFile(files[0], metadata);
         console.log('✅ Upload response:', response);
       } else {
         // No files, just text/URLs
@@ -1200,6 +1175,34 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
               variant="blue" 
               className="relative overflow-hidden"
             >
+              {/* Terms of Use Checkbox */}
+              <div className="mb-4 pb-4 border-b border-[#D5C5BD]/30">
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="terms"
+                    checked={acceptedTerms}
+                    onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                    className="mt-0.5"
+                  />
+                  <Label 
+                    htmlFor="terms" 
+                    className="text-sm text-[#5B5B5B] leading-relaxed cursor-pointer flex-1"
+                  >
+                    {t('upload.acceptTermsPrefix')}{' '}
+                    <a
+                      href="/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[#5D8CC9] underline hover:text-[#4A6FA5] transition-colors"
+                    >
+                      {t('upload.termsAndPrivacy')}
+                    </a>
+                    .
+                  </Label>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <NordicLogo className="w-12 h-12 flex-shrink-0" />
@@ -1216,23 +1219,6 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                   )}
                 </div>
                 
-                {/* Terms acceptance checkbox */}
-                <div className="flex items-start gap-2 mb-4">
-                  <Checkbox
-                    id="accept-terms"
-                    checked={acceptedTerms}
-                    onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
-                    className="mt-1"
-                  />
-                  <Label htmlFor="accept-terms" className="text-sm text-[#3F3F3F] cursor-pointer">
-                    {t('upload.acceptTerms')}{' '}
-                    <a href="/legal" target="_blank" rel="noopener noreferrer" className="text-[#5D8CC9] underline hover:text-[#4A6FA5]">
-                      {t('upload.termsAndPrivacy')}
-                    </a>
-                    .
-                  </Label>
-                </div>
-
                 <NordicButton
                   variant="coral"
                   size="lg"
@@ -1242,7 +1228,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                   style={{
                     boxShadow: '0 4px 16px rgba(78, 205, 196, 0.35)',
                   }}
-                  title={!acceptedTerms ? t('upload.acceptTermsRequired') : isFreeTier ? t('upload.free') : coinCost > 0 ? `${t('upload.coinCost')}: ${coinCost}` : ''}
+                  title={isFreeTier ? t('upload.free') : coinCost > 0 ? `${t('upload.coinCost')}: ${coinCost}` : ''}
                 >
                   {isGenerating ? t('upload.generating') : t('upload.generateQr')}
                 </NordicButton>

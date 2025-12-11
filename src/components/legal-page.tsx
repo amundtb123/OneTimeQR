@@ -22,13 +22,20 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
         </div>
 
         {/* Content */}
-        <div className="bg-white rounded-2xl p-8 shadow-lg space-y-8">
+        <div className="bg-white rounded-2xl p-8 shadow-lg">
+          {/* Main Title */}
+          <h1 className="text-3xl font-bold text-[#3F3F3F] mb-4">
+            {isNorwegian ? 'Vilkår & Personvern' : 'Terms & Privacy'}
+          </h1>
+          <div className="border-b border-[#D5C5BD]/50 mb-8"></div>
+
+          <div className="space-y-8">
           {/* 1. Terms of Service */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               1. {isNorwegian ? 'Bruksvilkår' : 'Terms of Service'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian 
                   ? 'Ved å bruke OneTimeQR godtar du disse vilkårene.'
@@ -54,38 +61,38 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 2. Disclaimers */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               2. {isNorwegian ? 'Ansvarsfraskrivelser' : 'Disclaimers'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'OneTimeQR leveres "som den er" og "som tilgjengelig" uten noen garanti for:'
                   : 'OneTimeQR is provided "as is" and "as available" without any guarantee for:'}
               </p>
-              <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>{isNorwegian ? 'tilgjengelighet' : 'availability'}</li>
-                <li>{isNorwegian ? 'lagring' : 'storage'}</li>
-                <li>{isNorwegian ? 'funksjonalitet' : 'functionality'}</li>
-                <li>{isNorwegian ? 'sikkerhet' : 'security'}</li>
-                <li>{isNorwegian ? 'hastighet' : 'speed'}</li>
-                <li>{isNorwegian ? 'kompatibilitet' : 'compatibility'}</li>
-                <li>{isNorwegian ? 'korrekt sletting' : 'correct deletion'}</li>
-                <li>{isNorwegian ? 'kontinuerlig drift' : 'continuous operation'}</li>
+              <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
+                <li className="pl-4">{isNorwegian ? 'tilgjengelighet' : 'availability'}</li>
+                <li className="pl-4">{isNorwegian ? 'lagring' : 'storage'}</li>
+                <li className="pl-4">{isNorwegian ? 'funksjonalitet' : 'functionality'}</li>
+                <li className="pl-4">{isNorwegian ? 'sikkerhet' : 'security'}</li>
+                <li className="pl-4">{isNorwegian ? 'hastighet' : 'speed'}</li>
+                <li className="pl-4">{isNorwegian ? 'kompatibilitet' : 'compatibility'}</li>
+                <li className="pl-4">{isNorwegian ? 'korrekt sletting' : 'correct deletion'}</li>
+                <li className="pl-4">{isNorwegian ? 'kontinuerlig drift' : 'continuous operation'}</li>
               </ul>
               <p>
                 {isNorwegian
                   ? 'Vi påtar oss ikke ansvar for:'
                   : 'We assume no responsibility for:'}
               </p>
-              <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>{isNorwegian ? 'tap av data' : 'data loss'}</li>
-                <li>{isNorwegian ? 'tapt tilgang til QR-koder' : 'lost access to QR codes'}</li>
-                <li>{isNorwegian ? 'at innhold slettes for tidlig eller for sent' : 'content being deleted too early or too late'}</li>
-                <li>{isNorwegian ? 'misbruk av tjenesten' : 'abuse of the service'}</li>
-                <li>{isNorwegian ? 'brukerfeil' : 'user errors'}</li>
-                <li>{isNorwegian ? 'feil i applikasjonen' : 'application errors'}</li>
-                <li>{isNorwegian ? 'ekstern lagring eller caching som skjer utenfor vår kontroll' : 'external storage or caching that occurs outside our control'}</li>
+              <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
+                <li className="pl-4">{isNorwegian ? 'tap av data' : 'data loss'}</li>
+                <li className="pl-4">{isNorwegian ? 'tapt tilgang til QR-koder' : 'lost access to QR codes'}</li>
+                <li className="pl-4">{isNorwegian ? 'at innhold slettes for tidlig eller for sent' : 'content being deleted too early or too late'}</li>
+                <li className="pl-4">{isNorwegian ? 'misbruk av tjenesten' : 'abuse of the service'}</li>
+                <li className="pl-4">{isNorwegian ? 'brukerfeil' : 'user errors'}</li>
+                <li className="pl-4">{isNorwegian ? 'feil i applikasjonen' : 'application errors'}</li>
+                <li className="pl-4">{isNorwegian ? 'ekstern lagring eller caching som skjer utenfor vår kontroll' : 'external storage or caching that occurs outside our control'}</li>
               </ul>
               <p>
                 {isNorwegian
@@ -97,21 +104,21 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 3. User-Generated Content */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               3. {isNorwegian ? 'Brukergenerert innhold og ansvar' : 'User-Generated Content and Liability'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'Brukeren er fullt og helt ansvarlig for:'
                   : 'The user is fully and completely responsible for:'}
               </p>
-              <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>{isNorwegian ? 'alt innhold de laster opp' : 'all content they upload'}</li>
-                <li>{isNorwegian ? 'all informasjon de deler' : 'all information they share'}</li>
-                <li>{isNorwegian ? 'alle valg av innstillinger (levetid, sikkerhetsmodus, passord, antall skanninger m.m.)' : 'all choices of settings (lifetime, security mode, password, number of scans, etc.)'}</li>
-                <li>{isNorwegian ? 'hvordan QR-koder deles eller brukes' : 'how QR codes are shared or used'}</li>
-                <li>{isNorwegian ? 'eventuelle konsekvenser av delingen' : 'any consequences of sharing'}</li>
+              <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
+                <li className="pl-4">{isNorwegian ? 'alt innhold de laster opp' : 'all content they upload'}</li>
+                <li className="pl-4">{isNorwegian ? 'all informasjon de deler' : 'all information they share'}</li>
+                <li className="pl-4">{isNorwegian ? 'alle valg av innstillinger (levetid, sikkerhetsmodus, passord, antall skanninger m.m.)' : 'all choices of settings (lifetime, security mode, password, number of scans, etc.)'}</li>
+                <li className="pl-4">{isNorwegian ? 'hvordan QR-koder deles eller brukes' : 'how QR codes are shared or used'}</li>
+                <li className="pl-4">{isNorwegian ? 'eventuelle konsekvenser av delingen' : 'any consequences of sharing'}</li>
               </ul>
               <p>
                 {isNorwegian
@@ -123,10 +130,10 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 4. Safe Harbour */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               4. {isNorwegian ? 'Ingen innsyn i filer / Safe Harbour' : 'No File Access / Safe Harbour'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'OneTimeQR logger ikke IP-adresser og har ingen plikt eller mulighet til å se innhold i filer som lastes opp.'
@@ -147,22 +154,22 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 5. Lifetime and Deletion */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               5. {isNorwegian ? 'Levetid og sletting' : 'Lifetime and Deletion'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'Brukere kan velge hvor lenge en QR-kode skal være aktiv. Dette inkluderer valg som:'
                   : 'Users can choose how long a QR code should be active. This includes options such as:'}
               </p>
-              <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>{isNorwegian ? '10 minutter' : '10 minutes'}</li>
-                <li>{isNorwegian ? '30 minutter' : '30 minutes'}</li>
-                <li>{isNorwegian ? '1 time' : '1 hour'}</li>
-                <li>{isNorwegian ? '24 timer' : '24 hours'}</li>
-                <li>{isNorwegian ? '7 dager' : '7 days'}</li>
-                <li>{isNorwegian ? '"Til noen scanner"' : '"Until someone scans"'}</li>
+              <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
+                <li className="pl-4">{isNorwegian ? '10 minutter' : '10 minutes'}</li>
+                <li className="pl-4">{isNorwegian ? '30 minutter' : '30 minutes'}</li>
+                <li className="pl-4">{isNorwegian ? '1 time' : '1 hour'}</li>
+                <li className="pl-4">{isNorwegian ? '24 timer' : '24 hours'}</li>
+                <li className="pl-4">{isNorwegian ? '7 dager' : '7 days'}</li>
+                <li className="pl-4">{isNorwegian ? '"Til noen scanner"' : '"Until someone scans"'}</li>
               </ul>
               <p>
                 {isNorwegian
@@ -174,10 +181,10 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 6. One-Time Access */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               6. {isNorwegian ? 'Engangsvisning (valgfritt)' : 'One-Time Access (Optional)'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'Brukere kan velge innstillinger som begrenser antall skanninger (inkl. én visning). Dette er et funksjonsvalg, ikke en sikkerhetsgaranti.'
@@ -193,20 +200,20 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 7. Security Levels */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               7. {isNorwegian ? 'Sikkerhetsnivåer' : 'Security Levels'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'Tjenesten tilbyr valg som:'
                   : 'The service offers options such as:'}
               </p>
-              <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>{isNorwegian ? 'Standard Mode' : 'Standard Mode'}</li>
-                <li>{isNorwegian ? 'Secure Mode (to QR-koder)' : 'Secure Mode (two QR codes)'}</li>
-                <li>{isNorwegian ? 'Passordbeskyttelse' : 'Password protection'}</li>
-                <li>{isNorwegian ? 'Begrenset antall skanninger' : 'Limited number of scans'}</li>
+              <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
+                <li className="pl-4">{isNorwegian ? 'Standard Mode' : 'Standard Mode'}</li>
+                <li className="pl-4">{isNorwegian ? 'Secure Mode (to QR-koder)' : 'Secure Mode (two QR codes)'}</li>
+                <li className="pl-4">{isNorwegian ? 'Passordbeskyttelse' : 'Password protection'}</li>
+                <li className="pl-4">{isNorwegian ? 'Begrenset antall skanninger' : 'Limited number of scans'}</li>
               </ul>
               <p>
                 {isNorwegian
@@ -218,19 +225,19 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 8. Advanced Settings */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               8. {isNorwegian ? 'Avanserte innstillinger' : 'Advanced Settings'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'Brukeren kan justere:'
                   : 'Users can adjust:'}
               </p>
-              <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>{isNorwegian ? 'maksimal antall skanninger' : 'maximum number of scans'}</li>
-                <li>{isNorwegian ? 'passordkrav' : 'password requirements'}</li>
-                <li>{isNorwegian ? 'farger og design på QR-koden' : 'colors and design of the QR code'}</li>
+              <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
+                <li className="pl-4">{isNorwegian ? 'maksimal antall skanninger' : 'maximum number of scans'}</li>
+                <li className="pl-4">{isNorwegian ? 'passordkrav' : 'password requirements'}</li>
+                <li className="pl-4">{isNorwegian ? 'farger og design på QR-koden' : 'colors and design of the QR code'}</li>
               </ul>
               <p>
                 {isNorwegian
@@ -242,19 +249,19 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 9. File Types, Size and Free Mode */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               9. {isNorwegian ? 'Filtyper, størrelse og gratis-modus' : 'File Types, Size and Free Mode'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'I gratis-modus kan brukere laste opp innhold begrenset av:'
                   : 'In free mode, users can upload content limited by:'}
               </p>
-              <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>{isNorwegian ? 'maks størrelse (per nå 1 MB)' : 'maximum size (currently 1 MB)'}</li>
-                <li>{isNorwegian ? 'maks varighet (per nå 10 minutter)' : 'maximum duration (currently 10 minutes)'}</li>
-                <li>{isNorwegian ? 'ingen innlogging nødvendig' : 'no login required'}</li>
+              <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
+                <li className="pl-4">{isNorwegian ? 'maks størrelse (per nå 1 MB)' : 'maximum size (currently 1 MB)'}</li>
+                <li className="pl-4">{isNorwegian ? 'maks varighet (per nå 10 minutter)' : 'maximum duration (currently 10 minutes)'}</li>
+                <li className="pl-4">{isNorwegian ? 'ingen innlogging nødvendig' : 'no login required'}</li>
               </ul>
               <p>
                 {isNorwegian
@@ -266,32 +273,32 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 10. Payment and Coins */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               10. {isNorwegian ? 'Betaling og Coins' : 'Payment and Coins'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'OneTimeQR tilbyr betalte funksjoner gjennom "Coins".'
                   : 'OneTimeQR offers paid features through "Coins".'}
               </p>
-              <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>{isNorwegian ? '50 Coins koster per nå 29 NOK' : '50 Coins currently cost 29 NOK'}</li>
-                <li>{isNorwegian ? 'Coins kan brukes til premium-funksjoner (lengre levetid, Secure Mode, passord m.m.)' : 'Coins can be used for premium features (longer lifetime, Secure Mode, password, etc.)'}</li>
-                <li>{isNorwegian ? 'Coins er ikke valuta og kan ikke byttes inn i penger' : 'Coins are not currency and cannot be exchanged for money'}</li>
-                <li>{isNorwegian ? 'Coins kan ikke refunderes' : 'Coins cannot be refunded'}</li>
-                <li>{isNorwegian ? 'Coins kan endres, fjernes eller få endret verdi når som helst' : 'Coins can be changed, removed, or have their value changed at any time'}</li>
-                <li>{isNorwegian ? 'Coins legges til etter vellykket betaling, men vi garanterer ikke umiddelbar levering' : 'Coins are added after successful payment, but we do not guarantee immediate delivery'}</li>
+              <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
+                <li className="pl-4">{isNorwegian ? '50 Coins koster per nå 29 NOK' : '50 Coins currently cost 29 NOK'}</li>
+                <li className="pl-4">{isNorwegian ? 'Coins kan brukes til premium-funksjoner (lengre levetid, Secure Mode, passord m.m.)' : 'Coins can be used for premium features (longer lifetime, Secure Mode, password, etc.)'}</li>
+                <li className="pl-4">{isNorwegian ? 'Coins er ikke valuta og kan ikke byttes inn i penger' : 'Coins are not currency and cannot be exchanged for money'}</li>
+                <li className="pl-4">{isNorwegian ? 'Coins kan ikke refunderes' : 'Coins cannot be refunded'}</li>
+                <li className="pl-4">{isNorwegian ? 'Coins kan endres, fjernes eller få endret verdi når som helst' : 'Coins can be changed, removed, or have their value changed at any time'}</li>
+                <li className="pl-4">{isNorwegian ? 'Coins legges til etter vellykket betaling, men vi garanterer ikke umiddelbar levering' : 'Coins are added after successful payment, but we do not guarantee immediate delivery'}</li>
               </ul>
             </div>
           </section>
 
           {/* 11. Right of Withdrawal */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               11. {isNorwegian ? 'Angrerett' : 'Right of Withdrawal'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'Ved kjøp av Coins godtar du at tjenesten leveres umiddelbart, og at angrerett derfor ikke gjelder for digitale ytelser levert på brukerens forespørsel.'
@@ -302,41 +309,41 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 12. Stripe */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               12. Stripe
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'Stripe behandler alle betalinger. OneTimeQR lagrer ikke kortinformasjon og er ikke ansvarlig for:'
                   : 'Stripe processes all payments. OneTimeQR does not store card information and is not responsible for:'}
               </p>
-              <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>{isNorwegian ? 'betalingstransaksjoner' : 'payment transactions'}</li>
-                <li>{isNorwegian ? 'tekniske feil hos Stripe' : 'technical errors at Stripe'}</li>
-                <li>{isNorwegian ? 'avviste kort' : 'rejected cards'}</li>
-                <li>{isNorwegian ? 'tilbakeføringer (chargebacks)' : 'chargebacks'}</li>
+              <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
+                <li className="pl-4">{isNorwegian ? 'betalingstransaksjoner' : 'payment transactions'}</li>
+                <li className="pl-4">{isNorwegian ? 'tekniske feil hos Stripe' : 'technical errors at Stripe'}</li>
+                <li className="pl-4">{isNorwegian ? 'avviste kort' : 'rejected cards'}</li>
+                <li className="pl-4">{isNorwegian ? 'tilbakeføringer (chargebacks)' : 'chargebacks'}</li>
               </ul>
             </div>
           </section>
 
           {/* 13. Prohibited Use */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               13. {isNorwegian ? 'Forbudt bruk' : 'Prohibited Use'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'Brukerne har ikke lov til å laste opp:'
                   : 'Users are not allowed to upload:'}
               </p>
-              <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>{isNorwegian ? 'ulovlig materiale' : 'illegal material'}</li>
-                <li>{isNorwegian ? 'skadelig programvare' : 'malicious software'}</li>
-                <li>{isNorwegian ? 'opphavsrettsbeskyttet materiale uten tillatelse' : 'copyrighted material without permission'}</li>
-                <li>{isNorwegian ? 'innhold som trakasserer, skader eller krenker andre' : 'content that harasses, harms, or violates others'}</li>
-                <li>{isNorwegian ? 'innhold brukt i svindel eller misbruk' : 'content used in fraud or abuse'}</li>
+              <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
+                <li className="pl-4">{isNorwegian ? 'ulovlig materiale' : 'illegal material'}</li>
+                <li className="pl-4">{isNorwegian ? 'skadelig programvare' : 'malicious software'}</li>
+                <li className="pl-4">{isNorwegian ? 'opphavsrettsbeskyttet materiale uten tillatelse' : 'copyrighted material without permission'}</li>
+                <li className="pl-4">{isNorwegian ? 'innhold som trakasserer, skader eller krenker andre' : 'content that harasses, harms, or violates others'}</li>
+                <li className="pl-4">{isNorwegian ? 'innhold brukt i svindel eller misbruk' : 'content used in fraud or abuse'}</li>
               </ul>
               <p>
                 {isNorwegian
@@ -348,10 +355,10 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 14. Changes */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               14. {isNorwegian ? 'Endringer' : 'Changes'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'OneTimeQR kan endre funksjoner, priser, grenser, sikkerhetsnivåer og vilkår uten varsel. Videre bruk av tjenesten anses som aksept av nye vilkår.'
@@ -362,10 +369,10 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
 
           {/* 15. Applicable Law */}
           <section>
-            <h2 className="text-xl font-bold mb-4 text-[#3F3F3F]">
+            <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
               15. {isNorwegian ? 'Gjeldende lov' : 'Applicable Law'}
             </h2>
-            <div className="space-y-4 text-[#5B5B5B]">
+            <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
                   ? 'Tjenesten reguleres av norsk lov. Eventuelle tvister behandles av Oslo tingrett med mindre annet følger av ufravikelig lov.'
@@ -375,13 +382,14 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
           </section>
 
           {/* Last Updated */}
-          <section className="pt-4 border-t">
-            <p className="text-sm text-[#5B5B5B]">
+          <div className="border-t border-[#D5C5BD]/50 pt-4 mt-8">
+            <p className="text-sm text-[#5B5B5B] italic">
               {isNorwegian 
                 ? 'Sist oppdatert: 11. desember 2024'
                 : 'Last updated: December 11, 2024'}
             </p>
-          </section>
+          </div>
+          </div>
         </div>
       </div>
     </div>

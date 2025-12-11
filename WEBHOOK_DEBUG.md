@@ -54,3 +54,4 @@
 - **Løsning**: Sjekk browser console for feilmeldinger
 - **Løsning**: Sjekk at brukeren er logget inn
 - **Løsning**: Sjekk RLS policy for SELECT på `user_profiles`
+

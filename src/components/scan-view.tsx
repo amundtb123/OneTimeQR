@@ -9,7 +9,7 @@ import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { UnlockScreen } from './unlock-screen';
 import { getQrDrop, verifyPassword, incrementScanCount, getFileUrl, incrementDownloadCount } from '../utils/api-client';
-import { decryptData, decryptFile } from '../utils/encryption';
+import { decryptData } from '../utils/encryption';
 import { toast } from 'sonner@2.0.3';
 
 interface ScanViewProps {
@@ -28,7 +28,6 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const [isLoading, setIsLoading] = useState(true);
   const [qrDrop, setQrDrop] = useState<any>(null);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
-  const [decryptedFileUrl, setDecryptedFileUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, setTick] = useState(0); // Force re-render every second for countdown
   const [isEncrypted, setIsEncrypted] = useState(false);
@@ -153,8 +152,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             setIsUnlocked(true);
             // Load file URL only if there is actually a file (not just text/URL) AND we don't already have it
             if ((newResponse.qrDrop.contentType === 'file' || newResponse.qrDrop.contentType === 'bundle') && newResponse.qrDrop.filePath && !fileUrl) {
-              // Load file and decrypt if needed - pass qrDrop data directly
-              await loadFileWithData(newResponse.qrDrop);
+              await loadFile();
             }
             
             // Only increment scan count AFTER file is loaded (important for "scan once" type)
@@ -228,8 +226,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           setIsUnlocked(true);
           // Load file URL only if there is actually a file (not just text/URL)
           if ((response.qrDrop.contentType === 'file' || response.qrDrop.contentType === 'bundle') && response.qrDrop.filePath) {
-            // Load file and decrypt if needed - pass qrDrop data directly
-            await loadFileWithData(response.qrDrop);
+            await loadFile();
           }
           
           // Only increment scan count AFTER file is loaded (important for "scan once" type)
@@ -261,38 +258,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   }, [qrDropId, isPreview, isDirectScan, unlockKey]);
 
   const loadFile = async () => {
-    // Use current qrDrop from state
-    if (!qrDrop) return;
-    await loadFileWithData(qrDrop);
-  };
-
-  const loadFileWithData = async (qrDropData: any) => {
     try {
       const response = await getFileUrl(currentQrDropId);
       setFileUrl(response.fileUrl);
-      
-      // If file is encrypted and we have the key, decrypt it for preview
-      const isEncrypted = (qrDropData?.secureMode || qrDropData?.fileName?.endsWith('.encrypted')) && unlockKey;
-      if (isEncrypted && unlockKey && response.fileUrl) {
-        try {
-          console.log('🔒 Decrypting file for preview...', { secureMode: qrDropData?.secureMode, fileType: qrDropData?.fileType });
-          const fileResponse = await fetch(response.fileUrl);
-          const encryptedBlob = await fileResponse.blob();
-          const decryptedBlob = await decryptFile(encryptedBlob, unlockKey);
-          
-          // Create blob URL with correct MIME type for preview
-          // Use original file type from qrDropData if available
-          const blobType = qrDropData?.fileType || 'application/octet-stream';
-          console.log('📦 Creating blob with type:', blobType, 'size:', decryptedBlob.size);
-          const typedBlob = new Blob([decryptedBlob], { type: blobType });
-          const decryptedUrl = URL.createObjectURL(typedBlob);
-          setDecryptedFileUrl(decryptedUrl);
-          console.log('✅ File decrypted for preview with type:', blobType, 'URL:', decryptedUrl.substring(0, 50) + '...');
-        } catch (error) {
-          console.error('Error decrypting file for preview:', error);
-          // Continue with encrypted file URL - user can still download
-        }
-      }
     } catch (error) {
       console.error('Error loading file:', error);
       toast.error(t('scanView.couldNotLoad'));
@@ -307,9 +275,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         setIsUnlocked(true);
         setPasswordError(false);
         
-        // Load file first if it exists - use qrDrop from state
+        // Load file first if it exists
         if (qrDrop?.filePath) {
-          await loadFileWithData(qrDrop);
+          await loadFile();
         }
         
         // Then increment scan count (important for "scan once" type)
@@ -330,43 +298,13 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       try {
         await incrementDownloadCount(currentQrDropId);
         
-        // Check if file is encrypted and we have the key
-        const isEncrypted = (qrDrop.secureMode || qrDrop.fileName?.endsWith('.encrypted')) && unlockKey;
+        // Download file
+        const link = document.createElement('a');
+        link.href = fileUrl;
+        link.download = qrDrop.fileName;
+        link.click();
         
-        if (isEncrypted && unlockKey) {
-          // Download encrypted file, decrypt it, then trigger download
-          console.log('🔒 Downloading and decrypting encrypted file...');
-          const response = await fetch(fileUrl);
-          const encryptedBlob = await response.blob();
-          
-          // Decrypt the file
-          const decryptedBlob = await decryptFile(encryptedBlob, unlockKey);
-          
-          // Get original filename (already stored without .encrypted suffix)
-          const originalFileName = qrDrop.fileName;
-          
-          // Create download link for decrypted file with correct MIME type
-          const blobType = qrDrop.fileType || 'application/octet-stream';
-          const typedBlob = new Blob([decryptedBlob], { type: blobType });
-          const decryptedUrl = URL.createObjectURL(typedBlob);
-          const link = document.createElement('a');
-          link.href = decryptedUrl;
-          link.download = originalFileName;
-          link.click();
-          
-          // Clean up object URL
-          setTimeout(() => URL.revokeObjectURL(decryptedUrl), 100);
-          
-          toast.success(t('scanView.fileDownloaded'));
-        } else {
-          // Regular file download (not encrypted)
-          const link = document.createElement('a');
-          link.href = fileUrl;
-          link.download = qrDrop.fileName;
-          link.click();
-          
-          toast.success(t('scanView.fileDownloaded'));
-        }
+        toast.success(t('scanView.fileDownloaded'));
       } catch (error) {
         console.error('Error downloading file:', error);
         toast.error(t('scanView.couldNotDownload'));
@@ -759,9 +697,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             )}
 
             {/* File Content - Image Preview */}
-            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.fileType?.startsWith('image/') && (decryptedFileUrl || fileUrl) && !qrDrop?.noPreview && (
+            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.fileType?.startsWith('image/') && fileUrl && !qrDrop?.noPreview && (
               <img
-                src={decryptedFileUrl || fileUrl}
+                src={fileUrl}
                 alt={qrDrop.fileName}
                 className="w-full h-auto rounded-2xl mb-4 border-4"
                 style={{ 
@@ -782,7 +720,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             )}
 
             {/* File Content - Video Preview */}
-            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.fileType?.startsWith('video/') && (decryptedFileUrl || fileUrl) && !qrDrop?.noPreview && (
+            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.fileType?.startsWith('video/') && fileUrl && !qrDrop?.noPreview && (
               <div className="mb-4">
                 <video
                   controls
@@ -799,14 +737,14 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                     }
                   }}
                 >
-                  <source src={decryptedFileUrl || fileUrl} type={qrDrop.fileType} />
+                  <source src={fileUrl} type={qrDrop.fileType} />
                   {t('scanView.browserNotSupported')}
                 </video>
               </div>
             )}
 
             {/* File Content - Audio Preview */}
-            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.fileType?.startsWith('audio/') && (decryptedFileUrl || fileUrl) && !qrDrop?.noPreview && (
+            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.fileType?.startsWith('audio/') && fileUrl && !qrDrop?.noPreview && (
               <div className="mb-4">
                 <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl p-8 border-4" style={{ borderColor: '#D5C5BD' }}>
                   <div className="text-center mb-6">
@@ -832,7 +770,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                       }
                     }}
                   >
-                    <source src={decryptedFileUrl || fileUrl} type={qrDrop.fileType} />
+                    <source src={fileUrl} type={qrDrop.fileType} />
                     {t('scanView.browserNotSupportedAudio')}
                   </audio>
                 </div>

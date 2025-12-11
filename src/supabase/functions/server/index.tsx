@@ -3,7 +3,6 @@ import { cors } from 'npm:hono/cors';
 import { logger } from 'npm:hono/logger';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
-import bcrypt from 'npm:bcryptjs@2.4.3';
 
 const app = new Hono();
 
@@ -165,26 +164,14 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       expiresAt = new Date(metadata.expiryDate).getTime();
     }
 
-    // Hash password if provided (for security)
-    let hashedPassword: string | null = null;
-    if (metadata.password && metadata.password.trim().length > 0) {
-      const salt = await bcrypt.genSalt(10);
-      hashedPassword = await bcrypt.hash(metadata.password, salt);
-    }
-
     // Store metadata in KV
-    // For encrypted files, use original file type from metadata (for preview)
-    // Otherwise use the uploaded file's type
-    const storedFileType = metadata.originalFileType || file.type;
-    const storedFileName = metadata.originalFileName ? metadata.originalFileName.replace(/\.encrypted$/, '') : file.name;
-    
     const qrDropData = {
       id,
       userId, // Store user ID (null for anonymous uploads)
       contentType: metadata.contentType || 'file' as const,
       title: metadata.title || null,
-      fileName: storedFileName,
-      fileType: storedFileType,
+      fileName: file.name,
+      fileType: file.type,
       fileSize: file.size,
       filePath,
       textContent: metadata.textContent || null,
@@ -197,12 +184,12 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       downloadCount: 0,
       viewOnly: metadata.viewOnly || false,
       noPreview: metadata.noPreview || false,
-      password: hashedPassword,
+      password: metadata.password || null,
       qrStyle: metadata.qrStyle || null,
       qrCodeDataUrl: metadata.qrCodeDataUrl || null,
       encrypted: metadata.encrypted || false, // Secure Mode flag
       secureMode: metadata.secureMode || false, // Secure Mode flag
-      // encryptionKey is NEVER stored on server - it's only in QR codes for security
+      encryptionKey: metadata.encryptionKey || null, // Store encryption key for Secure Mode
       createdAt: timestamp,
     };
 
@@ -265,13 +252,6 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       expiresAt = new Date(metadata.expiryDate).getTime();
     }
 
-    // Hash password if provided (for security)
-    let hashedPassword: string | null = null;
-    if (metadata.password && metadata.password.trim().length > 0) {
-      const salt = await bcrypt.genSalt(10);
-      hashedPassword = await bcrypt.hash(metadata.password, salt);
-    }
-
     // Store metadata in KV
     const qrDropData = {
       id,
@@ -294,12 +274,12 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       downloadCount: 0,
       viewOnly: metadata.viewOnly || false,
       noPreview: metadata.noPreview || false,
-      password: hashedPassword,
+      password: metadata.password || null,
       qrStyle: metadata.qrStyle || null,
       qrCodeDataUrl: metadata.qrCodeDataUrl || null,
       encrypted: metadata.encrypted || false, // Secure Mode flag
       secureMode: metadata.secureMode || false, // Secure Mode flag
-      // encryptionKey is NEVER stored on server - it's only in QR codes for security
+      encryptionKey: metadata.encryptionKey || null, // Store encryption key for Secure Mode
       createdAt: timestamp,
     };
 
@@ -481,22 +461,7 @@ app.post('/make-server-c3c9181e/qr/:id/verify', async (c) => {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    // If no password is set, allow access
-    if (!qrDrop.password) {
-      return c.json({ valid: true });
-    }
-
-    // If password is set, verify it using bcrypt
-    // Support both old plaintext passwords (for backwards compatibility) and new hashed passwords
-    let isValid = false;
-    if (qrDrop.password.startsWith('$2a$') || qrDrop.password.startsWith('$2b$') || qrDrop.password.startsWith('$2y$')) {
-      // This is a bcrypt hash, use compare
-      isValid = await bcrypt.compare(password, qrDrop.password);
-    } else {
-      // Legacy plaintext password (for backwards compatibility with existing QR drops)
-      isValid = qrDrop.password === password;
-    }
-
+    const isValid = qrDrop.password === password;
     return c.json({ valid: isValid });
   } catch (error) {
     console.error('Error verifying password:', error);
@@ -504,9 +469,29 @@ app.post('/make-server-c3c9181e/qr/:id/verify', async (c) => {
   }
 });
 
-// Encryption key endpoint removed for security
-// Keys are now ONLY in QR codes, never stored on server
-// This ensures admin cannot access encrypted content
+// Get encryption key for Secure Mode (QR #2)
+app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const qrDrop = await kv.get(`qrdrop:${id}`);
+
+    if (!qrDrop) {
+      return c.json({ error: 'QR drop not found' }, 404);
+    }
+
+    // Only return encryption key if it exists (Secure Mode)
+    if (!qrDrop.encryptionKey) {
+      return c.json({ error: 'This QR drop is not in Secure Mode' }, 400);
+    }
+
+    console.log(`Returning encryption key for QR drop ${id}`);
+    
+    return c.json({ encryptionKey: qrDrop.encryptionKey });
+  } catch (error) {
+    console.error('Error fetching encryption key:', error);
+    return c.json({ error: `Failed to fetch encryption key: ${error.message}` }, 500);
+  }
+});
 
 // Lightweight check endpoint - returns metadata without incrementing scan count
 app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {

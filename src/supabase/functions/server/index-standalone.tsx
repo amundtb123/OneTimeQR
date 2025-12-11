@@ -225,7 +225,21 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     // Generate unique ID
     const id = crypto.randomUUID();
     const timestamp = Date.now();
-    const filePath = `${id}/${timestamp}-${file.name}`;
+    
+    // Sanitize filename for storage (remove emoji and invalid characters)
+    // Keep original filename in metadata for display, but use sanitized version for filePath
+    const sanitizeFileName = (fileName: string): string => {
+      // Remove emoji and special characters, keep only alphanumeric, dash, underscore, dot
+      // Replace invalid characters with underscore
+      return fileName
+        .replace(/[^\w\s.-]/g, '_') // Replace non-word chars (except . - _) with underscore
+        .replace(/\s+/g, '_') // Replace spaces with underscore
+        .replace(/_{2,}/g, '_') // Replace multiple underscores with single
+        .replace(/^_+|_+$/g, ''); // Remove leading/trailing underscores
+    };
+    
+    const sanitizedFileName = sanitizeFileName(file.name);
+    const filePath = `${id}/${timestamp}-${sanitizedFileName}`;
 
     // Upload file to Supabase Storage
     const fileBuffer = await file.arrayBuffer();

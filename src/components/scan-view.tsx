@@ -123,11 +123,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Continue processing with the new response
           setQrDrop(newResponse.qrDrop);
           
-          // OPTIMIZATION: Check if server already included fileUrl
-          if ((newResponse as any).fileUrl) {
-            setFileUrl((newResponse as any).fileUrl);
-            console.log('✅ fileUrl received in response - skipping separate /file call');
-          }
+          // SECURITY: Server no longer includes fileUrl in response to prevent sharing
+          // File URL will be loaded on-demand when needed
           
           // Clean up URL after getting data
           if (isDirectScan) {
@@ -178,8 +175,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // If no password is required, automatically unlock and load file
           if (!newResponse.qrDrop.password) {
             setIsUnlocked(true);
-            // Load file URL only if there is actually a file (not just text/URL) AND we don't already have it
-            if ((newResponse.qrDrop.contentType === 'file' || newResponse.qrDrop.contentType === 'bundle') && newResponse.qrDrop.filePath && !fileUrl) {
+            // Load file URL on-demand (not included in response for security)
+            if ((newResponse.qrDrop.contentType === 'file' || newResponse.qrDrop.contentType === 'bundle') && newResponse.qrDrop.filePath) {
               // Load file and decrypt if needed - pass qrDrop data directly
               await loadFileWithData(newResponse.qrDrop);
             }

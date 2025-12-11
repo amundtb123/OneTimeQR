@@ -888,9 +888,6 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
         .single();
 
       // No logging of idempotency check results for security
-        coinsAdded: existingSession?.coins_added,
-        processedAt: existingSession?.processed_at,
-      });
 
       if (existingSession && !checkError) {
         // No logging of session details for security
@@ -919,8 +916,8 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
         .single();
 
       if (fetchError) {
-        console.log('📝 Profile does not exist, creating new profile...');
         // Profile doesn't exist, create it
+        // No logging for security
         const { data: newProfile, error: insertError } = await supabase
           .from('user_profiles')
           .insert({ id: userId, coins: coinsToAdd })

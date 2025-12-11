@@ -2,6 +2,7 @@ import { Hono } from 'npm:hono';
 import { cors } from 'npm:hono/cors';
 import { logger } from 'npm:hono/logger';
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import bcrypt from 'npm:bcryptjs@2.4.3';
 
 const app = new Hono();
 
@@ -245,6 +246,13 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       expiresAt = new Date(metadata.expiryDate).getTime();
     }
 
+    // Hash password if provided (for security)
+    let hashedPassword: string | null = null;
+    if (metadata.password && metadata.password.trim().length > 0) {
+      const salt = await bcrypt.genSalt(10);
+      hashedPassword = await bcrypt.hash(metadata.password, salt);
+    }
+
     // Store metadata in KV
     const qrDropData = {
       id,
@@ -265,7 +273,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       downloadCount: 0,
       viewOnly: metadata.viewOnly || false,
       noPreview: metadata.noPreview || false,
-      password: metadata.password || null,
+      password: hashedPassword,
       qrStyle: metadata.qrStyle || null,
       qrCodeDataUrl: metadata.qrCodeDataUrl || null,
       encrypted: metadata.encrypted || false,
@@ -333,6 +341,13 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       expiresAt = new Date(metadata.expiryDate).getTime();
     }
 
+    // Hash password if provided (for security)
+    let hashedPassword: string | null = null;
+    if (metadata.password && metadata.password.trim().length > 0) {
+      const salt = await bcrypt.genSalt(10);
+      hashedPassword = await bcrypt.hash(metadata.password, salt);
+    }
+
     // Store metadata in KV
     const qrDropData = {
       id,
@@ -355,7 +370,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       downloadCount: 0,
       viewOnly: metadata.viewOnly || false,
       noPreview: metadata.noPreview || false,
-      password: metadata.password || null,
+      password: hashedPassword,
       qrStyle: metadata.qrStyle || null,
       qrCodeDataUrl: metadata.qrCodeDataUrl || null,
       encrypted: metadata.encrypted || false,
@@ -540,7 +555,22 @@ app.post('/make-server-c3c9181e/qr/:id/verify', async (c) => {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    const isValid = qrDrop.password === password;
+    // If no password is set, allow access
+    if (!qrDrop.password) {
+      return c.json({ valid: true });
+    }
+
+    // If password is set, verify it using bcrypt
+    // Support both old plaintext passwords (for backwards compatibility) and new hashed passwords
+    let isValid = false;
+    if (qrDrop.password.startsWith('$2a$') || qrDrop.password.startsWith('$2b$') || qrDrop.password.startsWith('$2y$')) {
+      // This is a bcrypt hash, use compare
+      isValid = await bcrypt.compare(password, qrDrop.password);
+    } else {
+      // Legacy plaintext password (for backwards compatibility with existing QR drops)
+      isValid = qrDrop.password === password;
+    }
+
     return c.json({ valid: isValid });
   } catch (error) {
     console.error('Error verifying password:', error);

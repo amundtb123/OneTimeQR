@@ -173,13 +173,18 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     }
 
     // Store metadata in KV
+    // For encrypted files, use original file type from metadata (for preview)
+    // Otherwise use the uploaded file's type
+    const storedFileType = metadata.originalFileType || file.type;
+    const storedFileName = metadata.originalFileName ? metadata.originalFileName.replace(/\.encrypted$/, '') : file.name;
+    
     const qrDropData = {
       id,
       userId, // Store user ID (null for anonymous uploads)
       contentType: metadata.contentType || 'file' as const,
       title: metadata.title || null,
-      fileName: file.name,
-      fileType: file.type,
+      fileName: storedFileName,
+      fileType: storedFileType,
       fileSize: file.size,
       filePath,
       textContent: metadata.textContent || null,

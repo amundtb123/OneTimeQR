@@ -264,15 +264,21 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       setFileUrl(response.fileUrl);
       
       // If file is encrypted and we have the key, decrypt it for preview
-      const isEncrypted = qrDrop?.fileName?.endsWith('.encrypted') && unlockKey;
+      const isEncrypted = (qrDrop?.secureMode || qrDrop?.fileName?.endsWith('.encrypted')) && unlockKey;
       if (isEncrypted && unlockKey && response.fileUrl) {
         try {
           console.log('🔒 Decrypting file for preview...');
           const fileResponse = await fetch(response.fileUrl);
           const encryptedBlob = await fileResponse.blob();
           const decryptedBlob = await decryptFile(encryptedBlob, unlockKey);
-          const decryptedUrl = URL.createObjectURL(decryptedBlob);
+          
+          // Create blob URL with correct MIME type for preview
+          // Use original file type from qrDrop if available
+          const blobType = qrDrop?.fileType || 'application/octet-stream';
+          const typedBlob = new Blob([decryptedBlob], { type: blobType });
+          const decryptedUrl = URL.createObjectURL(typedBlob);
           setDecryptedFileUrl(decryptedUrl);
+          console.log('✅ File decrypted for preview with type:', blobType);
         } catch (error) {
           console.error('Error decrypting file for preview:', error);
           // Continue with encrypted file URL - user can still download
@@ -316,7 +322,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         await incrementDownloadCount(currentQrDropId);
         
         // Check if file is encrypted and we have the key
-        const isEncrypted = qrDrop.fileName?.endsWith('.encrypted') && unlockKey;
+        const isEncrypted = (qrDrop.secureMode || qrDrop.fileName?.endsWith('.encrypted')) && unlockKey;
         
         if (isEncrypted && unlockKey) {
           // Download encrypted file, decrypt it, then trigger download
@@ -327,11 +333,13 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Decrypt the file
           const decryptedBlob = await decryptFile(encryptedBlob, unlockKey);
           
-          // Get original filename (remove .encrypted suffix)
-          const originalFileName = qrDrop.fileName.replace(/\.encrypted$/, '');
+          // Get original filename (already stored without .encrypted suffix)
+          const originalFileName = qrDrop.fileName;
           
-          // Create download link for decrypted file
-          const decryptedUrl = URL.createObjectURL(decryptedBlob);
+          // Create download link for decrypted file with correct MIME type
+          const blobType = qrDrop.fileType || 'application/octet-stream';
+          const typedBlob = new Blob([decryptedBlob], { type: blobType });
+          const decryptedUrl = URL.createObjectURL(typedBlob);
           const link = document.createElement('a');
           link.href = decryptedUrl;
           link.download = originalFileName;

@@ -355,6 +355,10 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       const qrCodeDataUrl = await generateStyledQrCode(qrUrl, qrStyle);
       const brandedQrCode = await createBrandedQrCode(qrCodeDataUrl);
       
+      // Store original file type for encrypted files (needed for preview)
+      const originalFileType = files.length > 0 ? files[0].type : undefined;
+      const originalFileName = files.length > 0 ? files[0].name : undefined;
+      
       const metadata = {
         title: title.trim() || undefined,
         contentType: 'bundle' as const, // New type for mixed content
@@ -371,6 +375,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         qrCodeDataUrl: brandedQrCode, // Already generated
         secureMode, // Flag to indicate Secure Mode
         encrypted: secureMode, // Flag for backend to know data is encrypted
+        // Store original file info for encrypted files (needed for preview/decryption)
+        originalFileType: secureMode && originalFileType ? originalFileType : undefined,
+        originalFileName: secureMode && originalFileName ? originalFileName : undefined,
         // encryptionKey is NOT sent to server - it's only in QR codes!
       };
       

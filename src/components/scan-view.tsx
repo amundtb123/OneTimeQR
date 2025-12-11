@@ -289,7 +289,14 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
 
   const loadFileWithData = async (qrDropData: any) => {
     try {
+      console.log('📥 Loading file URL for QR drop:', currentQrDropId);
       const response = await getFileUrl(currentQrDropId);
+      
+      if (!response || !response.fileUrl) {
+        throw new Error('No file URL received from server');
+      }
+      
+      console.log('✅ File URL received:', response.fileUrl.substring(0, 50) + '...');
       setFileUrl(response.fileUrl);
       
       // If file is encrypted and we have the key, decrypt it for preview
@@ -298,6 +305,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         try {
           console.log('🔒 Decrypting file for preview...', { secureMode: qrDropData?.secureMode, fileType: qrDropData?.fileType });
           const fileResponse = await fetch(response.fileUrl);
+          if (!fileResponse.ok) {
+            throw new Error(`Failed to fetch encrypted file: ${fileResponse.status}`);
+          }
           const encryptedBlob = await fileResponse.blob();
           const decryptedBlob = await decryptFile(encryptedBlob, unlockKey);
           
@@ -314,9 +324,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Continue with encrypted file URL - user can still download
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading file:', error);
-      toast.error(t('scanView.couldNotLoad'));
+      const errorMessage = error?.message || t('scanView.couldNotLoad');
+      setError(errorMessage);
+      toast.error(errorMessage);
     }
   };
 

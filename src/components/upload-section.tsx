@@ -71,7 +71,6 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
   const [dualQrData, setDualQrData] = useState<{ qr1: string; qr2: string; qr1Url: string; qr2Url: string; title?: string } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [oneTimeAccess, setOneTimeAccess] = useState(false);
 
   const handleFilesChange = (selectedFiles: File[]) => {
     if (selectedFiles.length > 0) {
@@ -373,7 +372,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         contentType: 'bundle' as const, // New type for mixed content
         textContent: secureMode ? encryptedTextContent : textContent.trim() || undefined,
         urlContent: secureMode ? encryptedUrlContent : (urls.length > 0 ? JSON.stringify(urls) : undefined),
-        expiryType: oneTimeAccess ? 'scan' : expiryType, // Use 'scan' if one-time access is selected
+        expiryType,
         expiryDate: expiryDate ? expiryDate.toISOString() : undefined, // Convert Date to ISO string for JSON
         maxScans: maxScans ? parseInt(maxScans) : undefined,
         maxDownloads: maxDownloads ? parseInt(maxDownloads) : undefined,
@@ -388,7 +387,6 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         originalFileType: secureMode && originalFileType ? originalFileType : undefined,
         originalFileName: secureMode && originalFileName ? originalFileName : undefined,
         acceptedTerms: true, // Backend validation - user must accept terms
-        oneTimeAccess, // Optional one-time access toggle
         // encryptionKey is NOT sent to server - it's only in QR codes!
       };
       
@@ -1232,19 +1230,6 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                       {t('upload.termsAndPrivacy')}
                     </a>
                     .
-                  </Label>
-                </div>
-
-                {/* Optional one-time access toggle */}
-                <div className="flex items-start gap-2 mb-4">
-                  <Checkbox
-                    id="one-time-access"
-                    checked={oneTimeAccess}
-                    onCheckedChange={(checked) => setOneTimeAccess(checked === true)}
-                    className="mt-1"
-                  />
-                  <Label htmlFor="one-time-access" className="text-sm text-[#3F3F3F] cursor-pointer">
-                    {t('upload.oneTimeAccess')}
                   </Label>
                 </div>
 

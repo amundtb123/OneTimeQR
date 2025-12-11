@@ -893,12 +893,7 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       });
 
       if (existingSession && !checkError) {
-        console.log('⚠️ Session already processed - skipping coin addition:', {
-          sessionId: sessionId,
-          coinsAdded: existingSession.coins_added,
-          processedAt: existingSession.processed_at,
-          userId: existingSession.user_id,
-        });
+        // No logging of session details for security
         // Return success but don't add coins again
         return c.json({ 
           received: true, 

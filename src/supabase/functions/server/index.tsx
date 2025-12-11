@@ -425,30 +425,13 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
       return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
     }
 
-    // OPTIMIZATION: If this QR drop has a file, include the signed URL in the response
-    // This eliminates the need for a separate /file endpoint call
-    let fileUrl = null;
-    if (qrDrop.filePath) {
-      try {
-        // Generate short-lived signed URL (5 minutes) to prevent sharing
-        // This ensures URLs cannot be shared and reused after a short time
-        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-          .from(BUCKET_NAME)
-          .createSignedUrl(qrDrop.filePath, 5 * 60); // 5 minutes expiry - prevents sharing
-
-        if (!signedUrlError && signedUrlData) {
-          fileUrl = signedUrlData.signedUrl;
-          console.log(`✅ Included file URL in response for faster loading`);
-        }
-      } catch (error) {
-        console.error('Error getting signed URL (non-critical):', error);
-        // Continue without fileUrl - client can fall back to /file endpoint if needed
-      }
-    }
+    // SECURITY: Do NOT include signed URL in initial response
+    // Generate signed URLs on-demand only when user clicks download
+    // This prevents sharing of download links
+    // Client will call /file endpoint when download is requested
 
     return c.json({ 
-      qrDrop,
-      fileUrl // Include fileUrl if available
+      qrDrop
     });
   } catch (error) {
     console.error('Error getting QR drop:', error);

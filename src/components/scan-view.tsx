@@ -205,11 +205,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         
         setQrDrop(response.qrDrop);
         
-        // OPTIMIZATION: Check if server already included fileUrl
-        if ((response as any).fileUrl) {
-          setFileUrl((response as any).fileUrl);
-          console.log('✅ fileUrl received in response - skipping separate /file call');
-        }
+        // SECURITY: Server no longer includes fileUrl in response to prevent sharing
+        // File URL will be loaded on-demand when needed
         
         // Check if content is encrypted (Secure Mode)
         const isContentEncrypted = response.qrDrop.encrypted || response.qrDrop.secureMode;

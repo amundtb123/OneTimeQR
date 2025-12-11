@@ -709,7 +709,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                 type="file"
                 onChange={handleFileInputChange}
                 className="hidden"
-                accept="image/*,video/*,application/pdf,.doc,.docx,.txt"
+                accept="*/*"
                 multiple
               />
               <div 

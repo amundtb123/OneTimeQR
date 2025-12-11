@@ -238,6 +238,8 @@ const resources = {
         invalidQr: 'Invalid QR code. Please scan the unlock code (QR #2).',
       },
       qrDetail: {
+        qr2NotAvailable: 'QR #2 not available',
+        qr2SecurityNote: 'For security reasons, QR #2 (unlock code) is only available when first created. Please download both QR codes immediately after creation.',
         secureModeTwoQrs: 'Secure Mode – Two QR codes',
         yourQrCodes: 'Your QR codes',
         bothMustBeScanned: 'Both must be scanned to access',
@@ -513,6 +515,8 @@ const resources = {
         invalidQr: 'Ugyldig QR-kode. Vennligst skann opplåsingskoden (QR #2).',
       },
       qrDetail: {
+        qr2NotAvailable: 'QR #2 ikke tilgjengelig',
+        qr2SecurityNote: 'Av sikkerhetshensyn er QR #2 (opplåsingskode) kun tilgjengelig når den først opprettes. Last ned begge QR-kodene umiddelbart etter opprettelse.',
         secureModeTwoQrs: 'Secure Mode – To QR-koder',
         yourQrCodes: 'Dine QR-koder',
         bothMustBeScanned: 'Begge må skannes for å få tilgang',
@@ -802,6 +806,8 @@ const resources = {
         invalidQr: 'Ugyldig QR-kode. Vennligst skann opplåsingskoden (QR #2).',
       },
       qrDetail: {
+        qr2NotAvailable: 'QR #2 ikke tilgjengelig',
+        qr2SecurityNote: 'Av sikkerhetshensyn er QR #2 (opplåsingskode) kun tilgjengelig når den først opprettes. Last ned begge QR-kodene umiddelbart etter opprettelse.',
         secureModeTwoQrs: 'Secure Mode – To QR-koder',
         yourQrCodes: 'Dine QR-koder',
         bothMustBeScanned: 'Begge må skannes for å få tilgang',

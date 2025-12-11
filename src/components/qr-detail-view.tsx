@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { QrDrop } from '../types/qr-drop';
-import { Check, Download, Copy, Share2, Eye, Shield, Clock, Key } from 'lucide-react';
+import { Check, Download, Copy, Share2, Eye, Shield, Clock, Key, AlertCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';

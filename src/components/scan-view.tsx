@@ -45,7 +45,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   }, [isDirectScan]);
   
   const handleGoHome = () => {
+    // Reset to home/upload view
     window.location.href = '/';
+    window.location.reload();
   };
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState(false);

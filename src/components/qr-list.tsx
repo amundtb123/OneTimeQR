@@ -386,50 +386,52 @@ export function QrList({ qrDrops, onDelete, onScan, onDetail, isLoading }: QrLis
                         {expandedQrId === qrDrop.id ? t('qrList.hideFile') : t('qrList.showFile')}
                       </span>
                     </CollapsibleTrigger>
-                    <CollapsibleContent className="mt-4">
-                      {loadingFiles[qrDrop.id] ? (
-                        <div 
-                          className="rounded-xl p-6 text-center border"
-                          style={{ backgroundColor: '#E8DCD4', borderColor: '#D5C5BD' }}
-                        >
-                          <p className="text-[#5B5B5B]">{t('qrList.loadingFile')}</p>
-                        </div>
-                      ) : fileUrls[qrDrop.id] ? (
-                        <div 
-                          className="rounded-xl p-4 border"
-                          style={{ backgroundColor: '#E8DCD4', borderColor: '#D5C5BD' }}
-                        >
-                          {qrDrop.fileType.startsWith('image/') ? (
-                            <img
-                              src={fileUrls[qrDrop.id]}
-                              alt={qrDrop.fileName}
-                              className="w-full rounded-xl border-4"
-                              style={{ borderColor: '#D5C5BD' }}
-                            />
-                          ) : (
-                            <div className="flex items-center gap-4 p-4">
-                              <div 
-                                className="p-3 rounded-xl border"
-                                style={{ backgroundColor: '#E2EFFA', borderColor: '#D5C5BD' }}
-                              >
-                                <FileText className="size-8 text-[#4A6FA5]" />
+                    <CollapsibleContent className="mt-4 overflow-hidden">
+                      <div className="max-w-full overflow-x-auto">
+                        {loadingFiles[qrDrop.id] ? (
+                          <div 
+                            className="rounded-xl p-6 text-center border"
+                            style={{ backgroundColor: '#E8DCD4', borderColor: '#D5C5BD' }}
+                          >
+                            <p className="text-[#5B5B5B]">{t('qrList.loadingFile')}</p>
+                          </div>
+                        ) : fileUrls[qrDrop.id] ? (
+                          <div 
+                            className="rounded-xl p-4 border max-w-full"
+                            style={{ backgroundColor: '#E8DCD4', borderColor: '#D5C5BD' }}
+                          >
+                            {qrDrop.fileType.startsWith('image/') ? (
+                              <img
+                                src={fileUrls[qrDrop.id]}
+                                alt={qrDrop.fileName}
+                                className="w-full max-w-full h-auto rounded-xl border-4"
+                                style={{ borderColor: '#D5C5BD' }}
+                              />
+                            ) : (
+                              <div className="flex items-center gap-4 p-4 min-w-0">
+                                <div 
+                                  className="p-3 rounded-xl border flex-shrink-0"
+                                  style={{ backgroundColor: '#E2EFFA', borderColor: '#D5C5BD' }}
+                                >
+                                  <FileText className="size-8 text-[#4A6FA5]" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[#3F3F3F] truncate">{qrDrop.fileName}</p>
+                                  <p className="text-[#5B5B5B] text-sm">{formatFileSize(qrDrop.fileSize)}</p>
+                                  <p className="text-[#5B5B5B] text-sm">{qrDrop.fileType.split('/')[1]?.toUpperCase()}</p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="text-[#3F3F3F]">{qrDrop.fileName}</p>
-                                <p className="text-[#5B5B5B] text-sm">{formatFileSize(qrDrop.fileSize)}</p>
-                                <p className="text-[#5B5B5B] text-sm">{qrDrop.fileType.split('/')[1]?.toUpperCase()}</p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div 
-                          className="rounded-xl p-6 text-center border"
-                          style={{ backgroundColor: '#E8DCD4', borderColor: '#D5C5BD' }}
-                        >
-                          <p className="text-[#5B5B5B] text-sm">{t('qrList.couldNotLoadFile')}</p>
-                        </div>
-                      )}
+                            )}
+                          </div>
+                        ) : (
+                          <div 
+                            className="rounded-xl p-6 text-center border"
+                            style={{ backgroundColor: '#E8DCD4', borderColor: '#D5C5BD' }}
+                          >
+                            <p className="text-[#5B5B5B] text-sm">{t('qrList.couldNotLoadFile')}</p>
+                          </div>
+                        )}
+                      </div>
                     </CollapsibleContent>
                   </Collapsible>
                 </div>

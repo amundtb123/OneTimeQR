@@ -1,26 +1,26 @@
 import { useTranslation } from 'react-i18next';
 import { availableLanguages, setAppLanguage } from '../i18n';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Globe } from 'lucide-react';
 
 export function LanguageSwitcher() {
-  const { i18n, t } = useTranslation();
+  const { i18n } = useTranslation();
+  const currentLang = availableLanguages.find(lang => lang.code === i18n.language) || availableLanguages[0];
 
   return (
-    <div className="flex items-center gap-1 text-sm">
-      {availableLanguages.map((lang) => (
-        <button
-          key={lang.code}
-          onClick={() => setAppLanguage(lang.code)}
-          className={`px-2 py-1 rounded-md border transition-colors ${
-            i18n.language === lang.code
-              ? 'border-[#5D8CC9] text-[#5D8CC9] bg-white'
-              : 'border-[#D5C5BD] text-[#3F3F3F] hover:border-[#5D8CC9]'
-          }`}
-          aria-pressed={i18n.language === lang.code}
-        >
-          {lang.label}
-        </button>
-      ))}
-    </div>
+    <Select value={i18n.language} onValueChange={setAppLanguage}>
+      <SelectTrigger className="h-8 w-auto min-w-[80px] px-2 text-xs border-[#D5C5BD] bg-white">
+        <Globe className="size-3 mr-1" />
+        <SelectValue>{currentLang.label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {availableLanguages.map((lang) => (
+          <SelectItem key={lang.code} value={lang.code}>
+            {lang.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 

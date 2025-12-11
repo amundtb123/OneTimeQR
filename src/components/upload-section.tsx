@@ -967,6 +967,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                 <p className={`text-sm mb-1 ${secureMode ? 'text-white/90' : 'text-[#3F3F3F]'}`}>
                   {t('upload.secureModeDesc')}
                 </p>
+                <p className={`text-xs font-semibold ${secureMode ? 'text-white' : 'text-[#E8927E]'}`}>
+                  {t('upload.secureModeForSensitive', { defaultValue: 'Bruk Secure Mode for sensitivt innhold' })}
+                </p>
                 <p className={`text-xs ${secureMode ? 'text-white/75' : 'text-[#5B5B5B]'}`}>
                   {t('upload.secureModeNote')}
                 </p>

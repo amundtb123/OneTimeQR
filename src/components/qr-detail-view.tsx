@@ -175,17 +175,44 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
               </div>
             </div>
 
-            {/* Info Box */}
-            <div 
-              className="rounded-xl p-4 mb-6"
-              style={{ 
-                backgroundColor: '#E8DCD4',
-                borderColor: '#D5C5BD'
-              }}
-            >
-              <p className="text-[#5B5B5B] text-sm text-center">
-                {t('qrDetail.shareQr1First')}
-              </p>
+            {/* Important Security Instructions */}
+            <div className="space-y-3 mb-6">
+              {/* Critical: Download QR #2 immediately */}
+              <div 
+                className="rounded-xl p-4 border-2"
+                style={{ 
+                  backgroundColor: '#FFF4E6',
+                  borderColor: '#E8927E'
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="size-5 text-[#E8927E] flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-[#3F3F3F] font-semibold text-sm mb-1">
+                      {t('qrDetail.downloadQr2Immediately', { defaultValue: '⚠️ Last ned QR #2 umiddelbart!' })}
+                    </p>
+                    <p className="text-[#5B5B5B] text-xs">
+                      {t('qrDetail.qr2CannotBeShownAgain', { defaultValue: 'QR #2 kan ikke vises igjen etter at siden er oppdatert. Last ned begge QR-kodene nå.' })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Share via separate channels */}
+              <div 
+                className="rounded-xl p-4"
+                style={{ 
+                  backgroundColor: '#E8DCD4',
+                  borderColor: '#D5C5BD'
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="text-[#5D8CC9] flex-shrink-0 mt-0.5">💡</div>
+                  <p className="text-[#5B5B5B] text-sm">
+                    {t('qrDetail.shareQr1First')}
+                  </p>
+                </div>
+              </div>
             </div>
 
             {/* Action Buttons */}

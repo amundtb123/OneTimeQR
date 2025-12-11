@@ -1,9 +1,7 @@
 # ✅ Verifiser Webhook Secret
 
-## Din Webhook Secret
-```
-whsec_2Vr9JaVaM3d3iXgtV52vDJUpIXCKdHP6
-```
+## ⚠️ VIKTIG: Webhook Secret er sensitiv informasjon
+**Aldri legg webhook secret i Git eller dokumentasjon!**
 
 ## Steg-for-steg verifisering:
 

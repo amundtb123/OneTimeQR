@@ -608,9 +608,11 @@ app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
     console.log('Getting file from path:', qrDrop.filePath);
 
     // Get signed URL for file
-    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-      .from(BUCKET_NAME)
-      .createSignedUrl(qrDrop.filePath, 60 * 60); // 1 hour expiry
+        // Generate short-lived signed URL (2 minutes) to prevent sharing
+        // URLs expire quickly, making sharing via Teams/email ineffective
+        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+          .from(BUCKET_NAME)
+          .createSignedUrl(qrDrop.filePath, 2 * 60); // 2 minutes expiry - prevents sharing
 
     if (signedUrlError) {
       console.error('Error getting signed URL:', signedUrlError);

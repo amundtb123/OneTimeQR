@@ -398,7 +398,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         password: usePassword ? password : undefined,
         qrStyle, // Store QR styling preferences
         qrCodeDataUrl: brandedQrCode, // Already generated (QR #1)
-        qrCode2DataUrl: qr2DataUrl, // Store QR #2 image for Secure Mode
+        // QR #2 image is NOT sent to server for security (contains decryption key in URL)
         secureMode, // Flag to indicate Secure Mode
         encrypted: secureMode, // Flag for backend to know data is encrypted
         // Store original file info for encrypted files (needed for preview/decryption)

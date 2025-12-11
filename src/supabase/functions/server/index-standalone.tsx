@@ -514,8 +514,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
     // Client will call /file endpoint when download is requested
 
     return c.json({ 
-      qrDrop,
-      fileUrl
+      qrDrop
     });
   } catch (error) {
     console.error('Error getting QR drop:', error);

@@ -159,6 +159,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           const isSecureMode = newResponse.qrDrop.secureMode;
           setIsEncrypted(isSecureMode);
           
+          // Set qrDrop first so UnlockScreen can be shown if needed
+          setQrDrop(newResponse.qrDrop);
+          
           // If Secure Mode but no unlock key, we'll show UnlockScreen later
           if (isSecureMode && !unlockKey) {
             setIsLoading(false);
@@ -255,6 +258,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         const isSecureMode = response.qrDrop.secureMode;
         setIsEncrypted(isSecureMode);
         
+        // Set qrDrop first so UnlockScreen can be shown if needed
+        setQrDrop(response.qrDrop);
+        
         // If Secure Mode but no unlock key, we'll show UnlockScreen later
         if (isSecureMode && !unlockKey) {
           setIsLoading(false);
@@ -348,6 +354,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         // Standard encrypted files (ALL files are encrypted): fetch key from server
         // Always try to fetch key for non-secureMode files since they're all encrypted
         try {
+          const { projectId } = await import('../utils/supabase/info');
           const keyResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/key`);
           if (keyResponse.ok) {
             const keyData = await keyResponse.json();
@@ -572,6 +579,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Standard encrypted files (ALL files are encrypted): fetch key from server
           // Always try to fetch key for non-secureMode files since they're all encrypted
           try {
+            const { projectId } = await import('../utils/supabase/info');
             const keyResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/key`);
             if (keyResponse.ok) {
               const keyData = await keyResponse.json();

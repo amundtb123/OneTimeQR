@@ -263,6 +263,28 @@ export async function incrementScanCount(id: string): Promise<{ success: boolean
   });
 }
 
+// Mark QR1 as scanned (for secureMode split-key)
+// Server stores that QR1 was scanned WITHOUT seeing k1 (zero-knowledge)
+export async function markQr1Scanned(id: string): Promise<{ success: boolean; message: string }> {
+  return fetchApi(`/qrdrop/${id}/qr1-scanned`, {
+    method: 'POST',
+  });
+}
+
+// Verify QR1 was scanned before allowing QR2 unlock (for secureMode split-key)
+// Returns unlock token if QR1 was scanned, which client uses to verify before combining k1+k2
+export async function verifyQr1ForQr2(id: string): Promise<{ 
+  success: boolean; 
+  qr1Scanned: boolean; 
+  unlockToken?: string;
+  expired?: boolean;
+  message: string;
+}> {
+  return fetchApi(`/qrdrop/${id}/verify-qr1-for-qr2`, {
+    method: 'POST',
+  });
+}
+
 export async function getFileUrl(id: string): Promise<{ 
   fileUrl?: string; // Backwards compatibility - first file
   fileName?: string;

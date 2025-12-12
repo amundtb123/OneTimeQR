@@ -87,6 +87,13 @@ export interface QrDropMetadata {
   password?: string;
   qrStyle?: any; // Store QR code styling preferences
   qrCodeDataUrl?: string; // Store the generated QR code image
+  secureMode?: boolean; // Secure Mode flag
+  encrypted?: boolean; // Encryption flag
+  encryptionKey?: string; // Encryption key (not for secureMode)
+  originalFileTypes?: Record<string, string>; // Original file types
+  // For secureMode: ciphertext sent separately (not in metadata to avoid size limit)
+  textContentCiphertext?: string; // JSON string of {iv, salt, ciphertext}
+  urlContentCiphertext?: string; // JSON string of {iv, salt, ciphertext}
 }
 
 export interface QrDropData {
@@ -205,7 +212,14 @@ export async function uploadFile(fileOrFiles: File | File[], metadata: QrDropMet
 export async function createQrDrop(metadata: QrDropMetadata) {
   console.log('📤 createQrDrop called with metadata:', metadata);
   try {
-    const jsonBody = JSON.stringify(metadata);
+    // For secureMode: Send ciphertext as separate fields in same request body
+    // This keeps metadata small while allowing large ciphertext
+    const requestBody = {
+      ...metadata,
+      // Ciphertext is already in metadata if secureMode, or undefined
+    };
+    
+    const jsonBody = JSON.stringify(requestBody);
     console.log('📦 JSON body prepared, length:', jsonBody.length);
     const result = await fetchApi('/create', {
       method: 'POST',

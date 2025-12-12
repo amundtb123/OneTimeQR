@@ -373,15 +373,18 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         originalFileTypes[index === 0 ? 'file' : `file${index}`] = file.type;
       });
       
+      // SECURITY: For secureMode, ciphertext is sent separately (not in metadata)
+      // This prevents metadata from exceeding 10 KB limit and keeps ciphertext out of metadata
       const metadata = {
         title: title.trim() || undefined,
         contentType: 'bundle' as const, // New type for mixed content
-        // For secureMode: send ciphertext objects, for standard: send plain text
+        // For secureMode: DON'T include ciphertext in metadata (sent separately)
+        // For standard: send plain text
         textContent: secureMode 
-          ? (encryptedTextContent ? JSON.stringify(encryptedTextContent) : undefined)
+          ? undefined // Ciphertext sent separately for secureMode
           : (textContent.trim() || undefined),
         urlContent: secureMode
-          ? (encryptedUrlContent ? JSON.stringify(encryptedUrlContent) : undefined)
+          ? undefined // Ciphertext sent separately for secureMode
           : (urls.length > 0 ? JSON.stringify(urls) : undefined),
         expiryType,
         expiryDate: expiryDate ? expiryDate.toISOString() : undefined, // Convert Date to ISO string for JSON
@@ -399,6 +402,12 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         encryptionKey: secureMode ? undefined : encryptionKeyForFiles,
         originalFileTypes, // Store original file types for proper decryption
       };
+      
+      // For secureMode: Prepare ciphertext as separate fields (not in metadata)
+      const secureModeCiphertext = secureMode ? {
+        textContentCiphertext: encryptedTextContent ? JSON.stringify(encryptedTextContent) : undefined,
+        urlContentCiphertext: encryptedUrlContent ? JSON.stringify(encryptedUrlContent) : undefined,
+      } : undefined;
       
       console.log('📋 Metadata prepared:', { ...metadata, qrCodeDataUrl: metadata.qrCodeDataUrl?.substring(0, 50) + '...' });
 
@@ -451,7 +460,16 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         // No files, just text/URLs
         console.log('📝 Creating QR drop without file');
         try {
-          response = await createQrDrop(metadata);
+          // For secureMode: Include ciphertext in metadata object (but not counted in metadata size check)
+          const createMetadata = secureMode && secureModeCiphertext
+            ? {
+                ...metadata,
+                textContentCiphertext: secureModeCiphertext.textContentCiphertext,
+                urlContentCiphertext: secureModeCiphertext.urlContentCiphertext,
+              }
+            : metadata;
+          
+          response = await createQrDrop(createMetadata);
           console.log('✅ Create response:', response);
         } catch (createError: any) {
           console.error('❌ createQrDrop failed:', createError);

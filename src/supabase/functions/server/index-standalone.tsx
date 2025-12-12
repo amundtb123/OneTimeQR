@@ -617,8 +617,14 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     }
 
     // Validate content (at least one type must be present)
-    const hasText = metadata.textContent && metadata.textContent.trim().length > 0;
-    const hasUrl = metadata.urlContent && metadata.urlContent.length > 0;
+    // For secureMode: check ciphertext fields, for standard: check textContent/urlContent
+    const isSecureMode = metadata.secureMode === true;
+    const hasText = isSecureMode
+      ? (metadata.textContentCiphertext && metadata.textContentCiphertext.length > 0)
+      : (metadata.textContent && metadata.textContent.trim().length > 0);
+    const hasUrl = isSecureMode
+      ? (metadata.urlContentCiphertext && metadata.urlContentCiphertext.length > 0)
+      : (metadata.urlContent && metadata.urlContent.length > 0);
     
     if (!hasText && !hasUrl) {
       return c.json({ error: 'At least text or URL content is required' }, 400);
@@ -635,6 +641,14 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     }
 
     // Store metadata in KV
+    // For secureMode: use ciphertext fields, for standard: use textContent/urlContent
+    const textContentToStore = isSecureMode 
+      ? (metadata.textContentCiphertext || null)
+      : (metadata.textContent || null);
+    const urlContentToStore = isSecureMode
+      ? (metadata.urlContentCiphertext || null)
+      : (metadata.urlContent || null);
+    
     const qrDropData = {
       id,
       userId,
@@ -643,11 +657,11 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       fileName: metadata.contentType === 'text' ? 'Tekstmelding' : 'URL-lenke',
       fileType: metadata.contentType === 'text' ? 'text/plain' : 'text/url',
       fileSize: metadata.contentType === 'text' 
-        ? (metadata.textContent?.length || 0) 
-        : (metadata.urlContent?.length || 0),
+        ? (textContentToStore?.length || 0) 
+        : (urlContentToStore?.length || 0),
       filePath: null,
-      textContent: metadata.textContent || null,
-      urlContent: metadata.urlContent || null,
+      textContent: textContentToStore,
+      urlContent: urlContentToStore,
       expiryType: metadata.expiryType,
       expiresAt,
       maxScans: metadata.maxScans || null,

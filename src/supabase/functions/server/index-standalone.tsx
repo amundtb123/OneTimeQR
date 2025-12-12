@@ -544,9 +544,44 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
       return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
     }
 
-    // OPTIMIZATION: If this QR drop has a file, include the signed URL in the response
-    let fileUrl = null;
-    if (qrDrop.filePath) {
+    // OPTIMIZATION: If this QR drop has files, include signed URLs in the response
+    let fileUrl = null; // Backwards compatibility - first file
+    let files = null; // Multiple files
+    
+    // Support both single file (backwards compatibility) and multiple files
+    if (qrDrop.files && Array.isArray(qrDrop.files) && qrDrop.files.length > 0) {
+      // Multiple files - generate signed URLs for all
+      try {
+        const filesWithUrls = await Promise.all(qrDrop.files.map(async (file: any, index: number) => {
+          const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+            .from(BUCKET_NAME)
+            .createSignedUrl(file.path, 60 * 60);
+
+          if (signedUrlError) {
+            console.error(`Error getting signed URL for file ${index}:`, signedUrlError);
+            return null;
+          }
+
+          return {
+            fileUrl: signedUrlData.signedUrl,
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            fileIndex: index
+          };
+        }));
+
+        const validFiles = filesWithUrls.filter(f => f !== null);
+        if (validFiles.length > 0) {
+          files = validFiles;
+          fileUrl = validFiles[0].fileUrl; // Backwards compatibility
+          console.log(`✅ Included ${validFiles.length} file URL(s) in response`);
+        }
+      } catch (error) {
+        console.error('Error getting signed URLs for files (non-critical):', error);
+      }
+    } else if (qrDrop.filePath) {
+      // Single file (backwards compatibility)
       try {
         const { data: signedUrlData, error: signedUrlError } = await supabase.storage
           .from(BUCKET_NAME)
@@ -563,7 +598,8 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
 
     return c.json({ 
       qrDrop,
-      fileUrl
+      fileUrl, // Backwards compatibility
+      files // Multiple files
     });
   } catch (error) {
     console.error('Error getting QR drop:', error);

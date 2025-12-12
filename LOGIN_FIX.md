@@ -146,3 +146,6 @@ Gå gjennom hver punkt:
 
 
 
+
+
+

@@ -67,3 +67,6 @@ Hvis du vil beholde JWT verification for andre endepunkter, kan du opprette en s
 - For webhook er dette OK, men sørg for at andre endepunkter har egen auth-sjekk i koden (som de allerede har)
 
 
+
+
+

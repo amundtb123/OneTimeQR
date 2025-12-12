@@ -123,3 +123,6 @@ OneTimeQR/
 - Sjekk at alle miljøvariabler er satt riktig
 
 
+
+
+

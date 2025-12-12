@@ -111,3 +111,6 @@ Dette viser din nåværende coin-balance direkte fra databasen.
 7. ✅ Sjekk `user_profiles` tabellen direkte i Supabase
 
 
+
+
+

@@ -56,3 +56,6 @@
 - **Løsning**: Sjekk RLS policy for SELECT på `user_profiles`
 
 
+
+
+

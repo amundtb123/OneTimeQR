@@ -55,3 +55,6 @@ https://ofrtokcrfovjwfkcnjef.supabase.co/functions/v1/make-server-c3c9181e/webho
 3. **Secret er fra feil webhook** → Sjekk at du kopierer fra riktig webhook i Stripe
 
 
+
+
+

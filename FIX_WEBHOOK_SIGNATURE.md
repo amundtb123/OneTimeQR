@@ -79,3 +79,6 @@ Etter at du har oppdatert secret:
 3. **Test ekte betaling** → Coins skal oppdateres automatisk
 
 
+
+
+

@@ -24,3 +24,6 @@ CREATE INDEX IF NOT EXISTS idx_processed_sessions_user_id ON public.processed_ch
 CREATE INDEX IF NOT EXISTS idx_processed_sessions_processed_at ON public.processed_checkout_sessions(processed_at);
 
 
+
+
+

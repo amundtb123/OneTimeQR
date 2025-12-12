@@ -61,3 +61,6 @@ Etter at du har sjekket logs, test webhook på nytt:
 - `✅ Updated coins. New balance: X` → Suksess! ✅
 
 
+
+
+

@@ -51,3 +51,6 @@ Stripe Webhook Secret ble eksponert i Git (i `VERIFY_WEBHOOK_SECRET.md`).
 - Hvis du må dokumentere, bruk placeholders som `whsec_...` eller `[YOUR_SECRET]`
 
 
+
+
+

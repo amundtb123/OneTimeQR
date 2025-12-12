@@ -2,6 +2,7 @@ import { Hono } from 'npm:hono';
 import { cors } from 'npm:hono/cors';
 import { logger } from 'npm:hono/logger';
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { compare, hash } from 'npm:bcryptjs@2.4.3';
 
 const app = new Hono();
 
@@ -555,7 +556,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
         const filesWithUrls = await Promise.all(qrDrop.files.map(async (file: any, index: number) => {
           const { data: signedUrlData, error: signedUrlError } = await supabase.storage
             .from(BUCKET_NAME)
-            .createSignedUrl(file.path, 60 * 60);
+            .createSignedUrl(file.path, 120); // 2 minutes expiry for security
 
           if (signedUrlError) {
             console.error(`Error getting signed URL for file ${index}:`, signedUrlError);
@@ -585,7 +586,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
       try {
         const { data: signedUrlData, error: signedUrlError } = await supabase.storage
           .from(BUCKET_NAME)
-          .createSignedUrl(qrDrop.filePath, 60 * 60); // 1 hour expiry
+          .createSignedUrl(qrDrop.filePath, 120); // 2 minutes expiry for security
 
         if (!signedUrlError && signedUrlData) {
           fileUrl = signedUrlData.signedUrl;
@@ -648,7 +649,8 @@ app.post('/make-server-c3c9181e/qr/:id/verify', async (c) => {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    const isValid = qrDrop.password === password;
+    // Verify password using bcrypt (secure comparison)
+    const isValid = qrDrop.password ? await compare(password, qrDrop.password) : false;
     return c.json({ valid: isValid });
   } catch (error) {
     console.error('Error verifying password:', error);
@@ -767,7 +769,7 @@ app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
         const file = files[index];
         const { data: signedUrlData, error: signedUrlError } = await supabase.storage
           .from(BUCKET_NAME)
-          .createSignedUrl(file.path, 60 * 60);
+          .createSignedUrl(file.path, 120); // 2 minutes expiry for security
 
         if (signedUrlError) {
           console.error('Error getting signed URL:', signedUrlError);
@@ -789,9 +791,9 @@ app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
 
     // Return all files with signed URLs
     const filesWithUrls = await Promise.all(files.map(async (file: any, index: number) => {
-      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from(BUCKET_NAME)
-        .createSignedUrl(file.path, 60 * 60);
+        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+          .from(BUCKET_NAME)
+          .createSignedUrl(file.path, 120); // 2 minutes expiry for security
 
       if (signedUrlError) {
         console.error(`Error getting signed URL for file ${index}:`, signedUrlError);

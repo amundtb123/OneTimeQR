@@ -155,14 +155,25 @@ function AppContent() {
           
           // Combine k1 and k2 to get master key
           try {
+            console.log('🔑 Combining k1 and k2 for QR drop:', unlockId);
+            console.log('🔑 k1 (from storage):', storedK1 ? storedK1.substring(0, 20) + '...' : 'MISSING');
+            console.log('🔑 k2 (from URL):', k2 ? k2.substring(0, 20) + '...' : 'MISSING');
+            
             const { combineKeys } = await import('./utils/encryption');
             const masterKey = combineKeys(storedK1, k2!);
             const masterKeyHex = Array.from(masterKey)
               .map(b => b.toString(16).padStart(2, '0'))
               .join('');
             
+            console.log('✅ Master key generated, storing in sessionStorage...');
+            
             // Store master key and redirect to scan view
             sessionStorage.setItem(`master_${unlockId}`, masterKeyHex);
+            
+            // Verify it was stored
+            const verifyMaster = sessionStorage.getItem(`master_${unlockId}`);
+            console.log('✅ Master key stored:', verifyMaster ? 'SUCCESS' : 'FAILED');
+            
             setScanId(unlockId);
             setUnlockKey(masterKeyHex);
             setCurrentView('scan');
@@ -171,6 +182,7 @@ function AppContent() {
             window.history.replaceState({}, '', `/scan/${unlockId}`);
             
             console.log('✅ Combined split keys - master key ready for decryption');
+            console.log('✅ Redirected to /scan/' + unlockId);
           } catch (error) {
             console.error('❌ Failed to combine split keys:', error);
             toast.error('Kunne ikke kombinere nøkler. Prøv på nytt.');
@@ -241,14 +253,31 @@ function AppContent() {
           // Regular scan (not QR #2, no split-key)
           // BUT: Check if we have master key already stored (from QR #2 scan that redirected here)
           const storedMasterKey = sessionStorage.getItem(`master_${id}`);
+          const storedK1 = sessionStorage.getItem(`k1_${id}`);
+          
+          console.log(`🔍 Scan check for ${id}:`, {
+            hasMasterKey: !!storedMasterKey,
+            hasK1: !!storedK1,
+            hasKeyParam: !!key,
+            path: window.location.pathname,
+            hash: window.location.hash
+          });
+          
           if (storedMasterKey) {
             // We already have the master key from QR #2 - use it directly
             console.log('✅ Master key found in sessionStorage - using for decryption');
             setScanId(id);
             setUnlockKey(storedMasterKey);
             setCurrentView('scan');
+          } else if (storedK1) {
+            // We have k1 but not master key - waiting for QR #2
+            console.log('⏳ k1 found but no master key - waiting for QR #2');
+            setScanId(id);
+            setCurrentView('scan');
+            // Don't set unlockKey - ScanView will show UnlockScreen
           } else {
-            // Regular scan (not QR #2, no split-key, no master key)
+            // Regular scan (not QR #2, no split-key, no master key, no k1)
+            console.log('📱 Regular scan (no split-key)');
             setScanId(id);
             setUnlockKey(key);
             setCurrentView('scan');

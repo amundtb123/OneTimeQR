@@ -16,10 +16,12 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   const { t } = useTranslation();
   // SECURITY: Mark QR #1 as scanned IMMEDIATELY when this screen renders
   // This must happen synchronously so QR #2 can check it instantly
-  // Using localStorage instead of sessionStorage so it works across tabs
+  // IMPORTANT: Use sessionStorage to match App.tsx which checks sessionStorage for k1
   const hasMarkedRef = useRef(false);
   if (!hasMarkedRef.current) {
-    localStorage.setItem(`qr1_scanned_${qrDropId}`, Date.now().toString());
+    // Note: k1 is stored in App.tsx when QR #1 is scanned with k1 in fragment
+    // This is just a backup marker - the real k1 storage happens in App.tsx
+    sessionStorage.setItem(`qr1_scanned_${qrDropId}`, Date.now().toString());
     console.log('🔐 [SYNC] Marked QR #1 as scanned immediately on render for:', qrDropId);
     hasMarkedRef.current = true;
   }

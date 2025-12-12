@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { QrDrop } from '../types/qr-drop';
-import { Check, Download, Copy, Share2, Eye, Shield, Clock, Key, AlertCircle } from 'lucide-react';
+import { Check, Download, Copy, Share2, Eye, Shield, Clock, Key } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
@@ -107,7 +107,6 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
       {/* QR Code Display */}
       <SoftCard>
         {qrDrop.secureMode && qrDrop.qrCodeUrl2 ? (
-          // QR #2 is available (stored locally when created)
           // Secure Mode: Show BOTH QR codes
           <div>
             <div className="text-center mb-6">
@@ -175,44 +174,17 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
               </div>
             </div>
 
-            {/* Important Security Instructions */}
-            <div className="space-y-3 mb-6">
-              {/* Critical: Download QR #2 immediately */}
-              <div 
-                className="rounded-xl p-4 border-2"
-                style={{ 
-                  backgroundColor: '#FFF4E6',
-                  borderColor: '#E8927E'
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="size-5 text-[#E8927E] flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-[#3F3F3F] font-semibold text-sm mb-1">
-                      {t('qrDetail.downloadQr2Immediately', { defaultValue: '⚠️ Last ned QR #2 umiddelbart!' })}
-                    </p>
-                    <p className="text-[#5B5B5B] text-xs">
-                      {t('qrDetail.qr2CannotBeShownAgain', { defaultValue: 'QR #2 kan ikke vises igjen etter at siden er oppdatert. Last ned begge QR-kodene nå.' })}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Share via separate channels */}
-              <div 
-                className="rounded-xl p-4"
-                style={{ 
-                  backgroundColor: '#E8DCD4',
-                  borderColor: '#D5C5BD'
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="text-[#5D8CC9] flex-shrink-0 mt-0.5">💡</div>
-                  <p className="text-[#5B5B5B] text-sm">
-                    {t('qrDetail.shareQr1First')}
-                  </p>
-                </div>
-              </div>
+            {/* Info Box */}
+            <div 
+              className="rounded-xl p-4 mb-6"
+              style={{ 
+                backgroundColor: '#E8DCD4',
+                borderColor: '#D5C5BD'
+              }}
+            >
+              <p className="text-[#5B5B5B] text-sm text-center">
+                {t('qrDetail.shareQr1First')}
+              </p>
             </div>
 
             {/* Action Buttons */}
@@ -221,31 +193,6 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
                 <Download className="size-5 mr-2" />
                 {t('qrDetail.downloadBoth')}
               </NordicButton>
-              <NordicButton onClick={handleShare} variant="blue" size="lg">
-                <Share2 className="size-5 mr-2" />
-                {t('qrDetail.shareQr1')}
-              </NordicButton>
-            </div>
-          </div>
-        ) : qrDrop.secureMode ? (
-          // Secure Mode but QR #2 not available (page reloaded)
-          <div className="text-center py-12">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl mb-4"
-              style={{ 
-                background: 'linear-gradient(135deg, #5D8CC9, #E8927E)',
-                color: 'white'
-              }}
-            >
-              <Shield className="size-5" />
-              <span>{t('qrDetail.secureMode')}</span>
-            </div>
-            <h2 className="text-[#3F3F3F] mb-4">{t('qrDetail.qr2NotAvailable', { defaultValue: 'QR #2 not available' })}</h2>
-            <p className="text-[#5B5B5B] mb-6 max-w-md mx-auto">
-              {t('qrDetail.qr2SecurityNote', { 
-                defaultValue: 'For security reasons, QR #2 (unlock code) is only available when first created. Please download both QR codes immediately after creation.' 
-              })}
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <NordicButton onClick={handleShare} variant="blue" size="lg">
                 <Share2 className="size-5 mr-2" />
                 {t('qrDetail.shareQr1')}

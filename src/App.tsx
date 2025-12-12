@@ -40,7 +40,7 @@ export interface QrDrop {
   qrCodeUrl2?: string; // QR #2 for Secure Mode (unlock code)
 }
 
-function convertToQrDrop(data: QrDropData, qrCodeUrl: string, qrCode2Url?: string): QrDrop {
+function convertToQrDrop(data: QrDropData, qrCodeUrl: string): QrDrop {
   return {
     id: data.id,
     title: data.title || undefined,
@@ -61,8 +61,6 @@ function convertToQrDrop(data: QrDropData, qrCodeUrl: string, qrCode2Url?: strin
     createdAt: new Date(data.createdAt),
     expiredAt: data.expiredAt ? new Date(data.expiredAt) : undefined,
     qrCodeUrl,
-    secureMode: data.secureMode || false,
-    qrCodeUrl2: qrCode2Url || undefined,
   };
 }
 
@@ -112,28 +110,71 @@ function AppContent() {
         // We're on a scan page (QR #1 scanned)
         const id = scanMatch[1];
         const searchParams = new URLSearchParams(window.location.search);
-        const keyParam = searchParams.get('key'); // Decryption key from QR #2 (base64 encoded)
+        const key = searchParams.get('key'); // Check for decryption key in query
+        const unlock = searchParams.get('unlock'); // Check for unlock flag (QR #2)
         
-        // Decode key from URL if present (QR #2 scanned)
-        let decodedKey: string | null = null;
-        if (keyParam) {
-          try {
-            // Decode base64 URL-safe encoding
-            const base64Key = keyParam.replace(/-/g, '+').replace(/_/g, '/');
-            // Add padding if needed
-            const paddedKey = base64Key + '='.repeat((4 - base64Key.length % 4) % 4);
-            decodedKey = atob(paddedKey);
-            console.log('🔑 Decryption key extracted from URL (QR #2)');
-          } catch (error) {
-            console.error('❌ Failed to decode encryption key from URL:', error);
-            toast.error(t('app.invalidKey'));
+        // If unlock flag is set, fetch the encryption key from server
+        if (unlock === '1') {
+          // This is QR #2 - fetch encryption key from server
+          
+          // SECURITY CHECK: Ensure QR #1 was scanned first
+          const qr1Scanned = localStorage.getItem(`qr1_scanned_${id}`);
+          
+          if (!qr1Scanned) {
+            console.warn('⚠️ QR #2 scanned without QR #1 - showing error message');
+            setShowQr2Error(true);
+            toast.error(t('app.mustScanQr1First'));
+            return;
           }
+          
+          // SECURITY CHECK #2: Verify the timestamp is recent (within 5 minutes)
+          const timestamp = parseInt(qr1Scanned, 10);
+          const now = Date.now();
+          const fiveMinutes = 5 * 60 * 1000;
+          
+          if (now - timestamp > fiveMinutes) {
+            console.warn('⚠️ QR #1 scan expired (older than 5 minutes) - please scan QR #1 again');
+            localStorage.removeItem(`qr1_scanned_${id}`); // Clear expired flag
+            setScanId(id);
+            setCurrentView('scan');
+            toast.error(t('app.qr1ScanExpired'));
+            return;
+          }
+          
+          // Set scanId, view and fetching flag immediately
+          setScanId(id);
+          setCurrentView('scan'); // IMPORTANT: Show scan view while fetching
+          setIsFetchingKey(true);
+          
+          const serverUrl = `https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${id}/key`;
+          fetch(serverUrl, {
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`
+            }
+          })
+            .then(res => res.json())
+            .then(data => {
+              if (data.encryptionKey) {
+                setUnlockKey(data.encryptionKey);
+                setIsFetchingKey(false);
+              } else {
+                console.error('❌ No encryption key in response:', data);
+                toast.error(t('app.couldNotFetchKey'));
+                setIsFetchingKey(false);
+              }
+            })
+            .catch(err => {
+              console.error('❌ Failed to fetch encryption key:', err);
+              toast.error(t('app.couldNotFetchKey'));
+              setIsFetchingKey(false);
+            });
+          // IMPORTANT: Don't continue to else block!
+        } else {
+          // Regular scan (not QR #2)
+          setScanId(id);
+          setUnlockKey(key);
+          setCurrentView('scan');
         }
-        
-        // Regular scan (QR #1 or QR #2 with key)
-        setScanId(id);
-        setUnlockKey(decodedKey);
-        setCurrentView('scan');
       } else {
         // Normal app flow - OAuth callback is now handled in AuthContext
         loadQrDrops();
@@ -210,12 +251,30 @@ function AppContent() {
               qrCodeUrl = await createBrandedQrCode(baseQr);
             }
             
-            // If Secure Mode, QR #2 cannot be regenerated because:
-            // 1. The encryption key is not stored on server (for security)
-            // 2. QR #2 image is not stored on server (contains key in URL)
-            // QR #2 is only available when first created (stored locally in QrDrop)
-            // After page reload, QR #2 will be undefined and user must download it when created
+            // If Secure Mode, generate QR #2 (unlock code)
+            if (qr.secureMode) {
+              const unlockUrl = `${window.location.origin}/scan/${qr.id}?unlock=1`;
+              
+              if (qr.qrStyle) {
+                const baseQr2 = await generateStyledQrCode(unlockUrl, qr.qrStyle);
+                qrCodeUrl2 = await createBrandedQrCode(baseQr2);
+              } else {
+                const baseQr2 = await QRCode.toDataURL(unlockUrl, {
+                  width: 400,
+                  margin: 2,
+                  color: {
+                    dark: '#E8927E', // Use coral color for QR #2
+                    light: '#FFFFFF',
+                  },
+                });
+                qrCodeUrl2 = await createBrandedQrCode(baseQr2);
+              }
+            }
+            
             const qrDrop = convertToQrDrop(qr, qrCodeUrl);
+            if (qrCodeUrl2) {
+              qrDrop.qrCodeUrl2 = qrCodeUrl2;
+            }
             return qrDrop;
           } catch (error) {
             console.error(`Error generating QR for ${qr.id}:`, error);

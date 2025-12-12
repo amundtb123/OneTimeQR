@@ -6,7 +6,7 @@ import type { QrDrop } from '../App';
 import { uploadFile, createQrDrop } from '../utils/api-client';
 import { generateStyledQrCode } from '../utils/qr-generator';
 import { createBrandedQrCode } from '../utils/qr-with-branding';
-import { generateEncryptionKey, encryptData, encryptFile, createDecryptionKeyUrl } from '../utils/encryption';
+import { generateEncryptionKey, encryptData, createDecryptionKeyUrl } from '../utils/encryption';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { NordicLogo } from './nordic-logo';
@@ -320,11 +320,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       const expiryDate = calculateExpiryDate(expiryType);
       
       // SECURE MODE: Generate encryption key and encrypt content
-      // IMPORTANT: encryptionKey is NEVER sent to server - it's only in QR codes
       let encryptionKey: string | undefined;
       let encryptedTextContent: string | undefined;
       let encryptedUrlContent: string | undefined;
-      let fileToUpload: File | undefined;
       
       if (secureMode) {
         encryptionKey = await generateEncryptionKey();
@@ -339,19 +337,6 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           const urlJson = JSON.stringify(urls);
           encryptedUrlContent = await encryptData(urlJson, encryptionKey);
         }
-        
-        // Encrypt file if exists (on client side, before upload)
-        if (files.length > 0) {
-          console.log('🔒 Encrypting file before upload...');
-          const encryptedBlob = await encryptFile(files[0], encryptionKey);
-          // Create a new File object with encrypted data
-          // Use original filename but mark as encrypted
-          fileToUpload = new File([encryptedBlob], files[0].name + '.encrypted', {
-            type: 'application/octet-stream',
-            lastModified: files[0].lastModified
-          });
-          console.log('✅ File encrypted:', fileToUpload.name, fileToUpload.size);
-        }
       }
       
       // Generate QR code FIRST (before sending to backend)
@@ -362,27 +347,6 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       const qrUrl = `${window.location.origin}/scan/${tempId}`;
       const qrCodeDataUrl = await generateStyledQrCode(qrUrl, qrStyle);
       const brandedQrCode = await createBrandedQrCode(qrCodeDataUrl);
-      
-      // Store original file type for encrypted files (needed for preview)
-      const originalFileType = files.length > 0 ? files[0].type : undefined;
-      const originalFileName = files.length > 0 ? files[0].name : undefined;
-      
-      // Generate QR #2 image if Secure Mode (before creating metadata)
-      let qr2DataUrl: string | undefined;
-      if (secureMode && encryptionKey) {
-        const unlockUrl = createDecryptionKeyUrl(window.location.origin, tempId, encryptionKey);
-        const qr2Base = await generateStyledQrCode(unlockUrl, {
-          dotsColor: '#000000',
-          backgroundColor: '#FFFFFF',
-          gradientType: 'none',
-          dotsType: 'square',
-          cornersSquareType: 'square',
-          cornersDotType: 'square',
-          logoSize: 0.2,
-          logoMargin: 4,
-        });
-        qr2DataUrl = await createBrandedQrCode(qr2Base);
-      }
       
       const metadata = {
         title: title.trim() || undefined,
@@ -397,15 +361,10 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         noPreview,
         password: usePassword ? password : undefined,
         qrStyle, // Store QR styling preferences
-        qrCodeDataUrl: brandedQrCode, // Already generated (QR #1)
-        // QR #2 image is NOT sent to server for security (contains decryption key in URL)
+        qrCodeDataUrl: brandedQrCode, // Already generated
         secureMode, // Flag to indicate Secure Mode
         encrypted: secureMode, // Flag for backend to know data is encrypted
-        // Store original file info for encrypted files (needed for preview/decryption)
-        originalFileType: secureMode && originalFileType ? originalFileType : undefined,
-        originalFileName: secureMode && originalFileName ? originalFileName : undefined,
-        acceptedTerms: true, // Backend validation - user must accept terms
-        // encryptionKey is NOT sent to server - it's only in QR codes!
+        encryptionKey: secureMode ? encryptionKey : undefined, // Store encryption key on server
       };
       
       console.log('📋 Metadata prepared:', { ...metadata, qrCodeDataUrl: metadata.qrCodeDataUrl?.substring(0, 50) + '...' });
@@ -416,10 +375,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       
       // If we have files, use upload endpoint
       if (files.length > 0) {
-        // Use encrypted file if Secure Mode, otherwise original file
-        const file = secureMode && fileToUpload ? fileToUpload : files[0];
-        console.log('📁 Uploading file:', file.name, file.size, secureMode ? '(encrypted)' : '(plain)');
-        response = await uploadFile(file, metadata);
+        // Upload all files
+        console.log(`📁 Uploading ${files.length} file(s):`, files.map(f => f.name).join(', '));
+        response = await uploadFile(files, metadata);
         console.log('✅ Upload response:', response);
       } else {
         // No files, just text/URLs
@@ -454,15 +412,15 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       
       // SECURE MODE: Generate TWO QR codes
       if (secureMode && encryptionKey) {
-        // QR #1: Access code (normal URL) - regenerate with actual ID
+        // QR #1: Access code (normal URL)
         const accessUrl = `${window.location.origin}/scan/${response.id}`;
         const qr1Base = await generateStyledQrCode(accessUrl, qrStyle);
         const qr1Final = await createBrandedQrCode(qr1Base);
         
         // QR #2: Unlock code (contains decryption key)
-        // IMPORTANT: QR #2 image is NOT stored on server for security
-        // It's only stored locally in the QrDrop object
         const unlockUrl = createDecryptionKeyUrl(window.location.origin, response.id, encryptionKey);
+        console.log('🔑 QR #2 URL generated:', unlockUrl);
+        // Use high contrast (black on white) with standard square corners for maximum scanner readability
         const qr2Base = await generateStyledQrCode(unlockUrl, {
           dotsColor: '#000000', // Pure black for maximum contrast
           backgroundColor: '#FFFFFF', // Pure white background
@@ -510,7 +468,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           createdAt: new Date(),
           qrCodeUrl: qr1Final, // Store QR #1 as primary
           secureMode: true, // Mark as Secure Mode
-          qrCodeUrl2: qr2Final, // Store QR #2 (from metadata)
+          qrCodeUrl2: qr2Final, // Store QR #2
         };
 
         onQrCreated(newQrDrop);
@@ -709,7 +667,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                 type="file"
                 onChange={handleFileInputChange}
                 className="hidden"
-                accept="*/*"
+                accept="image/*,video/*,application/pdf,.doc,.docx,.txt"
                 multiple
               />
               <div 
@@ -966,9 +924,6 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                 </div>
                 <p className={`text-sm mb-1 ${secureMode ? 'text-white/90' : 'text-[#3F3F3F]'}`}>
                   {t('upload.secureModeDesc')}
-                </p>
-                <p className={`text-xs font-semibold ${secureMode ? 'text-white' : 'text-[#E8927E]'}`}>
-                  {t('upload.secureModeForSensitive', { defaultValue: 'Bruk Secure Mode for sensitivt innhold' })}
                 </p>
                 <p className={`text-xs ${secureMode ? 'text-white/75' : 'text-[#5B5B5B]'}`}>
                   {t('upload.secureModeNote')}

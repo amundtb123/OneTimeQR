@@ -78,3 +78,4 @@ Etter at du har oppdatert secret:
 2. **Sjekk Supabase logs** → Du skal se `✅ Webhook signature verified`
 3. **Test ekte betaling** → Coins skal oppdateres automatisk
 
+

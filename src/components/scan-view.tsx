@@ -8,9 +8,8 @@ import { Alert, AlertDescription } from './ui/alert';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { UnlockScreen } from './unlock-screen';
-import { NordicLogo } from './nordic-logo';
 import { getQrDrop, verifyPassword, incrementScanCount, getFileUrl, incrementDownloadCount } from '../utils/api-client';
-import { decryptData, decryptFile } from '../utils/encryption';
+import { decryptData } from '../utils/encryption';
 import { toast } from 'sonner@2.0.3';
 
 interface ScanViewProps {
@@ -23,39 +22,13 @@ interface ScanViewProps {
 
 export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = false, unlockKey = null }: ScanViewProps) {
   const { t } = useTranslation();
-  const [showWelcomeScreen, setShowWelcomeScreen] = useState(false);
-  
-  // Check if this is a shared link (first visit, no access token)
-  useEffect(() => {
-    if (isDirectScan) {
-      const urlParams = new URLSearchParams(window.location.search);
-      const hasAccessToken = urlParams.has('access');
-      const hasKey = urlParams.has('key');
-      
-      // Show welcome screen only on first visit (no access token or key)
-      if (!hasAccessToken && !hasKey) {
-        setShowWelcomeScreen(true);
-        // Auto-hide after 2 seconds
-        const timer = setTimeout(() => {
-          setShowWelcomeScreen(false);
-        }, 2000);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [isDirectScan]);
-  
-  const handleGoHome = () => {
-    // Reset to home/upload view
-    window.location.href = '/';
-    window.location.reload();
-  };
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [qrDrop, setQrDrop] = useState<any>(null);
-  const [fileUrl, setFileUrl] = useState<string | null>(null);
-  const [decryptedFileUrl, setDecryptedFileUrl] = useState<string | null>(null);
+  const [fileUrl, setFileUrl] = useState<string | null>(null); // Backwards compatibility - first file
+  const [fileUrls, setFileUrls] = useState<Array<{fileUrl: string; fileName: string; fileType: string; fileSize: number; fileIndex: number}>>([]);
   const [error, setError] = useState<string | null>(null);
   const [, setTick] = useState(0); // Force re-render every second for countdown
   const [isEncrypted, setIsEncrypted] = useState(false);
@@ -123,8 +96,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Continue processing with the new response
           setQrDrop(newResponse.qrDrop);
           
-          // SECURITY: Server no longer includes fileUrl in response to prevent sharing
-          // File URL will be loaded on-demand when needed
+          // OPTIMIZATION: Check if server already included fileUrl
+          if ((newResponse as any).fileUrl) {
+            setFileUrl((newResponse as any).fileUrl);
+            console.log('✅ fileUrl received in response - skipping separate /file call');
+          }
           
           // Clean up URL after getting data
           if (isDirectScan) {
@@ -175,10 +151,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // If no password is required, automatically unlock and load file
           if (!newResponse.qrDrop.password) {
             setIsUnlocked(true);
-            // Load file URL on-demand (not included in response for security)
-            if ((newResponse.qrDrop.contentType === 'file' || newResponse.qrDrop.contentType === 'bundle') && newResponse.qrDrop.filePath) {
-              // Load file and decrypt if needed - pass qrDrop data directly
-              await loadFileWithData(newResponse.qrDrop);
+            // Load file URL(s) only if there is actually a file (not just text/URL) AND we don't already have it
+            if ((newResponse.qrDrop.contentType === 'file' || newResponse.qrDrop.contentType === 'bundle') && (newResponse.qrDrop.filePath || (newResponse.qrDrop.files && newResponse.qrDrop.files.length > 0)) && fileUrls.length === 0 && !fileUrl) {
+              await loadFile();
             }
             
             // Only increment scan count AFTER file is loaded (important for "scan once" type)
@@ -202,8 +177,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         
         setQrDrop(response.qrDrop);
         
-        // SECURITY: Server no longer includes fileUrl in response to prevent sharing
-        // File URL will be loaded on-demand when needed
+        // OPTIMIZATION: Check if server already included fileUrl
+        if ((response as any).fileUrl) {
+          setFileUrl((response as any).fileUrl);
+          console.log('✅ fileUrl received in response - skipping separate /file call');
+        }
         
         // Check if content is encrypted (Secure Mode)
         const isContentEncrypted = response.qrDrop.encrypted || response.qrDrop.secureMode;
@@ -247,10 +225,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         // If no password is required, automatically unlock and load file
         if (!response.qrDrop.password) {
           setIsUnlocked(true);
-          // Load file URL only if there is actually a file (not just text/URL)
-          if ((response.qrDrop.contentType === 'file' || response.qrDrop.contentType === 'bundle') && response.qrDrop.filePath) {
-            // Load file and decrypt if needed - pass qrDrop data directly
-            await loadFileWithData(response.qrDrop);
+          // Load file URL(s) only if there is actually a file (not just text/URL)
+          if ((response.qrDrop.contentType === 'file' || response.qrDrop.contentType === 'bundle') && (response.qrDrop.filePath || (response.qrDrop.files && response.qrDrop.files.length > 0))) {
+            await loadFile();
           }
           
           // Only increment scan count AFTER file is loaded (important for "scan once" type)
@@ -282,53 +259,32 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   }, [qrDropId, isPreview, isDirectScan, unlockKey]);
 
   const loadFile = async () => {
-    // Use current qrDrop from state
-    if (!qrDrop) return;
-    await loadFileWithData(qrDrop);
-  };
-
-  const loadFileWithData = async (qrDropData: any) => {
     try {
-      console.log('📥 Loading file URL for QR drop:', currentQrDropId);
       const response = await getFileUrl(currentQrDropId);
       
-      if (!response || !response.fileUrl) {
-        throw new Error('No file URL received from server');
-      }
-      
-      console.log('✅ File URL received:', response.fileUrl.substring(0, 50) + '...');
-      setFileUrl(response.fileUrl);
-      
-      // If file is encrypted and we have the key, decrypt it for preview
-      const isEncrypted = (qrDropData?.secureMode || qrDropData?.fileName?.endsWith('.encrypted')) && unlockKey;
-      if (isEncrypted && unlockKey && response.fileUrl) {
-        try {
-          console.log('🔒 Decrypting file for preview...', { secureMode: qrDropData?.secureMode, fileType: qrDropData?.fileType });
-          const fileResponse = await fetch(response.fileUrl);
-          if (!fileResponse.ok) {
-            throw new Error(`Failed to fetch encrypted file: ${fileResponse.status}`);
-          }
-          const encryptedBlob = await fileResponse.blob();
-          const decryptedBlob = await decryptFile(encryptedBlob, unlockKey);
-          
-          // Create blob URL with correct MIME type for preview
-          // Use original file type from qrDropData if available
-          const blobType = qrDropData?.fileType || 'application/octet-stream';
-          console.log('📦 Creating blob with type:', blobType, 'size:', decryptedBlob.size);
-          const typedBlob = new Blob([decryptedBlob], { type: blobType });
-          const decryptedUrl = URL.createObjectURL(typedBlob);
-          setDecryptedFileUrl(decryptedUrl);
-          console.log('✅ File decrypted for preview with type:', blobType, 'URL:', decryptedUrl.substring(0, 50) + '...');
-        } catch (error) {
-          console.error('Error decrypting file for preview:', error);
-          // Continue with encrypted file URL - user can still download
+      // Support both single file (backwards compatibility) and multiple files
+      if (response.files && Array.isArray(response.files)) {
+        // Multiple files
+        console.log(`✅ Loaded ${response.files.length} file(s)`);
+        setFileUrls(response.files);
+        // Set first file URL for backwards compatibility
+        if (response.files.length > 0) {
+          setFileUrl(response.files[0].fileUrl);
         }
+      } else if (response.fileUrl) {
+        // Single file (backwards compatibility)
+        setFileUrl(response.fileUrl);
+        setFileUrls([{
+          fileUrl: response.fileUrl,
+          fileName: response.fileName || qrDrop?.fileName || 'file',
+          fileType: response.fileType || qrDrop?.fileType || 'application/octet-stream',
+          fileSize: response.fileSize || qrDrop?.fileSize || 0,
+          fileIndex: 0
+        }]);
       }
-    } catch (error: any) {
-      console.error('Error loading file:', error);
-      const errorMessage = error?.message || t('scanView.couldNotLoad');
-      setError(errorMessage);
-      toast.error(errorMessage);
+    } catch (error) {
+      console.error('Error loading file(s):', error);
+      toast.error(t('scanView.couldNotLoad'));
     }
   };
 
@@ -340,9 +296,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         setIsUnlocked(true);
         setPasswordError(false);
         
-        // Load file first if it exists - use qrDrop from state
-        if (qrDrop?.filePath) {
-          await loadFileWithData(qrDrop);
+        // Load file(s) first if they exist
+        if (qrDrop?.filePath || (qrDrop?.files && qrDrop.files.length > 0)) {
+          await loadFile();
         }
         
         // Then increment scan count (important for "scan once" type)
@@ -358,65 +314,30 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     }
   };
 
-  const handleDownloadClick = async () => {
-    if (!qrDrop?.viewOnly && fileUrl) {
+  const handleDownloadClick = async (fileIndex?: number) => {
+    // If fileIndex is provided, download specific file; otherwise download first file (backwards compatibility)
+    const filesToDownload = fileIndex !== undefined ? [fileUrls[fileIndex]] : (fileUrls.length > 0 ? fileUrls : (fileUrl ? [{fileUrl, fileName: qrDrop?.fileName || 'file', fileType: qrDrop?.fileType || 'application/octet-stream', fileSize: qrDrop?.fileSize || 0, fileIndex: 0}] : []));
+    
+    if (!qrDrop?.viewOnly && filesToDownload.length > 0) {
       try {
         await incrementDownloadCount(currentQrDropId);
         
-        // SECURITY: Always download via fetch + blob URL to hide signed URL from browser
-        // This prevents users from seeing or sharing the signed URL
-        
-        // Check if file is encrypted and we have the key
-        const isEncrypted = (qrDrop.secureMode || qrDrop.fileName?.endsWith('.encrypted')) && unlockKey;
-        
-        if (isEncrypted && unlockKey) {
-          // Download encrypted file, decrypt it, then trigger download
-          console.log('🔒 Downloading and decrypting encrypted file...');
-          const response = await fetch(fileUrl);
-          if (!response.ok) {
-            throw new Error(`Failed to fetch file: ${response.status}`);
-          }
-          const encryptedBlob = await response.blob();
-          
-          // Decrypt the file
-          const decryptedBlob = await decryptFile(encryptedBlob, unlockKey);
-          
-          // Get original filename (already stored without .encrypted suffix)
-          const originalFileName = qrDrop.fileName;
-          
-          // Create download link for decrypted file with correct MIME type
-          const blobType = qrDrop.fileType || 'application/octet-stream';
-          const typedBlob = new Blob([decryptedBlob], { type: blobType });
-          const blobUrl = URL.createObjectURL(typedBlob);
-          const link = document.createElement('a');
-          link.href = blobUrl;
-          link.download = originalFileName;
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          
-          // Clean up object URL
-          setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
-          
-          toast.success(t('scanView.fileDownloaded'));
-        } else {
-          // SECURITY: Download non-encrypted file via fetch + blob URL
-          // This hides the signed URL from the browser address bar
-          console.log('📥 Downloading file via blob URL (hiding signed URL)...');
-          const response = await fetch(fileUrl);
+        // Download all files (or single file if fileIndex specified)
+        for (const file of filesToDownload) {
+          // SECURITY: Download via fetch + blob URL to hide signed URL from browser
+          const response = await fetch(file.fileUrl);
           if (!response.ok) {
             throw new Error(`Failed to fetch file: ${response.status}`);
           }
           const blob = await response.blob();
           
           // Create blob URL (this hides the original signed URL)
-          const blobType = qrDrop.fileType || 'application/octet-stream';
+          const blobType = file.fileType || 'application/octet-stream';
           const typedBlob = new Blob([blob], { type: blobType });
           const blobUrl = URL.createObjectURL(typedBlob);
           const link = document.createElement('a');
           link.href = blobUrl;
-          link.download = qrDrop.fileName;
+          link.download = file.fileName;
           link.style.display = 'none';
           document.body.appendChild(link);
           link.click();
@@ -424,11 +345,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           
           // Clean up object URL
           setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
-          
-          toast.success(t('scanView.fileDownloaded'));
         }
+        
+        toast.success(filesToDownload.length > 1 ? `${filesToDownload.length} ${t('scanView.filesDownloaded', { defaultValue: 'files downloaded' })}` : t('scanView.fileDownloaded'));
       } catch (error) {
-        console.error('Error downloading file:', error);
+        console.error('Error downloading file(s):', error);
         toast.error(t('scanView.couldNotDownload'));
       }
     }
@@ -462,43 +383,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     }
   };
 
-  // Welcome screen for shared links
-  if (showWelcomeScreen && isDirectScan) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F7F2EE] to-[#E1C7BA]">
-        <Card className="p-12 text-center max-w-md mx-4">
-          <div className="flex justify-center mb-6">
-            <NordicLogo className="w-20 h-20" />
-          </div>
-          <h1 className="text-2xl font-bold text-[#3F3F3F] mb-3">
-            {t('scanView.somethingShared', { defaultValue: "Something's shared with you!" })}
-          </h1>
-          <p className="text-[#5B5B5B] mb-6">
-            {t('scanView.openingContent', { defaultValue: 'Opening your content...' })}
-          </p>
-          <Loader2 className="size-8 text-indigo-600 mx-auto animate-spin" />
-        </Card>
-      </div>
-    );
-  }
-
   if (isLoading) {
     return (
       <div className="max-w-3xl mx-auto">
-        {/* Logo header - always visible and clickable */}
-        <div className="mb-6">
-          <button
-            onClick={handleGoHome}
-            className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
-            aria-label="Go to home"
-          >
-            <NordicLogo className="w-10 h-10 sm:w-12 sm:h-12" />
-            <div>
-              <h1 className="text-[#3F3F3F] text-lg sm:text-xl">{t('common.appName')}</h1>
-            </div>
-          </button>
-        </div>
-        
         {!isDirectScan && (
           <Button variant="ghost" onClick={onBack} className="mb-6">
             <ArrowLeft className="size-4 mr-2" />
@@ -517,20 +404,6 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   if (error) {
     return (
       <div className="max-w-3xl mx-auto">
-        {/* Logo header - always visible and clickable */}
-        <div className="mb-6">
-          <button
-            onClick={handleGoHome}
-            className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
-            aria-label="Go to home"
-          >
-            <NordicLogo className="w-10 h-10 sm:w-12 sm:h-12" />
-            <div>
-              <h1 className="text-[#3F3F3F] text-lg sm:text-xl">{t('common.appName')}</h1>
-            </div>
-          </button>
-        </div>
-        
         {!isDirectScan && (
           <Button variant="ghost" onClick={onBack} className="mb-6">
             <ArrowLeft className="size-4 mr-2" />
@@ -637,20 +510,6 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
 
   return (
     <div className="max-w-3xl mx-auto">
-      {/* Logo header - always visible and clickable */}
-      <div className="mb-6">
-        <button
-          onClick={handleGoHome}
-          className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
-          aria-label="Go to home"
-        >
-          <NordicLogo className="w-10 h-10 sm:w-12 sm:h-12" />
-          <div>
-            <h1 className="text-[#3F3F3F] text-lg sm:text-xl">{t('common.appName')}</h1>
-          </div>
-        </button>
-      </div>
-      
       {!isDirectScan && (
         <Button variant="ghost" onClick={onBack} className="mb-6">
           <ArrowLeft className="size-4 mr-2" />
@@ -880,84 +739,101 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               </div>
             )}
 
-            {/* File Content - Image Preview */}
-            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.fileType?.startsWith('image/') && (decryptedFileUrl || fileUrl) && !qrDrop?.noPreview && (
-              <img
-                src={decryptedFileUrl || fileUrl}
-                alt={qrDrop.fileName}
-                className="w-full h-auto rounded-2xl mb-4 border-4"
-                style={{ 
-                  borderColor: '#D5C5BD',
-                  // Prevent long-press save on mobile when viewOnly is enabled
-                  WebkitUserSelect: qrDrop.viewOnly ? 'none' : 'auto',
-                  userSelect: qrDrop.viewOnly ? 'none' : 'auto',
-                  WebkitTouchCallout: qrDrop.viewOnly ? 'none' : 'auto',
-                  pointerEvents: qrDrop.viewOnly ? 'none' : 'auto',
-                }}
-                onContextMenu={(e) => {
-                  if (qrDrop.viewOnly) {
-                    e.preventDefault();
-                    toast.error('⚠️ Denne filen kan kun vises');
-                  }
-                }}
-              />
-            )}
+            {/* File Content - Show all files */}
+            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && (fileUrls.length > 0 || fileUrl) && !qrDrop?.noPreview && (
+              <div className="space-y-4 mb-4">
+                {(fileUrls.length > 0 ? fileUrls : (fileUrl ? [{fileUrl, fileName: qrDrop?.fileName || 'file', fileType: qrDrop?.fileType || 'application/octet-stream', fileSize: qrDrop?.fileSize || 0, fileIndex: 0}] : [])).map((file, index) => (
+                  <div key={index} className="border-4 rounded-2xl p-4" style={{ borderColor: '#D5C5BD' }}>
+                    {/* Image Preview */}
+                    {file.fileType.startsWith('image/') && (
+                      <img
+                        src={file.fileUrl}
+                        alt={file.fileName}
+                        className="w-full h-auto rounded-xl mb-2"
+                        style={{ 
+                          // Prevent long-press save on mobile when viewOnly is enabled
+                          WebkitUserSelect: qrDrop.viewOnly ? 'none' : 'auto',
+                          userSelect: qrDrop.viewOnly ? 'none' : 'auto',
+                          WebkitTouchCallout: qrDrop.viewOnly ? 'none' : 'auto',
+                          pointerEvents: qrDrop.viewOnly ? 'none' : 'auto',
+                        }}
+                        onContextMenu={(e) => {
+                          if (qrDrop.viewOnly) {
+                            e.preventDefault();
+                            toast.error('⚠️ Denne filen kan kun vises');
+                          }
+                        }}
+                      />
+                    )}
 
-            {/* File Content - Video Preview */}
-            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.fileType?.startsWith('video/') && (decryptedFileUrl || fileUrl) && !qrDrop?.noPreview && (
-              <div className="mb-4">
-                <video
-                  controls
-                  className="w-full h-auto rounded-2xl border-4"
-                  style={{ 
-                    borderColor: '#D5C5BD',
-                    maxHeight: '70vh',
-                  }}
-                  controlsList={qrDrop.viewOnly ? 'nodownload' : undefined}
-                  onContextMenu={(e) => {
-                    if (qrDrop.viewOnly) {
-                      e.preventDefault();
-                      toast.error(t('scanView.fileViewOnly'));
-                    }
-                  }}
-                >
-                  <source src={decryptedFileUrl || fileUrl} type={qrDrop.fileType} />
-                  {t('scanView.browserNotSupported')}
-                </video>
-              </div>
-            )}
+                    {/* Video Preview */}
+                    {file.fileType.startsWith('video/') && (
+                      <div className="mb-2">
+                        <video
+                          controls
+                          className="w-full h-auto rounded-xl"
+                          style={{ maxHeight: '70vh' }}
+                          controlsList={qrDrop.viewOnly ? 'nodownload' : undefined}
+                          onContextMenu={(e) => {
+                            if (qrDrop.viewOnly) {
+                              e.preventDefault();
+                              toast.error(t('scanView.fileViewOnly'));
+                            }
+                          }}
+                        >
+                          <source src={file.fileUrl} type={file.fileType} />
+                          {t('scanView.browserNotSupported')}
+                        </video>
+                      </div>
+                    )}
 
-            {/* File Content - Audio Preview */}
-            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.fileType?.startsWith('audio/') && fileUrl && !qrDrop?.noPreview && (
-              <div className="mb-4">
-                <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl p-8 border-4" style={{ borderColor: '#D5C5BD' }}>
-                  <div className="text-center mb-6">
-                    <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center">
-                      <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-                      </svg>
+                    {/* Audio Preview */}
+                    {file.fileType.startsWith('audio/') && (
+                      <div className="mb-2">
+                        <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-6 border-2" style={{ borderColor: '#D5C5BD' }}>
+                          <div className="text-center mb-4">
+                            <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center">
+                              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                              </svg>
+                            </div>
+                            <h3 className="text-gray-900 mb-1 text-sm">{file.fileName}</h3>
+                            <p className="text-gray-600 text-xs">{file.fileType.split('/')[1]?.toUpperCase() || 'AUDIO'}</p>
+                          </div>
+                          <audio
+                            controls
+                            className="w-full"
+                            style={{ filter: 'hue-rotate(200deg) saturate(0.8)' }}
+                            controlsList={qrDrop.viewOnly ? 'nodownload' : undefined}
+                            onContextMenu={(e) => {
+                              if (qrDrop.viewOnly) {
+                                e.preventDefault();
+                                toast.error(t('scanView.fileViewOnly'));
+                              }
+                            }}
+                          >
+                            <source src={file.fileUrl} type={file.fileType} />
+                            {t('scanView.browserNotSupportedAudio')}
+                          </audio>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* File Info */}
+                    <div className="flex items-center justify-between mt-2">
+                      <div>
+                        <p className="text-[#3F3F3F] text-sm font-medium">{file.fileName}</p>
+                        <p className="text-[#5B5B5B] text-xs">{formatFileSize(file.fileSize)} • {file.fileType.split('/')[1]?.toUpperCase() || 'FILE'}</p>
+                      </div>
+                      {!qrDrop?.viewOnly && (
+                        <Button onClick={() => handleDownloadClick(file.fileIndex)} variant="outline" size="sm">
+                          <Download className="size-4 mr-1" />
+                          {t('scanView.download')}
+                        </Button>
+                      )}
                     </div>
-                    <h3 className="text-gray-900 mb-1">{qrDrop.fileName}</h3>
-                    <p className="text-gray-600 text-sm">{qrDrop.fileType.split('/')[1]?.toUpperCase() || 'AUDIO'}</p>
                   </div>
-                  <audio
-                    controls
-                    className="w-full"
-                    style={{
-                      filter: 'hue-rotate(200deg) saturate(0.8)',
-                    }}
-                    controlsList={qrDrop.viewOnly ? 'nodownload' : undefined}
-                    onContextMenu={(e) => {
-                      if (qrDrop.viewOnly) {
-                        e.preventDefault();
-                        toast.error(t('scanView.fileViewOnly'));
-                      }
-                    }}
-                  >
-                    <source src={decryptedFileUrl || fileUrl} type={qrDrop.fileType} />
-                    {t('scanView.browserNotSupportedAudio')}
-                  </audio>
-                </div>
+                ))}
               </div>
             )}
 
@@ -971,28 +847,38 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               </Alert>
             )}
 
-            {/* File Info - Only for files or bundles with files, and NOT when noPreview is enabled */}
-            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.fileType && !qrDrop?.noPreview && (
-              <div className="bg-gray-50 rounded-lg p-3 mb-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-gray-600 text-sm mb-1">{t('scanView.fileType')}</p>
-                    <p className="text-gray-900 text-sm">{qrDrop?.fileType.split('/')[1]?.toUpperCase() || 'Ukjent'}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600 text-sm mb-1">{t('scanView.size')}</p>
-                    <p className="text-gray-900 text-sm">{formatFileSize(qrDrop?.fileSize || 0)}</p>
-                  </div>
-                </div>
-              </div>
+            {/* Download All Button - Only for files or bundles with files */}
+            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.filePath && fileUrls.length > 1 && (
+              <>
+                {!qrDrop?.viewOnly ? (
+                  fileUrls.length > 0 ? (
+                    <Button onClick={() => handleDownloadClick()} className="w-full" size="lg">
+                      <Download className="size-5 mr-2" />
+                      {t('scanView.downloadAllFiles', { defaultValue: `Download all files (${fileUrls.length})` })}
+                    </Button>
+                  ) : (
+                    <Button disabled className="w-full" size="lg">
+                      <Loader2 className="size-5 mr-2 animate-spin" />
+                      {t('scanView.loadingFile')}
+                    </Button>
+                  )
+                ) : (
+                  <Alert>
+                    <Eye className="size-4" />
+                    <AlertDescription>
+                      {t('scanView.viewOnly')}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </>
             )}
 
-            {/* Download Button - Only for files or bundles with files */}
-            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.filePath && (
+            {/* Single File Download Button (backwards compatibility) */}
+            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.filePath && fileUrls.length <= 1 && (
               <>
                 {!qrDrop?.viewOnly ? (
                   fileUrl ? (
-                    <Button onClick={handleDownloadClick} className="w-full" size="lg">
+                    <Button onClick={() => handleDownloadClick()} className="w-full" size="lg">
                       <Download className="size-5 mr-2" />
                       {t('scanView.downloadFile')}
                     </Button>

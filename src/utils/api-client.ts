@@ -89,9 +89,6 @@ export interface QrDropData {
   viewOnly: boolean;
   password: string | null;
   qrStyle?: any; // QR code styling preferences
-  qrCodeDataUrl?: string; // QR #1 image (data URL)
-  // QR #2 image is NOT stored on server for security (contains decryption key)
-  secureMode?: boolean; // Secure Mode flag
   createdAt: number;
   expiredAt?: number; // Timestamp when marked as expired
 }
@@ -162,9 +159,19 @@ async function fetchApi(endpoint: string, options: RequestInit = {}, requireAuth
   }
 }
 
-export async function uploadFile(file: File, metadata: QrDropMetadata) {
+export async function uploadFile(file: File, metadata: QrDropMetadata): Promise<{ success: boolean; id: string; qrDrop: any }>;
+export async function uploadFile(files: File[], metadata: QrDropMetadata): Promise<{ success: boolean; id: string; qrDrop: any }>;
+export async function uploadFile(fileOrFiles: File | File[], metadata: QrDropMetadata) {
   const formData = new FormData();
-  formData.append('file', file);
+  
+  // Support both single file (backwards compatibility) and multiple files
+  const filesArray = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles];
+  
+  // Append all files with indexed names (file, file1, file2, etc.)
+  filesArray.forEach((file, index) => {
+    formData.append(index === 0 ? 'file' : `file${index}`, file);
+  });
+  
   formData.append('metadata', JSON.stringify(metadata));
 
   return fetchApi('/upload', {
@@ -223,7 +230,14 @@ export async function incrementScanCount(id: string): Promise<{ success: boolean
   });
 }
 
-export async function getFileUrl(id: string): Promise<{ fileUrl: string; fileName: string; fileType: string; fileSize: number }> {
+export async function getFileUrl(id: string): Promise<{ 
+  fileUrl?: string; // Backwards compatibility - first file
+  fileName?: string;
+  fileType?: string;
+  fileSize?: number;
+  files?: Array<{fileUrl: string; fileName: string; fileType: string; fileSize: number; fileIndex: number}>;
+  fileCount?: number;
+}> {
   return fetchApi(`/qr/${id}/file`);
 }
 

@@ -110,3 +110,4 @@ Dette viser din nåværende coin-balance direkte fra databasen.
 6. ✅ Test `/test-coins` endpoint for å verifisere balance
 7. ✅ Sjekk `user_profiles` tabellen direkte i Supabase
 
+

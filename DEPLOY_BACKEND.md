@@ -122,3 +122,4 @@ OneTimeQR/
 - Sjekk Supabase Edge Function logs i Dashboard
 - Sjekk at alle miljøvariabler er satt riktig
 
+

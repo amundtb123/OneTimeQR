@@ -366,19 +366,27 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
 
     // Get user ID from auth token (OPTIONAL - allows anonymous uploads)
     let userId: string | null = null;
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const authHeader = c.req.header('Authorization');
+    const accessToken = authHeader?.split(' ')[1];
+    console.log('📤 POST /upload - Auth header present:', !!authHeader, 'Token present:', !!accessToken);
+    
     if (accessToken && accessToken !== Deno.env.get('SUPABASE_ANON_KEY')) {
       try {
         const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-        if (user?.id) {
+        if (error) {
+          console.error('❌ Error getting user from token during upload:', error.message);
+        } else if (user?.id) {
           userId = user.id;
-          console.log('Authenticated upload from user:', userId);
+          console.log('✅ Authenticated upload from user:', userId);
+        } else {
+          console.log('⚠️ No user ID in response during upload');
         }
       } catch (error) {
+        console.error('❌ Exception getting user during upload:', error);
         console.log('Authentication failed during upload, allowing anonymous upload');
       }
     } else {
-      console.log('Anonymous upload (no auth token provided)');
+      console.log('⚠️ Anonymous upload (no auth token or token is anon key)');
     }
 
     // Generate unique ID
@@ -470,7 +478,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     await kv.set(`qrdrop:${id}`, qrDropData);
     await kv.set(`qrdrop:index:${id}`, { id, createdAt: timestamp, userId });
 
-    console.log(`✅ QR drop created with ${uploadedFiles.length} file(s)`);
+    console.log(`✅ QR drop created with ${uploadedFiles.length} file(s), userId: ${userId || 'null'}`);
 
     return c.json({ 
       success: true, 
@@ -490,19 +498,27 @@ app.post('/make-server-c3c9181e/create', async (c) => {
 
     // Get user ID from auth token (OPTIONAL - allows anonymous creation)
     let userId: string | null = null;
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const authHeader = c.req.header('Authorization');
+    const accessToken = authHeader?.split(' ')[1];
+    console.log('📝 POST /create - Auth header present:', !!authHeader, 'Token present:', !!accessToken);
+    
     if (accessToken && accessToken !== Deno.env.get('SUPABASE_ANON_KEY')) {
       try {
         const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-        if (user?.id) {
+        if (error) {
+          console.error('❌ Error getting user from token during create:', error.message);
+        } else if (user?.id) {
           userId = user.id;
-          console.log('Authenticated creation from user:', userId);
+          console.log('✅ Authenticated creation from user:', userId);
+        } else {
+          console.log('⚠️ No user ID in response during create');
         }
       } catch (error) {
+        console.error('❌ Exception getting user during create:', error);
         console.log('Authentication failed during create, allowing anonymous creation');
       }
     } else {
-      console.log('Anonymous creation (no auth token provided)');
+      console.log('⚠️ Anonymous creation (no auth token or token is anon key)');
     }
 
     // Validate content type
@@ -992,36 +1008,58 @@ app.post('/make-server-c3c9181e/qr/:id/download', async (c) => {
 app.get('/make-server-c3c9181e/qrdrops', async (c) => {
   try {
     let userId: string | null = null;
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const authHeader = c.req.header('Authorization');
+    const accessToken = authHeader?.split(' ')[1];
+    
+    console.log('📋 GET /qrdrops - Auth header present:', !!authHeader, 'Token present:', !!accessToken);
+    
     if (accessToken && accessToken !== Deno.env.get('SUPABASE_ANON_KEY')) {
       try {
         const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-        if (user?.id) {
+        if (error) {
+          console.error('❌ Error getting user from token:', error.message);
+        } else if (user?.id) {
           userId = user.id;
+          console.log('✅ Authenticated user:', userId);
+        } else {
+          console.log('⚠️ No user ID in response');
         }
       } catch (error) {
-        console.log('No authenticated user (showing all QR drops)');
+        console.error('❌ Exception getting user:', error);
       }
+    } else {
+      console.log('⚠️ No access token or token is anon key');
     }
 
     const indexes = await kv.getByPrefix('qrdrop:index:');
     const ids = indexes.map((idx: any) => idx.id);
+    console.log(`📦 Found ${ids.length} QR drop indexes`);
     
     const qrDrops = await kv.mget(ids.map((id: string) => `qrdrop:${id}`));
     
     let validQrDrops = qrDrops.filter((qr: any) => qr !== null);
+    console.log(`📦 Found ${validQrDrops.length} valid QR drops`);
     
     if (!userId) {
+      console.log('⚠️ No userId - returning empty list');
       return c.json({ qrDrops: [] });
     }
     
+    const beforeFilter = validQrDrops.length;
     validQrDrops = validQrDrops.filter((qr: any) => qr.userId === userId);
+    console.log(`🔍 Filtered to ${validQrDrops.length} QR drops for user ${userId} (from ${beforeFilter} total)`);
+    
+    // Log sample userIds for debugging
+    if (beforeFilter > 0 && validQrDrops.length === 0) {
+      const sampleUserIds = validQrDrops.slice(0, 3).map((qr: any) => qr.userId);
+      console.log('⚠️ No matches - sample userIds in QR drops:', sampleUserIds);
+    }
     
     validQrDrops = validQrDrops.sort((a: any, b: any) => b.createdAt - a.createdAt);
 
     return c.json({ qrDrops: validQrDrops });
   } catch (error) {
-    console.error('Error getting QR drops:', error);
+    console.error('❌ Error getting QR drops:', error);
     return c.json({ error: `Failed to get QR drops: ${error.message}` }, 500);
   }
 });

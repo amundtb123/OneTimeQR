@@ -26,11 +26,12 @@ async function getAuthToken(): Promise<string> {
     return cachedAccessToken;
   }
 
-  // Try to get session, but with shorter timeout for authenticated requests
+  // Try to get session, but with longer timeout for authenticated requests
+  // Increased timeout to prevent premature fallback to anon key
   try {
     const sessionPromise = supabase.auth.getSession();
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Session timeout')), 1000)
+      setTimeout(() => reject(new Error('Session timeout')), 5000) // Increased from 1000ms to 5000ms
     );
     
     const { data: { session }, error: sessionError } = await Promise.race([
@@ -45,12 +46,30 @@ async function getAuthToken(): Promise<string> {
       console.log('🔑 Retrieved fresh access token');
       return token;
     }
+    
+    if (sessionError) {
+      console.warn('⚠️ Session error:', sessionError);
+    }
   } catch (error: any) {
-    console.warn('⚠️ Session fetch failed or timed out:', error?.message);
+    // If timeout or error, try one more time without timeout
+    console.warn('⚠️ Session fetch failed or timed out, retrying without timeout:', error?.message);
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (!sessionError && session?.access_token) {
+        const token = session.access_token;
+        const expiresAt = session.expires_at ? session.expires_at * 1000 : Date.now() + 3600000;
+        updateCachedToken(token, expiresAt);
+        console.log('🔑 Retrieved access token on retry');
+        return token;
+      }
+    } catch (retryError) {
+      console.error('❌ Retry also failed:', retryError);
+    }
   }
 
-  // Fallback to anon key
-  console.log('🔑 Using anon key (no valid session)');
+  // Only fallback to anon key if we really have no session
+  // This should rarely happen - usually means user is logged out
+  console.warn('⚠️ No valid session found, using anon key (user may need to log in)');
   return publicAnonKey;
 }
 

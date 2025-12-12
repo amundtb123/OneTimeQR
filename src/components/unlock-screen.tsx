@@ -159,7 +159,18 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
           if (pathMatch) {
             const fileId = pathMatch[1];
             console.log('💾 [UNLOCK SCREEN] Storing k2 in sessionStorage before navigation for:', fileId);
+            console.log('💾 [UNLOCK SCREEN] Current qrDropId (from props):', qrDropId);
+            console.log('💾 [UNLOCK SCREEN] fileId from URL path:', fileId);
             console.log('💾 [UNLOCK SCREEN] k2 value length:', k2Value.length);
+            
+            // CRITICAL: Also store k2 using qrDropId from props as fallback
+            // This handles cases where URL pathname doesn't match qrDropId
+            if (qrDropId && qrDropId !== fileId) {
+              console.warn('⚠️ [UNLOCK SCREEN] fileId mismatch! URL:', fileId, 'vs props:', qrDropId);
+              console.log('💾 [UNLOCK SCREEN] Storing k2 with BOTH keys for safety');
+              sessionStorage.setItem(`k2_temp_${qrDropId}`, k2Value);
+              sessionStorage.setItem(`k2_timestamp_${qrDropId}`, Date.now().toString());
+            }
             
             // Store k2 temporarily so App.tsx can find it even if fragment is lost
             // App.tsx will check for this and combine with k1
@@ -168,15 +179,38 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             
             // Verify it was stored
             const verifyK2 = sessionStorage.getItem(`k2_temp_${fileId}`);
-            console.log('💾 [UNLOCK SCREEN] k2 stored verification:', verifyK2 ? 'SUCCESS' : 'FAILED');
+            const verifyK2Alt = qrDropId ? sessionStorage.getItem(`k2_temp_${qrDropId}`) : null;
+            console.log('💾 [UNLOCK SCREEN] k2 stored verification:', {
+              withFileId: verifyK2 ? 'SUCCESS' : 'FAILED',
+              withQrDropId: verifyK2Alt ? 'SUCCESS' : 'FAILED'
+            });
+            
+            // List all k2_temp keys in sessionStorage for debugging
+            const allK2Keys = Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_'));
+            console.log('💾 [UNLOCK SCREEN] All k2_temp keys in sessionStorage:', allK2Keys);
             
             const targetUrl = url.origin + url.pathname + url.hash;
             console.log('🚀 [UNLOCK SCREEN] Navigating to:', targetUrl);
+            console.log('🚀 [UNLOCK SCREEN] Full URL breakdown:', {
+              origin: url.origin,
+              pathname: url.pathname,
+              hash: url.hash,
+              full: targetUrl
+            });
             
             // Navigate to unlock route - App.tsx will handle combining k1 + k2
-            window.location.href = targetUrl;
+            // Use setTimeout to ensure sessionStorage is written before navigation
+            setTimeout(() => {
+              window.location.href = targetUrl;
+            }, 100);
           } else {
             console.error('❌ [UNLOCK SCREEN] Could not extract fileId from unlock URL. Pathname:', url.pathname);
+            // Fallback: try using qrDropId from props
+            if (qrDropId && k2Value) {
+              console.log('💾 [UNLOCK SCREEN] Fallback: storing k2 with qrDropId from props:', qrDropId);
+              sessionStorage.setItem(`k2_temp_${qrDropId}`, k2Value);
+              sessionStorage.setItem(`k2_timestamp_${qrDropId}`, Date.now().toString());
+            }
             window.location.href = data;
           }
         } else {

@@ -145,7 +145,24 @@ function AppContent() {
         // MOBILE FIX: Also check for k2 stored in sessionStorage (from QR scanner)
         // This handles cases where mobile browsers lose the fragment during navigation
         const unlockId = unlockMatch ? unlockMatch[1] : null;
-        const k2FromStorage = unlockId ? sessionStorage.getItem(`k2_temp_${unlockId}`) : null;
+        
+        // Check for k2 in sessionStorage with multiple possible keys
+        let k2FromStorage = null;
+        if (unlockId) {
+          k2FromStorage = sessionStorage.getItem(`k2_temp_${unlockId}`);
+        }
+        // Also check with scan ID as fallback (in case we're on /scan/:id but k2 was stored with that ID)
+        if (!k2FromStorage && id) {
+          k2FromStorage = sessionStorage.getItem(`k2_temp_${id}`);
+          if (k2FromStorage) {
+            console.log('🔍 [APP] Found k2 in sessionStorage using scan ID:', id);
+          }
+        }
+        
+        // List all k2_temp keys for debugging
+        const allK2Keys = Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_'));
+        console.log('🔍 [APP] All k2_temp keys in sessionStorage:', allK2Keys);
+        
         const k2 = k2FromUrl || k2FromStorage; // Prefer URL fragment, fallback to storage
         
         console.log('🔍 [APP] k2 sources:', {

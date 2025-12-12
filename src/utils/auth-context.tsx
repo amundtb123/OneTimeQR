@@ -200,16 +200,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🔔 Auth state changed:', event, session ? `User: ${session.user?.email}` : 'No session');
       
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        console.log('✅ User signed in or token refreshed');
+      // Handle token refresh errors gracefully
+      if (event === 'TOKEN_REFRESHED') {
+        if (session) {
+          console.log('✅ Token refreshed successfully');
+          await updateSession(session);
+        } else {
+          console.warn('⚠️ TOKEN_REFRESHED event but no session - token refresh may have failed');
+          // Try to get session manually
+          try {
+            const { data: { session: newSession }, error } = await supabase.auth.getSession();
+            if (error) {
+              console.error('❌ Error getting session after token refresh:', error);
+              // If refresh failed, user might need to sign in again
+              if (error.message?.includes('refresh token') || error.message?.includes('Invalid refresh token')) {
+                console.warn('⚠️ Refresh token invalid - clearing session, user may need to sign in again');
+                await updateSession(null);
+              }
+            } else if (newSession) {
+              console.log('✅ Recovered session after token refresh');
+              await updateSession(newSession);
+            } else {
+              console.warn('⚠️ No session available after token refresh');
+              await updateSession(null);
+            }
+          } catch (err) {
+            console.error('❌ Exception getting session after token refresh:', err);
+            await updateSession(null);
+          }
+        }
+      } else if (event === 'SIGNED_IN') {
+        console.log('✅ User signed in');
+        await updateSession(session);
       } else if (event === 'SIGNED_OUT') {
         console.log('👋 User signed out');
+        await updateSession(null);
+      } else if (event === 'INITIAL_SESSION') {
+        await updateSession(session);
       }
       
-      await updateSession(session);
-      
       // Clean up OAuth callback URL if present
-      if (event === 'SIGNED_IN') {
+      if (event === 'SIGNED_IN' && session) {
         const hashParams = new URLSearchParams(window.location.hash.substring(1));
         const searchParams = new URLSearchParams(window.location.search);
         if (hashParams.has('access_token') || searchParams.has('access_token') || 

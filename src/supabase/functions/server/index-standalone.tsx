@@ -625,7 +625,23 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
     const qrDrop = await kv.get(`qrdrop:${id}`);
 
     console.log('Getting QR drop:', id);
-    console.log('QR drop data:', JSON.stringify(qrDrop, null, 2));
+    // Null-logging: Don't log sensitive data (password, encryptionKey, file content)
+    const safeQrDrop = { ...qrDrop };
+    if (safeQrDrop.password) safeQrDrop.password = '[REDACTED]';
+    if (safeQrDrop.encryptionKey) safeQrDrop.encryptionKey = '[REDACTED]';
+    console.log('QR drop metadata (sanitized):', JSON.stringify({
+      id: safeQrDrop.id,
+      contentType: safeQrDrop.contentType,
+      fileName: safeQrDrop.fileName,
+      fileSize: safeQrDrop.fileSize,
+      fileCount: safeQrDrop.fileCount,
+      hasPassword: !!qrDrop.password,
+      secureMode: safeQrDrop.secureMode,
+      encrypted: safeQrDrop.encrypted,
+      expiresAt: safeQrDrop.expiresAt,
+      scanCount: safeQrDrop.scanCount,
+      downloadCount: safeQrDrop.downloadCount,
+    }, null, 2));
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);

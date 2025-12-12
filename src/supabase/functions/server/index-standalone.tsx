@@ -579,9 +579,15 @@ app.post('/make-server-c3c9181e/create', async (c) => {
   try {
     const metadata = await c.req.json();
 
-    // SECURITY: Validate metadata size
+    // SECURITY: Validate metadata size (excluding ciphertext for secureMode)
+    // For secureMode, ciphertext is sent as separate fields and not counted in metadata size
     const MAX_METADATA_SIZE = 10 * 1024; // 10 KB
-    const metadataString = JSON.stringify(metadata);
+    const metadataForSizeCheck = { ...metadata };
+    // Remove ciphertext fields from size check (they're stored separately)
+    if (metadataForSizeCheck.textContentCiphertext) delete metadataForSizeCheck.textContentCiphertext;
+    if (metadataForSizeCheck.urlContentCiphertext) delete metadataForSizeCheck.urlContentCiphertext;
+    
+    const metadataString = JSON.stringify(metadataForSizeCheck);
     if (metadataString.length > MAX_METADATA_SIZE) {
       return c.json({ error: 'Metadata too large. Maximum size is 10 KB.' }, 400);
     }

@@ -35,9 +35,15 @@ export function QrScanner({ onScan, onClose }: QrScannerProps) {
         },
         (decodedText) => {
           // Success callback
-          console.log('✅ QR code detected:', decodedText);
+          console.log('✅ [QR SCANNER] QR code detected:', decodedText);
+          console.log('✅ [QR SCANNER] Calling onScan callback...');
           stopScanner();
-          onScan(decodedText);
+          try {
+            onScan(decodedText);
+            console.log('✅ [QR SCANNER] onScan callback completed');
+          } catch (error) {
+            console.error('❌ [QR SCANNER] Error in onScan callback:', error);
+          }
         },
         (errorMessage) => {
           // Error callback (fires continuously, so we don't log it)

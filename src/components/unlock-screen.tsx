@@ -196,10 +196,17 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
 
   // Show QR scanner fullscreen
   if (showScanner) {
+    console.log('📷 [UNLOCK SCREEN] Rendering QR scanner, qrDropId:', qrDropId);
     return (
       <QrScanner 
-        onScan={handleQrScanned}
-        onClose={() => setShowScanner(false)}
+        onScan={(data) => {
+          console.log('📷 [UNLOCK SCREEN] QrScanner onScan called with:', data);
+          handleQrScanned(data);
+        }}
+        onClose={() => {
+          console.log('📷 [UNLOCK SCREEN] QR scanner closed');
+          setShowScanner(false);
+        }}
       />
     );
   }

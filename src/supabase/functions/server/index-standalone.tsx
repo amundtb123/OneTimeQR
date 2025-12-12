@@ -1018,6 +1018,118 @@ app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
   }
 });
 
+// Mark QR1 as scanned (for secureMode split-key)
+// Server stores that QR1 was scanned WITHOUT seeing k1 (zero-knowledge)
+app.post('/make-server-c3c9181e/qrdrop/:id/qr1-scanned', async (c) => {
+  try {
+    const id = c.req.param('id');
+    
+    // SECURITY: Validate UUID format
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid QR drop ID format' }, 400);
+    }
+    
+    const qrDrop = await kv.get(`qrdrop:${id}`);
+    if (!qrDrop) {
+      return c.json({ error: 'QR drop not found' }, 404);
+    }
+    
+    // Only for secureMode
+    if (!qrDrop.secureMode) {
+      return c.json({ error: 'Not a secure mode QR drop' }, 400);
+    }
+    
+    // Store that QR1 was scanned (with timestamp for expiry)
+    // We don't see k1 - it's in the URL fragment which never reaches the server
+    const qr1ScanData = {
+      qrDropId: id,
+      scannedAt: Date.now(),
+      expiresAt: Date.now() + (5 * 60 * 1000) // 5 minutes expiry
+    };
+    
+    await kv.set(`qr1_scanned:${id}`, qr1ScanData, { expireIn: 5 * 60 }); // 5 minutes TTL
+    
+    console.log(`✅ QR1 scanned for secureMode QR drop ${id} (zero-knowledge - server never saw k1)`);
+    
+    return c.json({ 
+      success: true,
+      message: 'QR1 scan recorded (zero-knowledge)'
+    });
+  } catch (error) {
+    console.error('Error recording QR1 scan:', error);
+    return c.json({ error: `Failed to record QR1 scan: ${error.message}` }, 500);
+  }
+});
+
+// Verify QR1 was scanned before allowing QR2 unlock (for secureMode split-key)
+// Returns unlock token if QR1 was scanned, which client uses to verify before combining k1+k2
+app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
+  try {
+    const id = c.req.param('id');
+    
+    // SECURITY: Validate UUID format
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid QR drop ID format' }, 400);
+    }
+    
+    const qrDrop = await kv.get(`qrdrop:${id}`);
+    if (!qrDrop) {
+      return c.json({ error: 'QR drop not found' }, 404);
+    }
+    
+    // Only for secureMode
+    if (!qrDrop.secureMode) {
+      return c.json({ error: 'Not a secure mode QR drop' }, 400);
+    }
+    
+    // Check if QR1 was scanned
+    const qr1ScanData = await kv.get(`qr1_scanned:${id}`);
+    
+    if (!qr1ScanData) {
+      return c.json({ 
+        success: false,
+        qr1Scanned: false,
+        message: 'QR1 must be scanned before QR2'
+      }, 403);
+    }
+    
+    // Check if QR1 scan expired (5 minutes)
+    if (qr1ScanData.expiresAt < Date.now()) {
+      await kv.del(`qr1_scanned:${id}`);
+      return c.json({ 
+        success: false,
+        qr1Scanned: false,
+        expired: true,
+        message: 'QR1 scan expired (older than 5 minutes)'
+      }, 403);
+    }
+    
+    // QR1 was scanned and is still valid - generate unlock token
+    // This token proves to the client that server verified QR1 was scanned
+    // Client still combines k1+k2 locally (server never sees keys)
+    const unlockToken = crypto.randomUUID();
+    await kv.set(`unlock_token:${unlockToken}`, {
+      qrDropId: id,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + (2 * 60 * 1000) // 2 minutes to use
+    }, { expireIn: 2 * 60 });
+    
+    console.log(`✅ QR1 verified for QR2 unlock - QR drop ${id} (zero-knowledge - server never saw k1 or k2)`);
+    
+    return c.json({ 
+      success: true,
+      qr1Scanned: true,
+      unlockToken: unlockToken,
+      message: 'QR1 verified - you can now combine k1+k2 locally'
+    });
+  } catch (error) {
+    console.error('Error verifying QR1 for QR2:', error);
+    return c.json({ error: `Failed to verify QR1: ${error.message}` }, 500);
+  }
+});
+
 // Increment scan count
 app.post('/make-server-c3c9181e/qr/:id/scan', async (c) => {
   try {

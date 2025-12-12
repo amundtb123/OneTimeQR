@@ -147,26 +147,32 @@ function AppContent() {
           hash: window.location.hash ? window.location.hash.substring(0, 50) + '...' : 'none'
         });
         
-        // MOBILE FIX: Also check for k2 stored in sessionStorage (from QR scanner)
+        // MOBILE FIX: Also check for k2 stored in localStorage/sessionStorage (from QR scanner)
+        // Use localStorage so it works across windows/tabs (when user opens in new window)
         // This handles cases where mobile browsers lose the fragment during navigation
         const unlockId = unlockMatch ? unlockMatch[1] : null;
         
-        // Check for k2 in sessionStorage with multiple possible keys
+        // Check for k2 in localStorage first (works across windows), then sessionStorage (same window)
         let k2FromStorage = null;
         if (unlockId) {
-          k2FromStorage = sessionStorage.getItem(`k2_temp_${unlockId}`);
+          k2FromStorage = localStorage.getItem(`k2_temp_${unlockId}`) || sessionStorage.getItem(`k2_temp_${unlockId}`);
+          if (k2FromStorage) {
+            console.log('🔍 [APP] Found k2 in storage (unlockId):', localStorage.getItem(`k2_temp_${unlockId}`) ? 'localStorage' : 'sessionStorage');
+          }
         }
         // Also check with scan ID as fallback (in case we're on /scan/:id but k2 was stored with that ID)
         if (!k2FromStorage && id) {
-          k2FromStorage = sessionStorage.getItem(`k2_temp_${id}`);
+          k2FromStorage = localStorage.getItem(`k2_temp_${id}`) || sessionStorage.getItem(`k2_temp_${id}`);
           if (k2FromStorage) {
-            console.log('🔍 [APP] Found k2 in sessionStorage using scan ID:', id);
+            console.log('🔍 [APP] Found k2 in storage using scan ID:', id, localStorage.getItem(`k2_temp_${id}`) ? 'localStorage' : 'sessionStorage');
           }
         }
         
         // List all k2_temp keys for debugging
-        const allK2Keys = Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_'));
-        console.log('🔍 [APP] All k2_temp keys in sessionStorage:', allK2Keys);
+        const allK2KeysLocal = Object.keys(localStorage).filter(k => k.startsWith('k2_temp_'));
+        const allK2KeysSession = Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_'));
+        console.log('🔍 [APP] All k2_temp keys in localStorage:', allK2KeysLocal);
+        console.log('🔍 [APP] All k2_temp keys in sessionStorage:', allK2KeysSession);
         
         const k2 = k2FromUrl || k2FromStorage; // Prefer URL fragment, fallback to storage
         
@@ -182,15 +188,50 @@ function AppContent() {
           console.log('✅ [APP] unlockId:', unlockId);
           console.log('✅ [APP] k2 found:', !!k2);
           
-          // SECURITY CHECK: Ensure QR #1 was scanned first (k1 must be stored)
+          // CRITICAL: Verify with server that QR1 was scanned (works across devices!)
+          // Server stores that QR1 was scanned WITHOUT seeing k1 (zero-knowledge)
+          let serverVerified = false;
+          try {
+            const { verifyQr1ForQr2 } = await import('./utils/api-client');
+            const verifyResult = await verifyQr1ForQr2(unlockId);
+            
+            if (verifyResult.success && verifyResult.qr1Scanned) {
+              serverVerified = true;
+              console.log('✅ [APP] Server verified QR1 was scanned (zero-knowledge)');
+            } else if (verifyResult.expired) {
+              console.warn('⚠️ [APP] QR1 scan expired on server (older than 5 minutes)');
+              toast.error(t('app.qr1ScanExpired'));
+              setScanId(unlockId);
+              setCurrentView('scan');
+              return;
+            } else {
+              console.warn('⚠️ [APP] Server says QR1 was not scanned');
+              setShowQr2Error(true);
+              toast.error(t('app.mustScanQr1First'));
+              // Clean up k2 if stored
+              if (k2FromStorage) {
+                localStorage.removeItem(`k2_temp_${unlockId}`);
+                localStorage.removeItem(`k2_timestamp_${unlockId}`);
+                sessionStorage.removeItem(`k2_temp_${unlockId}`);
+                sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
+              }
+              return;
+            }
+          } catch (error) {
+            console.error('❌ [APP] Failed to verify QR1 with server:', error);
+            // Fall through to local check as backup
+          }
+          
+          // SECURITY CHECK: Ensure QR #1 was scanned first (k1 must be stored locally)
           // CRITICAL: QR1 and QR2 might have different IDs, so we need to find k1
+          // Use localStorage so it works across windows/tabs (when user opens in new window)
           // Try multiple strategies:
-          // 1. k1 with unlockId (QR2's ID)
+          // 1. k1 with unlockId (QR2's ID) - check localStorage first, then sessionStorage
           // 2. k1 with scanId (if we're on /scan/:id)
           // 3. Find ANY k1_* key and use it (if QR1 and QR2 have different IDs)
-          let storedK1 = sessionStorage.getItem(`k1_${unlockId}`);
+          let storedK1 = localStorage.getItem(`k1_${unlockId}`) || sessionStorage.getItem(`k1_${unlockId}`);
           if (!storedK1 && id) {
-            storedK1 = sessionStorage.getItem(`k1_${id}`);
+            storedK1 = localStorage.getItem(`k1_${id}`) || sessionStorage.getItem(`k1_${id}`);
             if (storedK1) {
               console.log('🔍 [APP] Found k1 using scan ID instead of unlockId');
             }
@@ -199,23 +240,46 @@ function AppContent() {
           // If still not found, search for ANY k1_* key (handles case where QR1 and QR2 have different IDs)
           if (!storedK1) {
             console.log('🔍 [APP] k1 not found with unlockId or scanId, searching for ANY k1_* key...');
-            const allK1Keys = Object.keys(sessionStorage).filter(k => k.startsWith('k1_'));
+            const allK1KeysLocal = Object.keys(localStorage).filter(k => k.startsWith('k1_'));
+            const allK1KeysSession = Object.keys(sessionStorage).filter(k => k.startsWith('k1_'));
+            const allK1Keys = [...allK1KeysLocal, ...allK1KeysSession];
             if (allK1Keys.length > 0) {
               // Use the first k1 we find (assuming there's only one active QR1 scan)
               const firstK1Key = allK1Keys[0];
-              storedK1 = sessionStorage.getItem(firstK1Key);
+              storedK1 = localStorage.getItem(firstK1Key) || sessionStorage.getItem(firstK1Key);
               console.log('🔍 [APP] Found k1 using key:', firstK1Key);
             }
           }
           
           console.log('🔍 [APP] k1 lookup:', {
-            withUnlockId: !!sessionStorage.getItem(`k1_${unlockId}`),
-            withScanId: id ? !!sessionStorage.getItem(`k1_${id}`) : false,
+            serverVerified,
+            withUnlockIdLocal: !!localStorage.getItem(`k1_${unlockId}`),
+            withUnlockIdSession: !!sessionStorage.getItem(`k1_${unlockId}`),
+            withScanIdLocal: id ? !!localStorage.getItem(`k1_${id}`) : false,
+            withScanIdSession: id ? !!sessionStorage.getItem(`k1_${id}`) : false,
             finalK1: !!storedK1,
-            allK1Keys: Object.keys(sessionStorage).filter(k => k.startsWith('k1_'))
+            allK1KeysLocal: Object.keys(localStorage).filter(k => k.startsWith('k1_')),
+            allK1KeysSession: Object.keys(sessionStorage).filter(k => k.startsWith('k1_'))
           });
           
-          if (!storedK1) {
+          // If server verified but no local k1, we can't decrypt (k1 is in URL fragment from QR1)
+          if (serverVerified && !storedK1) {
+            console.warn('⚠️ [APP] Server verified QR1 was scanned, but k1 not found locally');
+            console.warn('⚠️ [APP] This means QR1 was scanned on a different device - k1 is in QR1 URL fragment');
+            setShowQr2Error(true);
+            toast.error('QR1 må scannes på samme enhet som QR2 (k1 er i QR1 URL)');
+            // Clean up k2 if stored
+            if (k2FromStorage) {
+              localStorage.removeItem(`k2_temp_${unlockId}`);
+              localStorage.removeItem(`k2_timestamp_${unlockId}`);
+              sessionStorage.removeItem(`k2_temp_${unlockId}`);
+              sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
+            }
+            return;
+          }
+          
+          // If no server verification and no local k1, fail
+          if (!serverVerified && !storedK1) {
             console.warn('⚠️ [APP] QR #2 scanned without QR #1 - showing error message');
             console.warn('⚠️ [APP] Checked keys:', {
               unlockId: `k1_${unlockId}`,
@@ -223,25 +287,31 @@ function AppContent() {
             });
             setShowQr2Error(true);
             toast.error(t('app.mustScanQr1First'));
-            // Clean up k2 if stored
+            // Clean up k2 if stored (both localStorage and sessionStorage)
             if (k2FromStorage) {
+              localStorage.removeItem(`k2_temp_${unlockId}`);
+              localStorage.removeItem(`k2_timestamp_${unlockId}`);
               sessionStorage.removeItem(`k2_temp_${unlockId}`);
               sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
             }
             return;
           }
           
-          // SECURITY CHECK #2: Verify the timestamp is recent (within 5 minutes)
-          const timestamp = sessionStorage.getItem(`qr1_timestamp_${unlockId}`);
+          // SECURITY CHECK #2: Verify the timestamp is recent (within 5 minutes) - local backup check
+          const timestamp = localStorage.getItem(`qr1_timestamp_${unlockId}`) || sessionStorage.getItem(`qr1_timestamp_${unlockId}`);
           if (timestamp) {
             const now = Date.now();
             const fiveMinutes = 5 * 60 * 1000;
             
             if (now - parseInt(timestamp, 10) > fiveMinutes) {
-              console.warn('⚠️ QR #1 scan expired (older than 5 minutes) - please scan QR #1 again');
+              console.warn('⚠️ QR #1 scan expired locally (older than 5 minutes) - please scan QR #1 again');
+              localStorage.removeItem(`k1_${unlockId}`);
               sessionStorage.removeItem(`k1_${unlockId}`);
+              localStorage.removeItem(`qr1_timestamp_${unlockId}`);
               sessionStorage.removeItem(`qr1_timestamp_${unlockId}`);
               if (k2FromStorage) {
+                localStorage.removeItem(`k2_temp_${unlockId}`);
+                localStorage.removeItem(`k2_timestamp_${unlockId}`);
                 sessionStorage.removeItem(`k2_temp_${unlockId}`);
                 sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
               }
@@ -274,12 +344,16 @@ function AppContent() {
               console.log('💾 [APP] Also stored master key with scanId:', id);
             }
             
-            // Clean up temporary k2 storage
+            // Clean up temporary k2 storage (both localStorage and sessionStorage)
             if (k2FromStorage) {
+              localStorage.removeItem(`k2_temp_${unlockId}`);
+              localStorage.removeItem(`k2_timestamp_${unlockId}`);
               sessionStorage.removeItem(`k2_temp_${unlockId}`);
               sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
               // Also clean up if stored with scanId
               if (id && id !== unlockId) {
+                localStorage.removeItem(`k2_temp_${id}`);
+                localStorage.removeItem(`k2_timestamp_${id}`);
                 sessionStorage.removeItem(`k2_temp_${id}`);
                 sessionStorage.removeItem(`k2_timestamp_${id}`);
               }
@@ -303,16 +377,34 @@ function AppContent() {
             console.error('❌ [APP] Failed to combine split keys:', error);
             console.error('❌ [APP] Error details:', error);
             toast.error('Kunne ikke kombinere nøkler. Prøv på nytt.');
-            // Clean up on error
+            // Clean up on error (both localStorage and sessionStorage)
             if (k2FromStorage) {
+              localStorage.removeItem(`k2_temp_${unlockId}`);
+              localStorage.removeItem(`k2_timestamp_${unlockId}`);
               sessionStorage.removeItem(`k2_temp_${unlockId}`);
               sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
             }
           }
         } else if (k1) {
           // This is QR #1 scanned - store k1 and show scan view
+          // Use localStorage so it works across windows/tabs (when user opens in new window)
+          localStorage.setItem(`k1_${id}`, k1);
+          localStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
+          // Also store in sessionStorage as backup (for same-window flow)
           sessionStorage.setItem(`k1_${id}`, k1);
           sessionStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
+          
+          // CRITICAL: Mark QR1 as scanned on server (zero-knowledge - server never sees k1)
+          // This allows QR2 to be scanned on a different device and still work
+          try {
+            const { markQr1Scanned } = await import('./utils/api-client');
+            await markQr1Scanned(id);
+            console.log('✅ QR #1 scan recorded on server (zero-knowledge)');
+          } catch (error) {
+            console.error('⚠️ Failed to record QR1 scan on server:', error);
+            // Continue anyway - local storage is backup
+          }
+          
           setScanId(id);
           setCurrentView('scan');
           
@@ -373,10 +465,11 @@ function AppContent() {
             });
         } else {
           // Regular scan (not QR #2, no split-key)
-          // BUT: Check if we have k2 in sessionStorage (from QR #2 scan that navigated here)
+          // BUT: Check if we have k2 in localStorage/sessionStorage (from QR #2 scan that navigated here)
+          // Use localStorage so it works across windows/tabs
           // This handles the case where we navigated to /unlock/:id but ended up on /scan/:id
-          const storedK2 = sessionStorage.getItem(`k2_temp_${id}`);
-          const storedK1 = sessionStorage.getItem(`k1_${id}`);
+          const storedK2 = localStorage.getItem(`k2_temp_${id}`) || sessionStorage.getItem(`k2_temp_${id}`);
+          const storedK1 = localStorage.getItem(`k1_${id}`) || sessionStorage.getItem(`k1_${id}`);
           
           console.log(`🔍 Regular scan check for ${id}:`, {
             hasK1: !!storedK1,
@@ -401,7 +494,9 @@ function AppContent() {
               // Store master key
               sessionStorage.setItem(`master_${id}`, masterKeyHex);
               
-              // Clean up temporary k2 storage
+              // Clean up temporary k2 storage (both localStorage and sessionStorage)
+              localStorage.removeItem(`k2_temp_${id}`);
+              localStorage.removeItem(`k2_timestamp_${id}`);
               sessionStorage.removeItem(`k2_temp_${id}`);
               sessionStorage.removeItem(`k2_timestamp_${id}`);
               

@@ -351,17 +351,48 @@ function AppContent() {
             });
         } else {
           // Regular scan (not QR #2, no split-key)
-          // Check if we have k1 stored (waiting for QR #2)
+          // BUT: Check if we have k2 in sessionStorage (from QR #2 scan that navigated here)
+          // This handles the case where we navigated to /unlock/:id but ended up on /scan/:id
+          const storedK2 = sessionStorage.getItem(`k2_temp_${id}`);
           const storedK1 = sessionStorage.getItem(`k1_${id}`);
           
           console.log(`🔍 Regular scan check for ${id}:`, {
             hasK1: !!storedK1,
+            hasK2: !!storedK2,
             hasKeyParam: !!key,
             path: window.location.pathname,
             hash: window.location.hash
           });
           
-          if (storedK1) {
+          // If we have both k1 and k2, combine them NOW (even though we're on /scan/:id)
+          if (storedK1 && storedK2) {
+            console.log('🔑 [APP] Found both k1 and k2 on /scan/:id - combining now!');
+            try {
+              const { combineKeys } = await import('./utils/encryption');
+              const masterKey = combineKeys(storedK1, storedK2);
+              const masterKeyHex = Array.from(masterKey)
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+              
+              console.log('✅ [APP] Master key generated from k1+k2 on /scan/:id');
+              
+              // Store master key
+              sessionStorage.setItem(`master_${id}`, masterKeyHex);
+              
+              // Clean up temporary k2 storage
+              sessionStorage.removeItem(`k2_temp_${id}`);
+              sessionStorage.removeItem(`k2_timestamp_${id}`);
+              
+              setScanId(id);
+              setUnlockKey(masterKeyHex);
+              setCurrentView('scan');
+              
+              console.log('✅ [APP] Combined split keys on /scan/:id - master key ready');
+            } catch (error) {
+              console.error('❌ [APP] Failed to combine keys on /scan/:id:', error);
+              // Fall through to regular scan handling
+            }
+          } else if (storedK1) {
             // We have k1 but not master key - waiting for QR #2
             console.log('⏳ k1 found but no master key - waiting for QR #2');
             setScanId(id);

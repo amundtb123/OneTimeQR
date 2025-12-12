@@ -105,11 +105,19 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   };
 
   const handleQrScanned = (data: string) => {
-    console.log('QR code scanned:', data);
+    console.log('📱 [UNLOCK SCREEN] QR code scanned, raw data:', data);
+    console.log('📱 [UNLOCK SCREEN] Current qrDropId:', qrDropId);
     
     // Parse URL to extract key, unlock parameter, or k2 fragment
     try {
       const url = new URL(data);
+      console.log('📱 [UNLOCK SCREEN] Parsed URL:', {
+        origin: url.origin,
+        pathname: url.pathname,
+        hash: url.hash,
+        search: url.search
+      });
+      
       const key = url.searchParams.get('key');
       const unlock = url.searchParams.get('unlock');
       
@@ -117,18 +125,29 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
       const hash = url.hash;
       const hasK2 = hash && hash.includes('k2=');
       
+      console.log('📱 [UNLOCK SCREEN] URL analysis:', {
+        hasKey: !!key,
+        hasUnlock: unlock === '1',
+        hasK2: hasK2,
+        hash: hash ? hash.substring(0, 50) + '...' : 'none'
+      });
+      
       // Extract k2 value if present (for split-key mode)
       let k2Value: string | null = null;
       if (hasK2) {
         const k2Match = hash.match(/k2=([^&]+)/);
         if (k2Match) {
           k2Value = k2Match[1];
-          console.log('🔑 Extracted k2 from scanned QR:', k2Value.substring(0, 20) + '...');
+          console.log('🔑 [UNLOCK SCREEN] Extracted k2 from scanned QR:', k2Value.substring(0, 20) + '...');
+        } else {
+          console.warn('⚠️ [UNLOCK SCREEN] Hash contains k2= but regex match failed');
         }
       }
       
       // Check if this is QR #2 (legacy: key/unlock, or new: k2 fragment)
       if (key || unlock === '1' || hasK2) {
+        console.log('✅ [UNLOCK SCREEN] Valid QR #2 detected, processing...');
+        
         // For split-key mode (k2 in fragment), extract and store k2 BEFORE navigation
         // This ensures we don't lose k2 on mobile browsers that might mishandle fragments
         if (hasK2 && k2Value) {
@@ -136,29 +155,40 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
           const pathMatch = url.pathname.match(/\/unlock\/([^/]+)/);
           if (pathMatch) {
             const fileId = pathMatch[1];
-            console.log('💾 Storing k2 in sessionStorage before navigation for:', fileId);
+            console.log('💾 [UNLOCK SCREEN] Storing k2 in sessionStorage before navigation for:', fileId);
+            console.log('💾 [UNLOCK SCREEN] k2 value length:', k2Value.length);
             
             // Store k2 temporarily so App.tsx can find it even if fragment is lost
             // App.tsx will check for this and combine with k1
             sessionStorage.setItem(`k2_temp_${fileId}`, k2Value);
             sessionStorage.setItem(`k2_timestamp_${fileId}`, Date.now().toString());
             
+            // Verify it was stored
+            const verifyK2 = sessionStorage.getItem(`k2_temp_${fileId}`);
+            console.log('💾 [UNLOCK SCREEN] k2 stored verification:', verifyK2 ? 'SUCCESS' : 'FAILED');
+            
+            const targetUrl = url.origin + url.pathname + url.hash;
+            console.log('🚀 [UNLOCK SCREEN] Navigating to:', targetUrl);
+            
             // Navigate to unlock route - App.tsx will handle combining k1 + k2
-            window.location.href = url.origin + url.pathname + url.hash;
+            window.location.href = targetUrl;
           } else {
-            console.error('❌ Could not extract fileId from unlock URL');
+            console.error('❌ [UNLOCK SCREEN] Could not extract fileId from unlock URL. Pathname:', url.pathname);
             window.location.href = data;
           }
         } else {
           // Legacy mode or no k2 - navigate normally
+          console.log('📱 [UNLOCK SCREEN] Legacy mode or no k2, navigating normally');
           window.location.href = data;
         }
       } else {
+        console.warn('⚠️ [UNLOCK SCREEN] Invalid QR code - not QR #2');
         alert(t('unlockScreen.invalidQr'));
         setShowScanner(false);
       }
     } catch (err) {
-      console.error('Invalid QR code URL:', err);
+      console.error('❌ [UNLOCK SCREEN] Invalid QR code URL:', err);
+      console.error('❌ [UNLOCK SCREEN] Raw data that failed:', data);
       alert(t('unlockScreen.invalidQr'));
       setShowScanner(false);
     }

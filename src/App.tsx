@@ -134,11 +134,25 @@ function AppContent() {
         const unlockMatch = window.location.pathname.match(/^\/unlock\/([^/]+)$/);
         const k2FromUrl = extractK2FromUrl();
         
+        console.log('🔍 [APP] Checking for unlock route:', {
+          pathname: window.location.pathname,
+          hasUnlockMatch: !!unlockMatch,
+          unlockId: unlockMatch ? unlockMatch[1] : null,
+          k2FromUrl: k2FromUrl ? k2FromUrl.substring(0, 20) + '...' : null,
+          hash: window.location.hash ? window.location.hash.substring(0, 50) + '...' : 'none'
+        });
+        
         // MOBILE FIX: Also check for k2 stored in sessionStorage (from QR scanner)
         // This handles cases where mobile browsers lose the fragment during navigation
         const unlockId = unlockMatch ? unlockMatch[1] : null;
         const k2FromStorage = unlockId ? sessionStorage.getItem(`k2_temp_${unlockId}`) : null;
         const k2 = k2FromUrl || k2FromStorage; // Prefer URL fragment, fallback to storage
+        
+        console.log('🔍 [APP] k2 sources:', {
+          k2FromUrl: !!k2FromUrl,
+          k2FromStorage: !!k2FromStorage,
+          finalK2: !!k2
+        });
         
         if (unlockMatch && k2) {
           // This is QR #2 scanned - unlock route with k2 (from fragment or storage)

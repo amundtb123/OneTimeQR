@@ -4,40 +4,67 @@
 
 Du har lagt til `www.onetimeqr.com` som custom domain i Supabase. Nå må du verifisere domenet ved å legge til en TXT-record i DNS.
 
-## Steg 1: Legg til TXT-record i DNS
+## Steg 1: Legg til BEGGE DNS-records
 
 ### Hvor finner du DNS-innstillingene?
 - **Domeneshop.no**: Logg inn → Velg `onetimeqr.com` → DNS-innstillinger
 - **Andre DNS-leverandører**: Se etter "DNS Settings", "DNS Management", eller "Zone Records"
 
-### TXT-record som må legges til:
+### ⚠️ VIKTIG: Du må legge til BEGGE records!
 
-Fra Supabase Dashboard (Custom Domains), legg til denne TXT-record:
+#### 1. CNAME-record (peker domenet til Supabase)
+
+**Type:** `CNAME`  
+**Name:** `www` (eller `www.onetimeqr.com` hvis fullt domene kreves)  
+**Content:** `ofrtokcrfovjwfkcnjef.supabase.co`  
+**TTL:** 3600
+
+**Hva gjør denne?**
+- Peker `www.onetimeqr.com` til Supabase
+- Nødvendig for at domenet skal fungere
+
+#### 2. TXT-record (SSL-sertifikat verifisering)
 
 **Type:** `TXT`  
-**Name:** `_acme-challenge.www.onetimeqr.com`  
-**Content:** `epZidwiSXYSYuTlrQHior9r9jg_VQL9DFjTZB`
+**Name:** `_acme-challenge.www` (eller `_acme-challenge.www.onetimeqr.com` hvis fullt domene kreves)  
+**Content:** `epZidwiSXYSYuTlrQHior9r9jg_VQL9DFjTZB`  
+**TTL:** 3600
+
+**Hva gjør denne?**
+- Verifiserer at du eier domenet for SSL-sertifikat
+- Nødvendig for HTTPS/SSL
 
 **Viktig:** 
 - Noen DNS-leverandører krever at du fjerner domenet fra "Name"-feltet
-- Hvis din DNS-leverandør krever dette, bruk bare: `_acme-challenge.www` som Name
+- Hvis din DNS-leverandør krever dette, bruk bare `www` og `_acme-challenge.www` som Name
 - TTL kan settes til 3600 (standard)
 
 ### Eksempel på hvordan det ser ut i Domeneshop.no:
 
+**Legg til CNAME først:**
 1. Gå til DNS-innstillinger for `onetimeqr.com`
 2. Klikk "Legg til post" eller "Add record"
-3. Velg **Type:** `TXT`
-4. **Navn:** `_acme-challenge.www` (eller `_acme-challenge.www.onetimeqr.com` hvis fullt domene kreves)
-5. **Verdi/Content:** `epZidwiSXYSYuTlrQHior9r9jg_VQL9DFjTZB`
+3. Velg **Type:** `CNAME`
+4. **Navn:** `www`
+5. **Verdi/Content:** `ofrtokcrfovjwfkcnjef.supabase.co`
 6. **TTL:** 3600
 7. Lagre
+
+**Deretter legg til TXT:**
+1. Klikk "Legg til post" eller "Add record" igjen
+2. Velg **Type:** `TXT`
+3. **Navn:** `_acme-challenge.www` (eller `_acme-challenge.www.onetimeqr.com` hvis fullt domene kreves)
+4. **Verdi/Content:** `epZidwiSXYSYuTlrQHior9r9jg_VQL9DFjTZB`
+5. **TTL:** 3600
+6. Lagre
 
 ## Steg 2: Vent på DNS-propager
 
 - DNS-endringer kan ta **5 minutter til 24 timer** å propagere
 - Ofte raskere (15-60 minutter)
-- Du kan sjekke propager på: https://www.whatsmydns.net/#TXT/_acme-challenge.www.onetimeqr.com
+- Du kan sjekke propager:
+  - CNAME: https://www.whatsmydns.net/#CNAME/www.onetimeqr.com
+  - TXT: https://www.whatsmydns.net/#TXT/_acme-challenge.www.onetimeqr.com
 
 ## Steg 3: Verifiser i Supabase
 
@@ -96,7 +123,8 @@ Custom domain (`www.onetimeqr.com`) brukes av Supabase for:
 
 ## Sjekkliste
 
-- [ ] TXT-record lagt til i DNS (`_acme-challenge.www.onetimeqr.com`)
+- [ ] **CNAME-record lagt til** (`www` → `ofrtokcrfovjwfkcnjef.supabase.co`)
+- [ ] **TXT-record lagt til** (`_acme-challenge.www` → verifiseringskode)
 - [ ] Ventet 15-60 minutter for DNS-propager
 - [ ] Klikket "Verify" i Supabase Custom Domains
 - [ ] Verifisering vellykket

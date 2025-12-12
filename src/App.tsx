@@ -814,6 +814,12 @@ function AppContent() {
                 isUnlocking={false}
               />
             )}
+            {/* Debug: Log scanId when unlock view is shown */}
+            {currentView === 'unlock' && scanId && (
+              <script dangerouslySetInnerHTML={{__html: `
+                console.log('🔍 [APP] UnlockScreen rendered with scanId:', '${scanId}', 'length:', ${scanId?.length || 0});
+              `}} />
+            )}
             
             {currentView === 'detail' && selectedQrDrop && (
               <QrDetailView 

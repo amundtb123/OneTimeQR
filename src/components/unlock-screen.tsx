@@ -14,6 +14,20 @@ interface UnlockScreenProps {
 
 export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenProps) {
   const { t } = useTranslation();
+  
+  // DEBUG: Log qrDropId to check for truncation
+  useEffect(() => {
+    if (qrDropId) {
+      console.log('🔍 [UNLOCK SCREEN] qrDropId received:', qrDropId);
+      console.log('🔍 [UNLOCK SCREEN] qrDropId length:', qrDropId.length);
+      console.log('🔍 [UNLOCK SCREEN] qrDropId type:', typeof qrDropId);
+      // Check if it looks like a truncated UUID (should be 36 chars for full UUID)
+      if (qrDropId.length < 36) {
+        console.warn('⚠️ [UNLOCK SCREEN] qrDropId appears truncated! Expected 36 chars, got:', qrDropId.length);
+      }
+    }
+  }, [qrDropId]);
+  
   // SECURITY: Mark QR #1 as scanned IMMEDIATELY when this screen renders
   // This must happen synchronously so QR #2 can check it instantly
   // IMPORTANT: Use sessionStorage to match App.tsx which checks sessionStorage for k1
@@ -23,6 +37,7 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
     // This is just a backup marker - the real k1 storage happens in App.tsx
     sessionStorage.setItem(`qr1_scanned_${qrDropId}`, Date.now().toString());
     console.log('🔐 [SYNC] Marked QR #1 as scanned immediately on render for:', qrDropId);
+    console.log('🔐 [SYNC] qrDropId full value:', JSON.stringify(qrDropId));
     hasMarkedRef.current = true;
   }
 

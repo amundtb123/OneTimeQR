@@ -363,6 +363,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       try {
         await incrementDownloadCount(currentQrDropId);
         
+        // SECURITY: Always download via fetch + blob URL to hide signed URL from browser
+        // This prevents users from seeing or sharing the signed URL
+        
         // Check if file is encrypted and we have the key
         const isEncrypted = (qrDrop.secureMode || qrDrop.fileName?.endsWith('.encrypted')) && unlockKey;
         
@@ -370,6 +373,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Download encrypted file, decrypt it, then trigger download
           console.log('🔒 Downloading and decrypting encrypted file...');
           const response = await fetch(fileUrl);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch file: ${response.status}`);
+          }
           const encryptedBlob = await response.blob();
           
           // Decrypt the file
@@ -381,22 +387,43 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Create download link for decrypted file with correct MIME type
           const blobType = qrDrop.fileType || 'application/octet-stream';
           const typedBlob = new Blob([decryptedBlob], { type: blobType });
-          const decryptedUrl = URL.createObjectURL(typedBlob);
+          const blobUrl = URL.createObjectURL(typedBlob);
           const link = document.createElement('a');
-          link.href = decryptedUrl;
+          link.href = blobUrl;
           link.download = originalFileName;
+          link.style.display = 'none';
+          document.body.appendChild(link);
           link.click();
+          document.body.removeChild(link);
           
           // Clean up object URL
-          setTimeout(() => URL.revokeObjectURL(decryptedUrl), 100);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
           
           toast.success(t('scanView.fileDownloaded'));
         } else {
-          // Regular file download (not encrypted)
+          // SECURITY: Download non-encrypted file via fetch + blob URL
+          // This hides the signed URL from the browser address bar
+          console.log('📥 Downloading file via blob URL (hiding signed URL)...');
+          const response = await fetch(fileUrl);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch file: ${response.status}`);
+          }
+          const blob = await response.blob();
+          
+          // Create blob URL (this hides the original signed URL)
+          const blobType = qrDrop.fileType || 'application/octet-stream';
+          const typedBlob = new Blob([blob], { type: blobType });
+          const blobUrl = URL.createObjectURL(typedBlob);
           const link = document.createElement('a');
-          link.href = fileUrl;
+          link.href = blobUrl;
           link.download = qrDrop.fileName;
+          link.style.display = 'none';
+          document.body.appendChild(link);
           link.click();
+          document.body.removeChild(link);
+          
+          // Clean up object URL
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
           
           toast.success(t('scanView.fileDownloaded'));
         }

@@ -239,9 +239,20 @@ function AppContent() {
             });
         } else {
           // Regular scan (not QR #2, no split-key)
-          setScanId(id);
-          setUnlockKey(key);
-          setCurrentView('scan');
+          // BUT: Check if we have master key already stored (from QR #2 scan that redirected here)
+          const storedMasterKey = sessionStorage.getItem(`master_${id}`);
+          if (storedMasterKey) {
+            // We already have the master key from QR #2 - use it directly
+            console.log('✅ Master key found in sessionStorage - using for decryption');
+            setScanId(id);
+            setUnlockKey(storedMasterKey);
+            setCurrentView('scan');
+          } else {
+            // Regular scan (not QR #2, no split-key, no master key)
+            setScanId(id);
+            setUnlockKey(key);
+            setCurrentView('scan');
+          }
         }
       } else {
         // Normal app flow - OAuth callback is now handled in AuthContext

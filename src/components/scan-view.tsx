@@ -998,10 +998,39 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                     return [{fileUrl, fileName: qrDrop?.fileName || 'file', fileType: qrDrop?.fileType || 'application/octet-stream', fileSize: qrDrop?.fileSize || 0, fileIndex: 0}];
                   }
                   return [];
-                })().map((file, index) => (
+                })().map((file, index) => {
+                  // Get original file type from metadata (before encryption)
+                  // Backend returns application/octet-stream for encrypted files
+                  const originalFileMetadata = qrDrop?.files && Array.isArray(qrDrop.files) 
+                    ? qrDrop.files.find((f: any) => f.name === file.fileName || index === file.fileIndex)
+                    : null;
+                  
+                  // Use original type from metadata, fallback to file.fileType
+                  let displayFileType = originalFileMetadata?.type || file.fileType || qrDrop?.fileType || 'application/octet-stream';
+                  
+                  // If still octet-stream, try to infer from filename extension
+                  if (displayFileType === 'application/octet-stream' && file.fileName) {
+                    const ext = file.fileName.split('.').pop()?.toLowerCase();
+                    const typeMap: Record<string, string> = {
+                      'png': 'image/png',
+                      'jpg': 'image/jpeg',
+                      'jpeg': 'image/jpeg',
+                      'gif': 'image/gif',
+                      'webp': 'image/webp',
+                      'pdf': 'application/pdf',
+                      'mp4': 'video/mp4',
+                      'mp3': 'audio/mpeg',
+                      'wav': 'audio/wav',
+                    };
+                    if (ext && typeMap[ext]) {
+                      displayFileType = typeMap[ext];
+                    }
+                  }
+                  
+                  return (
                   <div key={index} className="border-4 rounded-2xl p-4" style={{ borderColor: '#D5C5BD' }}>
                     {/* Image Preview */}
-                    {file.fileType.startsWith('image/') && (decryptedFileUrls[file.fileIndex] || file.fileUrl) && (
+                    {displayFileType.startsWith('image/') && (decryptedFileUrls[file.fileIndex] || file.fileUrl) && (
                       <img
                         src={decryptedFileUrls[file.fileIndex] || file.fileUrl}
                         alt={file.fileName}
@@ -1021,7 +1050,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                         }}
                       />
                     )}
-                    {file.fileType.startsWith('image/') && !decryptedFileUrls[file.fileIndex] && !file.fileUrl && (
+                    {displayFileType.startsWith('image/') && !decryptedFileUrls[file.fileIndex] && !file.fileUrl && (
                       <div className="w-full h-48 bg-gray-100 rounded-xl mb-2 flex items-center justify-center">
                         <Loader2 className="size-8 text-gray-400 animate-spin" />
                         {isDecrypting && <span className="ml-2 text-sm text-gray-600">Dekrypterer...</span>}
@@ -1029,7 +1058,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                     )}
 
                     {/* Video Preview */}
-                    {file.fileType.startsWith('video/') && (decryptedFileUrls[file.fileIndex] || file.fileUrl) && (
+                    {displayFileType.startsWith('video/') && (decryptedFileUrls[file.fileIndex] || file.fileUrl) && (
                       <div className="mb-2">
                         <video
                           controls
@@ -1043,14 +1072,14 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                             }
                           }}
                         >
-                          <source src={decryptedFileUrls[file.fileIndex] || file.fileUrl} type={file.fileType} />
+                          <source src={decryptedFileUrls[file.fileIndex] || file.fileUrl} type={displayFileType} />
                           {t('scanView.browserNotSupported')}
                         </video>
                       </div>
                     )}
 
                     {/* Audio Preview */}
-                    {file.fileType.startsWith('audio/') && (
+                    {displayFileType.startsWith('audio/') && (
                       <div className="mb-2">
                         <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-6 border-2" style={{ borderColor: '#D5C5BD' }}>
                           <div className="text-center mb-4">
@@ -1074,7 +1103,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                               }
                             }}
                           >
-                            <source src={decryptedFileUrls[file.fileIndex] || file.fileUrl} type={file.fileType} />
+                            <source src={decryptedFileUrls[file.fileIndex] || file.fileUrl} type={displayFileType} />
                             {t('scanView.browserNotSupportedAudio')}
                           </audio>
                         </div>

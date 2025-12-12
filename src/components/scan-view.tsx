@@ -311,24 +311,28 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
 
   // Reload and decrypt files when unlockKey changes (after QR2 scan) or when password is unlocked
   useEffect(() => {
-    if (qrDrop && (qrDrop.encrypted || qrDrop.secureMode) && (qrDrop.filePath || (qrDrop.files && qrDrop.files.length > 0))) {
-      // Check if we have decryption key (unlockKey for secureMode, or encryptionKey for password-protected)
-      const hasDecryptionKey = (qrDrop.secureMode && unlockKey) || (qrDrop.encrypted && (unlockKey || qrDrop.encryptionKey));
+    if (!qrDrop) return;
+    
+    const isEncrypted = qrDrop.encrypted || qrDrop.secureMode;
+    const hasFiles = qrDrop.filePath || (qrDrop.files && qrDrop.files.length > 0);
+    
+    if (!isEncrypted || !hasFiles) return;
+    
+    // Check if we have decryption key (unlockKey for secureMode, or encryptionKey for password-protected)
+    const hasDecryptionKey = (qrDrop.secureMode && unlockKey) || (qrDrop.encrypted && (unlockKey || qrDrop.encryptionKey));
+    
+    if (hasDecryptionKey) {
+      console.log('🔑 Decryption key available, loading/decrypting files...', {
+        unlockKey: unlockKey ? 'present' : 'missing',
+        secureMode: qrDrop.secureMode,
+        encrypted: qrDrop.encrypted,
+        filesLoaded: fileUrls.length > 0 || !!fileUrl
+      });
       
-      if (hasDecryptionKey) {
-        // If files are already loaded but not decrypted, decrypt them
-        if (fileUrls.length > 0 || fileUrl) {
-          console.log('🔑 Decryption key available, decrypting already-loaded files...');
-          // Decrypt existing files
-          loadFile(); // This will decrypt the files
-        } else {
-          // Files not loaded yet, load and decrypt them
-          console.log('🔑 Decryption key available, loading and decrypting files...');
-          loadFile();
-        }
-      }
+      // Always reload to decrypt (loadFile handles both loading and decrypting)
+      loadFile();
     }
-  }, [unlockKey, isUnlocked, qrDrop?.id]);
+  }, [unlockKey, isUnlocked, qrDrop?.id, qrDrop?.secureMode, qrDrop?.encrypted]);
 
   const loadFile = async () => {
     try {

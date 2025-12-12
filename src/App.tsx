@@ -173,12 +173,32 @@ function AppContent() {
         
         if (unlockMatch && k2) {
           // This is QR #2 scanned - unlock route with k2 (from fragment or storage)
+          console.log('✅ [APP] unlockMatch && k2 is TRUE - processing QR #2 unlock');
+          console.log('✅ [APP] unlockId:', unlockId);
+          console.log('✅ [APP] k2 found:', !!k2);
           
           // SECURITY CHECK: Ensure QR #1 was scanned first (k1 must be stored)
-          const storedK1 = sessionStorage.getItem(`k1_${unlockId}`);
+          // Try both unlockId and id (scanId) for k1 lookup
+          let storedK1 = sessionStorage.getItem(`k1_${unlockId}`);
+          if (!storedK1 && id) {
+            storedK1 = sessionStorage.getItem(`k1_${id}`);
+            if (storedK1) {
+              console.log('🔍 [APP] Found k1 using scan ID instead of unlockId');
+            }
+          }
+          
+          console.log('🔍 [APP] k1 lookup:', {
+            withUnlockId: !!sessionStorage.getItem(`k1_${unlockId}`),
+            withScanId: id ? !!sessionStorage.getItem(`k1_${id}`) : false,
+            finalK1: !!storedK1
+          });
           
           if (!storedK1) {
-            console.warn('⚠️ QR #2 scanned without QR #1 - showing error message');
+            console.warn('⚠️ [APP] QR #2 scanned without QR #1 - showing error message');
+            console.warn('⚠️ [APP] Checked keys:', {
+              unlockId: `k1_${unlockId}`,
+              scanId: id ? `k1_${id}` : 'N/A'
+            });
             setShowQr2Error(true);
             toast.error(t('app.mustScanQr1First'));
             // Clean up k2 if stored
@@ -212,10 +232,10 @@ function AppContent() {
           
           // Combine k1 and k2 to get master key
           try {
-            console.log('🔑 Combining k1 and k2 for QR drop:', unlockId);
-            console.log('🔑 k1 (from storage):', storedK1 ? storedK1.substring(0, 20) + '...' : 'MISSING');
-            console.log('🔑 k2 source:', k2FromUrl ? 'URL fragment' : k2FromStorage ? 'sessionStorage' : 'MISSING');
-            console.log('🔑 k2 value:', k2 ? k2.substring(0, 20) + '...' : 'MISSING');
+            console.log('🔑 [APP] Combining k1 and k2 for QR drop:', unlockId);
+            console.log('🔑 [APP] k1 (from storage):', storedK1 ? storedK1.substring(0, 20) + '...' : 'MISSING');
+            console.log('🔑 [APP] k2 source:', k2FromUrl ? 'URL fragment' : k2FromStorage ? 'sessionStorage' : 'MISSING');
+            console.log('🔑 [APP] k2 value:', k2 ? k2.substring(0, 20) + '...' : 'MISSING');
             
             const { combineKeys } = await import('./utils/encryption');
             const masterKey = combineKeys(storedK1, k2);
@@ -223,32 +243,43 @@ function AppContent() {
               .map(b => b.toString(16).padStart(2, '0'))
               .join('');
             
-            console.log('✅ Master key generated, storing in sessionStorage...');
+            console.log('✅ [APP] Master key generated, storing in sessionStorage...');
             
-            // Store master key and redirect to scan view
+            // Store master key with BOTH unlockId and id (scanId) for safety
             sessionStorage.setItem(`master_${unlockId}`, masterKeyHex);
+            if (id && id !== unlockId) {
+              sessionStorage.setItem(`master_${id}`, masterKeyHex);
+              console.log('💾 [APP] Also stored master key with scanId:', id);
+            }
             
             // Clean up temporary k2 storage
             if (k2FromStorage) {
               sessionStorage.removeItem(`k2_temp_${unlockId}`);
               sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
+              // Also clean up if stored with scanId
+              if (id && id !== unlockId) {
+                sessionStorage.removeItem(`k2_temp_${id}`);
+                sessionStorage.removeItem(`k2_timestamp_${id}`);
+              }
             }
             
             // Verify it was stored
             const verifyMaster = sessionStorage.getItem(`master_${unlockId}`);
-            console.log('✅ Master key stored:', verifyMaster ? 'SUCCESS' : 'FAILED');
+            console.log('✅ [APP] Master key stored:', verifyMaster ? 'SUCCESS' : 'FAILED');
             
             setScanId(unlockId);
             setUnlockKey(masterKeyHex);
             setCurrentView('scan');
             
-            // Clean up URL
+            // Clean up URL - redirect to scan view
+            console.log('🔄 [APP] Redirecting to /scan/' + unlockId);
             window.history.replaceState({}, '', `/scan/${unlockId}`);
             
-            console.log('✅ Combined split keys - master key ready for decryption');
-            console.log('✅ Redirected to /scan/' + unlockId);
+            console.log('✅ [APP] Combined split keys - master key ready for decryption');
+            console.log('✅ [APP] Redirected to /scan/' + unlockId);
           } catch (error) {
-            console.error('❌ Failed to combine split keys:', error);
+            console.error('❌ [APP] Failed to combine split keys:', error);
+            console.error('❌ [APP] Error details:', error);
             toast.error('Kunne ikke kombinere nøkler. Prøv på nytt.');
             // Clean up on error
             if (k2FromStorage) {

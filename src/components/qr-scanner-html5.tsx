@@ -13,19 +13,26 @@ export function QrScanner({ onScan, onClose }: QrScannerProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    console.log('📷 [QR SCANNER] Component mounted, starting scanner...');
     startScanner();
     return () => {
+      console.log('📷 [QR SCANNER] Component unmounting, stopping scanner...');
       stopScanner();
     };
   }, []);
 
   const startScanner = async () => {
     try {
+      console.log('📷 [QR SCANNER] Starting scanner...');
+      console.log('📷 [QR SCANNER] Target element ID: qr-reader');
+      
       // Create scanner instance
       const scanner = new Html5Qrcode('qr-reader');
       scannerRef.current = scanner;
+      console.log('📷 [QR SCANNER] Scanner instance created');
 
       // Start scanning
+      console.log('📷 [QR SCANNER] Starting camera...');
       await scanner.start(
         { facingMode: 'environment' }, // Use back camera
         {
@@ -46,26 +53,40 @@ export function QrScanner({ onScan, onClose }: QrScannerProps) {
           }
         },
         (errorMessage) => {
-          // Error callback (fires continuously, so we don't log it)
+          // Error callback (fires continuously, but log first few to see what's happening)
+          // Only log occasionally to avoid spam
+          if (Math.random() < 0.01) { // Log ~1% of errors
+            console.log('📷 [QR SCANNER] Scanning error (sample):', errorMessage.substring(0, 100));
+          }
         }
       );
 
+      console.log('✅ [QR SCANNER] Camera started successfully');
       setIsScanning(true);
     } catch (err: any) {
-      console.error('Error starting scanner:', err);
+      console.error('❌ [QR SCANNER] Error starting scanner:', err);
+      console.error('❌ [QR SCANNER] Error details:', {
+        name: err?.name,
+        message: err?.message,
+        stack: err?.stack?.substring(0, 200)
+      });
       setError('Kunne ikke starte kamera. Sjekk tillatelser.');
     }
   };
 
   const stopScanner = async () => {
     if (scannerRef.current) {
+      console.log('🛑 [QR SCANNER] Stopping scanner...');
       try {
         await scannerRef.current.stop();
         scannerRef.current.clear();
+        console.log('✅ [QR SCANNER] Scanner stopped successfully');
       } catch (err) {
-        console.error('Error stopping scanner:', err);
+        console.error('❌ [QR SCANNER] Error stopping scanner:', err);
       }
       scannerRef.current = null;
+    } else {
+      console.log('📷 [QR SCANNER] No scanner instance to stop');
     }
   };
 

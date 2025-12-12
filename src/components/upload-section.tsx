@@ -6,7 +6,17 @@ import type { QrDrop } from '../App';
 import { uploadFile, createQrDrop } from '../utils/api-client';
 import { generateStyledQrCode } from '../utils/qr-generator';
 import { createBrandedQrCode } from '../utils/qr-with-branding';
-import { generateEncryptionKey, encryptData, encryptFile, createDecryptionKeyUrl } from '../utils/encryption';
+import { 
+  generateEncryptionKey, 
+  encryptData, 
+  encryptFile, 
+  createDecryptionKeyUrl,
+  splitKey,
+  encryptTextWithSplitKey,
+  encryptFileWithSplitKey,
+  createQr1Url,
+  createQr2Url
+} from '../utils/encryption';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { NordicLogo } from './nordic-logo';
@@ -319,27 +329,31 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
     try {
       const expiryDate = calculateExpiryDate(expiryType);
       
-      // SECURE MODE: Generate encryption key and encrypt content
-      let encryptionKey: string | undefined;
-      let encryptedTextContent: string | undefined;
-      let encryptedUrlContent: string | undefined;
+      // SECURE MODE: Use split-key encryption (zero-knowledge)
+      // For secureMode: Generate split keys (k1, k2) where master = k1 XOR k2
+      // Server never sees the keys - only ciphertext
+      let splitKeys: { k1: string; k2: string; master: Uint8Array } | undefined;
+      let encryptedTextContent: { iv: string; salt: string; ciphertext: string } | undefined;
+      let encryptedUrlContent: { iv: string; salt: string; ciphertext: string } | undefined;
       
       // CRITICAL SECURITY: Generate encryption key for ALL files (not just secureMode)
       // This ensures files are never stored unencrypted in Supabase Storage
       const encryptionKeyForFiles = await generateEncryptionKey();
       
       if (secureMode) {
-        encryptionKey = encryptionKeyForFiles; // Use same key for secureMode
+        // Generate split keys for zero-knowledge encryption
+        splitKeys = await splitKey();
+        const tempFileId = crypto.randomUUID(); // Temporary ID, will use actual response.id later
         
-        // Encrypt text content if exists
+        // Encrypt text content with split-key master
         if (textContent.trim()) {
-          encryptedTextContent = await encryptData(textContent.trim(), encryptionKey);
+          encryptedTextContent = await encryptTextWithSplitKey(textContent.trim(), splitKeys.master, tempFileId);
         }
         
-        // Encrypt URL content if exists
+        // Encrypt URL content with split-key master
         if (urls.length > 0) {
           const urlJson = JSON.stringify(urls);
-          encryptedUrlContent = await encryptData(urlJson, encryptionKey);
+          encryptedUrlContent = await encryptTextWithSplitKey(urlJson, splitKeys.master, tempFileId);
         }
       }
       
@@ -362,8 +376,13 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       const metadata = {
         title: title.trim() || undefined,
         contentType: 'bundle' as const, // New type for mixed content
-        textContent: secureMode ? encryptedTextContent : textContent.trim() || undefined,
-        urlContent: secureMode ? encryptedUrlContent : (urls.length > 0 ? JSON.stringify(urls) : undefined),
+        // For secureMode: send ciphertext objects, for standard: send plain text
+        textContent: secureMode 
+          ? (encryptedTextContent ? JSON.stringify(encryptedTextContent) : undefined)
+          : (textContent.trim() || undefined),
+        urlContent: secureMode
+          ? (encryptedUrlContent ? JSON.stringify(encryptedUrlContent) : undefined)
+          : (urls.length > 0 ? JSON.stringify(urls) : undefined),
         expiryType,
         expiryDate: expiryDate ? expiryDate.toISOString() : undefined, // Convert Date to ISO string for JSON
         maxScans: maxScans ? parseInt(maxScans) : undefined,
@@ -373,9 +392,11 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         password: usePassword ? password : undefined,
         qrStyle, // Store QR styling preferences
         qrCodeDataUrl: brandedQrCode, // Already generated
-        secureMode, // Flag to indicate Secure Mode
+        secureMode, // Flag to indicate Secure Mode (split-key zero-knowledge)
         encrypted: true, // ALL files are now encrypted
-        encryptionKey: encryptionKeyForFiles, // Store encryption key on server for all files
+        // For secureMode: NO encryption key stored (zero-knowledge)
+        // For standard: store encryption key for file decryption
+        encryptionKey: secureMode ? undefined : encryptionKeyForFiles,
         originalFileTypes, // Store original file types for proper decryption
       };
       
@@ -387,21 +408,40 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       
       // If we have files, use upload endpoint
       if (files.length > 0) {
-        // CRITICAL SECURITY: Encrypt ALL files before upload (not just secureMode/password)
-        // This ensures files are never stored unencrypted in Supabase Storage
+        // CRITICAL SECURITY: Encrypt ALL files before upload
+        // For secureMode: Use split-key encryption (zero-knowledge)
+        // For standard: Use traditional encryption with server-stored key
         console.log('🔐 Encrypting ALL files before upload for security...');
         
-        // Encrypt each file (encryptionKeyForFiles is already defined above)
-        const filesToUpload = await Promise.all(
-          files.map(async (file) => {
-            const encryptedBlob = await encryptFile(file, encryptionKeyForFiles);
-            // Create new File object with encrypted data, preserving original name
-            // Store original file type in metadata for later decryption
-            return new File([encryptedBlob], file.name, { type: 'application/octet-stream' });
-          })
-        );
+        let filesToUpload: File[];
+        let fileEncryptionData: Array<{ iv: string; salt: string; ciphertext: string }> | undefined;
         
-        console.log(`✅ Encrypted ${filesToUpload.length} file(s) before upload`);
+        if (secureMode && splitKeys) {
+          // SECURE MODE: Encrypt with split-key master (zero-knowledge)
+          // Convert master key to hex string for compatibility with existing encryptFile function
+          const masterKeyHex = Array.from(splitKeys.master)
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+          
+          // Use existing encryptFile function with master key
+          filesToUpload = await Promise.all(
+            files.map(async (file) => {
+              const encryptedBlob = await encryptFile(file, masterKeyHex);
+              return new File([encryptedBlob], file.name, { type: 'application/octet-stream' });
+            })
+          );
+          
+          console.log(`✅ Encrypted ${filesToUpload.length} file(s) with split-key master (zero-knowledge)`);
+        } else {
+          // STANDARD MODE: Encrypt with traditional method (server stores key)
+          filesToUpload = await Promise.all(
+            files.map(async (file) => {
+              const encryptedBlob = await encryptFile(file, encryptionKeyForFiles);
+              return new File([encryptedBlob], file.name, { type: 'application/octet-stream' });
+            })
+          );
+          console.log(`✅ Encrypted ${filesToUpload.length} file(s) with standard encryption`);
+        }
         
         // Upload all files (now encrypted)
         console.log(`📁 Uploading ${filesToUpload.length} encrypted file(s):`, files.map(f => f.name).join(', '));
@@ -438,18 +478,20 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         }
       }
       
-      // SECURE MODE: Generate TWO QR codes
-      if (secureMode && encryptionKey) {
-        // QR #1: Access code (normal URL)
-        const accessUrl = `${window.location.origin}/scan/${response.id}`;
-        const qr1Base = await generateStyledQrCode(accessUrl, qrStyle);
+      // SECURE MODE: Generate TWO QR codes with split keys
+      if (secureMode && splitKeys) {
+        // QR #1: Access code with k1 in URL fragment
+        const qr1Url = createQr1Url(window.location.origin, response.id, splitKeys.k1);
+        const qr1Base = await generateStyledQrCode(qr1Url, qrStyle);
         const qr1Final = await createBrandedQrCode(qr1Base);
         
-        // QR #2: Unlock code (contains decryption key)
-        const unlockUrl = createDecryptionKeyUrl(window.location.origin, response.id, encryptionKey);
-        console.log('🔑 QR #2 URL generated:', unlockUrl);
+        // QR #2: Unlock code with k2 in URL fragment
+        const qr2Url = createQr2Url(window.location.origin, response.id, splitKeys.k2);
+        console.log('🔑 QR #1 URL (access):', qr1Url.replace(/#k1=.*/, '#k1=***'));
+        console.log('🔑 QR #2 URL (unlock):', qr2Url.replace(/#k2=.*/, '#k2=***'));
+        console.log('✅ Split-key encryption: Server never sees keys (zero-knowledge)');
         // Use high contrast (black on white) with standard square corners for maximum scanner readability
-        const qr2Base = await generateStyledQrCode(unlockUrl, {
+        const qr2Base = await generateStyledQrCode(qr2Url, {
           dotsColor: '#000000', // Pure black for maximum contrast
           backgroundColor: '#FFFFFF', // Pure white background
           gradientType: 'none',
@@ -465,8 +507,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         setDualQrData({
           qr1: qr1Final,
           qr2: qr2Final,
-          qr1Url: accessUrl,
-          qr2Url: unlockUrl,
+          qr1Url: qr1Url,
+          qr2Url: qr2Url,
           title: title.trim() || t('upload.sharedContent')
         });
         setShowDualQr(true);

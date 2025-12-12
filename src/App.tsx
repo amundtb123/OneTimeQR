@@ -15,6 +15,7 @@ import { getAllQrDrops, deleteQrDrop, type QrDropData } from './utils/api-client
 import { projectId, publicAnonKey } from './utils/supabase/info';
 import { toast, Toaster } from 'sonner@2.0.3';
 import { LanguageSwitcher } from './components/language-switcher';
+import { extractK1FromUrl, extractK2FromUrl } from './utils/encryption';
 
 export interface QrDrop {
   id: string;
@@ -111,14 +112,83 @@ function AppContent() {
         // We're on a scan page (QR #1 scanned)
         const id = scanMatch[1];
         const searchParams = new URLSearchParams(window.location.search);
-        const key = searchParams.get('key'); // Check for decryption key in query
-        const unlock = searchParams.get('unlock'); // Check for unlock flag (QR #2)
+        const key = searchParams.get('key'); // Legacy: decryption key in query
+        const unlock = searchParams.get('unlock'); // Legacy: unlock flag
         
-        // If unlock flag is set, fetch the encryption key from server
-        if (unlock === '1') {
-          // This is QR #2 - fetch encryption key from server
+        // NEW: Check for split-key in URL fragment (k1 from QR #1)
+        const k1 = extractK1FromUrl();
+        
+        // NEW: Check if this is unlock route (/unlock/:id#k2=...)
+        const unlockMatch = window.location.pathname.match(/^\/unlock\/([^/]+)$/);
+        const k2 = extractK2FromUrl();
+        
+        if (unlockMatch && k2) {
+          // This is QR #2 scanned - unlock route with k2 in fragment
+          const unlockId = unlockMatch[1];
           
-          // SECURITY CHECK: Ensure QR #1 was scanned first
+          // SECURITY CHECK: Ensure QR #1 was scanned first (k1 must be stored)
+          const storedK1 = sessionStorage.getItem(`k1_${unlockId}`);
+          
+          if (!storedK1) {
+            console.warn('⚠️ QR #2 scanned without QR #1 - showing error message');
+            setShowQr2Error(true);
+            toast.error(t('app.mustScanQr1First'));
+            return;
+          }
+          
+          // SECURITY CHECK #2: Verify the timestamp is recent (within 5 minutes)
+          const timestamp = sessionStorage.getItem(`qr1_timestamp_${unlockId}`);
+          if (timestamp) {
+            const now = Date.now();
+            const fiveMinutes = 5 * 60 * 1000;
+            
+            if (now - parseInt(timestamp, 10) > fiveMinutes) {
+              console.warn('⚠️ QR #1 scan expired (older than 5 minutes) - please scan QR #1 again');
+              sessionStorage.removeItem(`k1_${unlockId}`);
+              sessionStorage.removeItem(`qr1_timestamp_${unlockId}`);
+              setScanId(unlockId);
+              setCurrentView('scan');
+              toast.error(t('app.qr1ScanExpired'));
+              return;
+            }
+          }
+          
+          // Combine k1 and k2 to get master key
+          try {
+            const { combineKeys } = await import('./utils/encryption');
+            const masterKey = combineKeys(storedK1, k2);
+            const masterKeyHex = Array.from(masterKey)
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            
+            // Store master key and redirect to scan view
+            sessionStorage.setItem(`master_${unlockId}`, masterKeyHex);
+            setScanId(unlockId);
+            setUnlockKey(masterKeyHex);
+            setCurrentView('scan');
+            
+            // Clean up URL
+            window.history.replaceState({}, '', `/scan/${unlockId}`);
+            
+            console.log('✅ Combined split keys - master key ready for decryption');
+          } catch (error) {
+            console.error('❌ Failed to combine split keys:', error);
+            toast.error('Kunne ikke kombinere nøkler. Prøv på nytt.');
+          }
+        } else if (k1) {
+          // This is QR #1 scanned - store k1 and show scan view
+          sessionStorage.setItem(`k1_${id}`, k1);
+          sessionStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
+          setScanId(id);
+          setCurrentView('scan');
+          
+          // Clean up URL fragment
+          window.history.replaceState({}, '', `/scan/${id}`);
+          
+          console.log('✅ QR #1 scanned - k1 stored, waiting for QR #2');
+        } else if (unlock === '1') {
+          // Legacy: QR #2 with unlock flag (old method - fetch from server)
+          // This should not happen with new split-key system, but keep for backwards compatibility
           const qr1Scanned = localStorage.getItem(`qr1_scanned_${id}`);
           
           if (!qr1Scanned) {
@@ -128,23 +198,21 @@ function AppContent() {
             return;
           }
           
-          // SECURITY CHECK #2: Verify the timestamp is recent (within 5 minutes)
           const timestamp = parseInt(qr1Scanned, 10);
           const now = Date.now();
           const fiveMinutes = 5 * 60 * 1000;
           
           if (now - timestamp > fiveMinutes) {
             console.warn('⚠️ QR #1 scan expired (older than 5 minutes) - please scan QR #1 again');
-            localStorage.removeItem(`qr1_scanned_${id}`); // Clear expired flag
+            localStorage.removeItem(`qr1_scanned_${id}`);
             setScanId(id);
             setCurrentView('scan');
             toast.error(t('app.qr1ScanExpired'));
             return;
           }
           
-          // Set scanId, view and fetching flag immediately
           setScanId(id);
-          setCurrentView('scan'); // IMPORTANT: Show scan view while fetching
+          setCurrentView('scan');
           setIsFetchingKey(true);
           
           const serverUrl = `https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${id}/key`;
@@ -169,9 +237,8 @@ function AppContent() {
               toast.error(t('app.couldNotFetchKey'));
               setIsFetchingKey(false);
             });
-          // IMPORTANT: Don't continue to else block!
         } else {
-          // Regular scan (not QR #2)
+          // Regular scan (not QR #2, no split-key)
           setScanId(id);
           setUnlockKey(key);
           setCurrentView('scan');

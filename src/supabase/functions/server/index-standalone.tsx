@@ -912,7 +912,7 @@ app.post('/make-server-c3c9181e/qr/:id/verify', async (c) => {
   }
 });
 
-// Get encryption key for Secure Mode (QR #2)
+// Get encryption key for Secure Mode (QR #2) and standard encrypted files
 app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
   try {
     const id = c.req.param('id');
@@ -931,12 +931,20 @@ app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
 
     // Return encryption key if it exists
     // ALL files are now encrypted, so encryptionKey should exist for all files
+    // For Secure Mode (QR #2), this endpoint is accessed after QR #1 is scanned
+    // For standard encrypted files, this endpoint is used for file decryption
     if (!qrDrop.encryptionKey) {
-      console.warn(`⚠️ No encryption key found for QR drop ${id} - this should not happen for encrypted files`);
+      console.error(`❌ No encryption key found for QR drop ${id} (secureMode: ${qrDrop.secureMode || false}) - this should not happen for encrypted files`);
       return c.json({ error: 'Encryption key not found' }, 404);
     }
 
-    console.log(`Returning encryption key for QR drop ${id} (secureMode: ${qrDrop.secureMode || false})`);
+    // SECURITY: For Secure Mode, verify that QR #1 was scanned first
+    // This is enforced client-side, but we log it here for security monitoring
+    if (qrDrop.secureMode) {
+      console.log(`✅ Returning encryption key for Secure Mode QR drop ${id} (QR #2)`);
+    } else {
+      console.log(`✅ Returning encryption key for standard encrypted QR drop ${id}`);
+    }
     
     return c.json({ encryptionKey: qrDrop.encryptionKey });
   } catch (error) {

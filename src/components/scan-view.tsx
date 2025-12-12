@@ -9,7 +9,12 @@ import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { UnlockScreen } from './unlock-screen';
 import { getQrDrop, verifyPassword, incrementScanCount, getFileUrl, incrementDownloadCount } from '../utils/api-client';
-import { decryptData, decryptFile } from '../utils/encryption';
+import { 
+  decryptData, 
+  decryptFile,
+  decryptTextWithSplitKey,
+  decryptFileWithSplitKey
+} from '../utils/encryption';
 import { toast } from 'sonner@2.0.3';
 
 interface ScanViewProps {
@@ -174,15 +179,45 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               setIsDecrypting(true);
               const decrypted: {text?: string; urls?: string[]} = {};
               
-              // Decrypt text content if exists
-              if (newResponse.qrDrop.textContent) {
-                decrypted.text = await decryptData(newResponse.qrDrop.textContent, unlockKey);
-              }
+              // Check if this is split-key (new method) or legacy method
+              const isSplitKey = !newResponse.qrDrop.encryptionKey;
               
-              // Decrypt URL content if exists
-              if (newResponse.qrDrop.urlContent) {
-                const decryptedUrlJson = await decryptData(newResponse.qrDrop.urlContent, unlockKey);
-                decrypted.urls = JSON.parse(decryptedUrlJson);
+              if (isSplitKey) {
+                // NEW: Split-key zero-knowledge decryption
+                const masterKeyBytes = new Uint8Array(
+                  unlockKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
+                );
+                
+                if (newResponse.qrDrop.textContent) {
+                  try {
+                    const ciphertextObj = JSON.parse(newResponse.qrDrop.textContent);
+                    decrypted.text = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
+                  } catch (parseError) {
+                    console.error('Failed to parse textContent ciphertext:', parseError);
+                    throw new Error('Invalid ciphertext format');
+                  }
+                }
+                
+                if (newResponse.qrDrop.urlContent) {
+                  try {
+                    const ciphertextObj = JSON.parse(newResponse.qrDrop.urlContent);
+                    const decryptedUrlJson = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
+                    decrypted.urls = JSON.parse(decryptedUrlJson);
+                  } catch (parseError) {
+                    console.error('Failed to parse urlContent ciphertext:', parseError);
+                    throw new Error('Invalid ciphertext format');
+                  }
+                }
+              } else {
+                // LEGACY: Traditional decryption
+                if (newResponse.qrDrop.textContent) {
+                  decrypted.text = await decryptData(newResponse.qrDrop.textContent, unlockKey);
+                }
+                
+                if (newResponse.qrDrop.urlContent) {
+                  const decryptedUrlJson = await decryptData(newResponse.qrDrop.urlContent, unlockKey);
+                  decrypted.urls = JSON.parse(decryptedUrlJson);
+                }
               }
               
               setDecryptedContent(decrypted);
@@ -273,15 +308,49 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             setIsDecrypting(true);
             const decrypted: {text?: string; urls?: string[]} = {};
             
-            // Decrypt text content if exists
-            if (response.qrDrop.textContent) {
-              decrypted.text = await decryptData(response.qrDrop.textContent, unlockKey);
-            }
+            // Check if this is split-key (new method) or legacy method
+            // Split-key: textContent/urlContent are JSON strings of {iv, salt, ciphertext}
+            // Legacy: textContent/urlContent are base64 encrypted strings
+            const isSplitKey = !response.qrDrop.encryptionKey; // No encryptionKey on server = split-key
             
-            // Decrypt URL content if exists
-            if (response.qrDrop.urlContent) {
-              const decryptedUrlJson = await decryptData(response.qrDrop.urlContent, unlockKey);
-              decrypted.urls = JSON.parse(decryptedUrlJson);
+            if (isSplitKey) {
+              // NEW: Split-key zero-knowledge decryption
+              const masterKeyBytes = new Uint8Array(
+                unlockKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
+              );
+              
+              // Decrypt text content if exists
+              if (response.qrDrop.textContent) {
+                try {
+                  const ciphertextObj = JSON.parse(response.qrDrop.textContent);
+                  decrypted.text = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
+                } catch (parseError) {
+                  console.error('Failed to parse textContent ciphertext:', parseError);
+                  throw new Error('Invalid ciphertext format');
+                }
+              }
+              
+              // Decrypt URL content if exists
+              if (response.qrDrop.urlContent) {
+                try {
+                  const ciphertextObj = JSON.parse(response.qrDrop.urlContent);
+                  const decryptedUrlJson = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
+                  decrypted.urls = JSON.parse(decryptedUrlJson);
+                } catch (parseError) {
+                  console.error('Failed to parse urlContent ciphertext:', parseError);
+                  throw new Error('Invalid ciphertext format');
+                }
+              }
+            } else {
+              // LEGACY: Traditional decryption with hex key
+              if (response.qrDrop.textContent) {
+                decrypted.text = await decryptData(response.qrDrop.textContent, unlockKey);
+              }
+              
+              if (response.qrDrop.urlContent) {
+                const decryptedUrlJson = await decryptData(response.qrDrop.urlContent, unlockKey);
+                decrypted.urls = JSON.parse(decryptedUrlJson);
+              }
             }
             
             setDecryptedContent(decrypted);
@@ -345,8 +414,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       // Get decryption key if files are encrypted
       // ALL files are now encrypted, so we always need to decrypt
       let decryptionKey: string | null = null;
+      let isSplitKeyMode = false;
       if (qrDrop?.secureMode) {
         // Secure Mode: use unlock key from QR #2
+        // Check if this is split-key (no encryptionKey on server) or legacy
+        isSplitKeyMode = !qrDrop.encryptionKey;
         if (unlockKey) {
           decryptionKey = unlockKey;
         }

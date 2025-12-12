@@ -223,8 +223,17 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             
             // Navigate to unlock route - App.tsx will handle combining k1 + k2
             // Use setTimeout to ensure sessionStorage is written before navigation
+            console.log('⏳ [UNLOCK SCREEN] Waiting 100ms before navigation to ensure sessionStorage is written...');
             setTimeout(() => {
+              console.log('🚀 [UNLOCK SCREEN] Executing navigation to:', targetUrl);
+              console.log('🚀 [UNLOCK SCREEN] Current location before navigation:', window.location.href);
+              
+              // Verify k2 is still in sessionStorage before navigating
+              const verifyK2BeforeNav = sessionStorage.getItem(`k2_temp_${fileId}`);
+              console.log('🔍 [UNLOCK SCREEN] k2 verification before navigation:', verifyK2BeforeNav ? 'FOUND' : 'MISSING');
+              
               window.location.href = targetUrl;
+              console.log('✅ [UNLOCK SCREEN] Navigation command executed');
             }, 100);
           } else {
             console.error('❌ [UNLOCK SCREEN] Could not extract fileId from unlock URL. Pathname:', url.pathname);

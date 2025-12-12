@@ -89,6 +89,7 @@ function AppContent() {
   // Check if we're on a scan, unlock, or success URL
   useEffect(() => {
     const updateViewFromPath = async () => {
+      console.log('🔄 [APP] updateViewFromPath called, current path:', window.location.pathname, 'hash:', window.location.hash);
       const path = window.location.pathname;
       const scanMatch = path.match(/\/scan\/([^\/]+)/);
       const unlockMatch = path.match(/\/unlock\/([^\/]+)/);

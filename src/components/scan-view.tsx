@@ -37,6 +37,16 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const [decryptedContent, setDecryptedContent] = useState<{text?: string; urls?: string[]}>({});
   const [currentQrDropId] = useState(qrDropId); // Store ID in state so it doesn't get lost
 
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      // Revoke all decrypted blob URLs to prevent memory leaks
+      Object.values(decryptedFileUrls).forEach(url => {
+        URL.revokeObjectURL(url);
+      });
+    };
+  }, []);
+
   useEffect(() => {
     const loadQrDrop = async () => {
       try {

@@ -101,7 +101,10 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   };
 
   const handleScanClick = () => {
+    console.log('🔘 [UNLOCK SCREEN] Scan button clicked, setting showScanner to true');
+    console.log('🔘 [UNLOCK SCREEN] Current qrDropId:', qrDropId);
     setShowScanner(true);
+    console.log('🔘 [UNLOCK SCREEN] showScanner state updated');
   };
 
   const handleQrScanned = (data: string) => {
@@ -195,6 +198,14 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   };
 
   // Show QR scanner fullscreen
+  useEffect(() => {
+    if (showScanner) {
+      console.log('📷 [UNLOCK SCREEN] showScanner is true, should render QrScanner');
+    } else {
+      console.log('📷 [UNLOCK SCREEN] showScanner is false, showing unlock screen UI');
+    }
+  }, [showScanner]);
+
   if (showScanner) {
     console.log('📷 [UNLOCK SCREEN] Rendering QR scanner, qrDropId:', qrDropId);
     return (

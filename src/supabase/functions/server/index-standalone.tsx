@@ -551,7 +551,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       noPreview: metadata.noPreview || false,
       password: metadata.password ? await hashPasswordSecure(metadata.password) : null, // Hash password before storing
       qrStyle: metadata.qrStyle || null,
-      qrCodeDataUrl: metadata.qrCodeDataUrl || null,
+      // NOTE: qrCodeDataUrl is not stored (too large - 30-50 KB, generated on-demand)
       encrypted: metadata.encrypted || false,
       secureMode: metadata.secureMode || false,
       encryptionKey: metadata.encryptionKey || null,
@@ -678,7 +678,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       noPreview: metadata.noPreview || false,
       password: metadata.password ? await hashPasswordSecure(metadata.password) : null, // Hash password before storing
       qrStyle: metadata.qrStyle || null,
-      qrCodeDataUrl: metadata.qrCodeDataUrl || null,
+      // NOTE: qrCodeDataUrl is not stored (too large - 30-50 KB, generated on-demand)
       encrypted: metadata.encrypted || false,
       secureMode: metadata.secureMode || false,
       encryptionKey: metadata.encryptionKey || null,

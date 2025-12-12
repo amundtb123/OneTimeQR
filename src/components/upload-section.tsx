@@ -394,7 +394,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         noPreview,
         password: usePassword ? password : undefined,
         qrStyle, // Store QR styling preferences
-        qrCodeDataUrl: brandedQrCode, // Already generated
+        // NOTE: qrCodeDataUrl is NOT sent in metadata (too large - 30-50 KB)
+        // QR code is generated on-demand when needed
         secureMode, // Flag to indicate Secure Mode (split-key zero-knowledge)
         encrypted: true, // ALL files are now encrypted
         // For secureMode: NO encryption key stored (zero-knowledge)
@@ -409,7 +410,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         urlContentCiphertext: encryptedUrlContent ? JSON.stringify(encryptedUrlContent) : undefined,
       } : undefined;
       
-      console.log('📋 Metadata prepared:', { ...metadata, qrCodeDataUrl: metadata.qrCodeDataUrl?.substring(0, 50) + '...' });
+      console.log('📋 Metadata prepared:', { ...metadata });
 
       let response;
       

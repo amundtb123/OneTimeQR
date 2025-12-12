@@ -355,14 +355,41 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               const encryptedBlob = await fileResponse.blob();
               const decryptedBlob = await decryptFile(encryptedBlob, decryptionKey!);
               
-              // Preserve original file type for proper display
-              const originalType = file.fileType || 'application/octet-stream';
-              const typedBlob = new Blob([decryptedBlob], { type: originalType });
+              // CRITICAL: Get original file type from qrDrop.files metadata (before encryption)
+              // Backend returns application/octet-stream for encrypted files, so we need original type
+              const originalFileMetadata = qrDrop?.files && Array.isArray(qrDrop.files) 
+                ? qrDrop.files.find((f: any) => f.name === file.fileName || f.path === file.fileUrl.split('/').pop())
+                : null;
+              
+              // Use original type from metadata, fallback to file.fileType, then qrDrop.fileType
+              const originalType = originalFileMetadata?.type || file.fileType || qrDrop?.fileType || 'application/octet-stream';
+              
+              // If still octet-stream, try to infer from filename extension
+              let finalType = originalType;
+              if (originalType === 'application/octet-stream' && file.fileName) {
+                const ext = file.fileName.split('.').pop()?.toLowerCase();
+                const typeMap: Record<string, string> = {
+                  'png': 'image/png',
+                  'jpg': 'image/jpeg',
+                  'jpeg': 'image/jpeg',
+                  'gif': 'image/gif',
+                  'webp': 'image/webp',
+                  'pdf': 'application/pdf',
+                  'mp4': 'video/mp4',
+                  'mp3': 'audio/mpeg',
+                  'wav': 'audio/wav',
+                };
+                if (ext && typeMap[ext]) {
+                  finalType = typeMap[ext];
+                }
+              }
+              
+              const typedBlob = new Blob([decryptedBlob], { type: finalType });
               
               // Create blob URL for preview
               const blobUrl = URL.createObjectURL(typedBlob);
               decryptedUrls[file.fileIndex] = blobUrl;
-              console.log(`✅ Decrypted file ${file.fileIndex} for preview:`, blobUrl, 'type:', originalType);
+              console.log(`✅ Decrypted file ${file.fileIndex} for preview:`, blobUrl, 'type:', finalType, 'original:', originalType);
             } catch (decryptError) {
               console.error(`❌ Failed to decrypt file ${file.fileIndex}:`, decryptError);
             }
@@ -393,13 +420,40 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               const encryptedBlob = await fileResponse.blob();
               const decryptedBlob = await decryptFile(encryptedBlob, decryptionKey!);
               
-              // Preserve original file type for proper display
-              const originalType = response.fileType || qrDrop?.fileType || 'application/octet-stream';
+              // CRITICAL: Get original file type from qrDrop metadata (before encryption)
+              // Backend returns application/octet-stream for encrypted files, so we need original type
+              const originalFileMetadata = qrDrop?.files && Array.isArray(qrDrop.files) && qrDrop.files.length > 0
+                ? qrDrop.files[0]
+                : null;
+              
+              // Use original type from metadata, fallback to response.fileType, then qrDrop.fileType
+              let originalType = originalFileMetadata?.type || response.fileType || qrDrop?.fileType || 'application/octet-stream';
+              
+              // If still octet-stream, try to infer from filename extension
+              if (originalType === 'application/octet-stream' && (response.fileName || qrDrop?.fileName)) {
+                const fileName = response.fileName || qrDrop?.fileName || '';
+                const ext = fileName.split('.').pop()?.toLowerCase();
+                const typeMap: Record<string, string> = {
+                  'png': 'image/png',
+                  'jpg': 'image/jpeg',
+                  'jpeg': 'image/jpeg',
+                  'gif': 'image/gif',
+                  'webp': 'image/webp',
+                  'pdf': 'application/pdf',
+                  'mp4': 'video/mp4',
+                  'mp3': 'audio/mpeg',
+                  'wav': 'audio/wav',
+                };
+                if (ext && typeMap[ext]) {
+                  originalType = typeMap[ext];
+                }
+              }
+              
               const typedBlob = new Blob([decryptedBlob], { type: originalType });
               const blobUrl = URL.createObjectURL(typedBlob);
               
               setDecryptedFileUrls({ 0: blobUrl });
-              console.log('✅ Single file decrypted for preview:', blobUrl);
+              console.log('✅ Single file decrypted for preview:', blobUrl, 'type:', originalType);
             }
           } catch (decryptError) {
             console.error('❌ Failed to decrypt file:', decryptError);

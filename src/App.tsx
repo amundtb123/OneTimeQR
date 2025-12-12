@@ -78,11 +78,12 @@ function AppContent() {
   const [qrDrops, setQrDrops] = useState<QrDrop[]>([]);
   const [currentView, setCurrentView] = useState<'upload' | 'list' | 'scan' | 'detail' | 'unlock' | 'success' | 'legal'>('upload');
   const [selectedQrDrop, setSelectedQrDrop] = useState<QrDrop | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Start as false, will be set to true when actually loading
   const [scanId, setScanId] = useState<string | null>(null);
   const [unlockKey, setUnlockKey] = useState<string | null>(null);
   const [isFetchingKey, setIsFetchingKey] = useState(false); // Track if we're fetching encryption key
   const [showQr2Error, setShowQr2Error] = useState(false); // Track if QR #2 was scanned without QR #1
+  const [isLoadingQrDrops, setIsLoadingQrDrops] = useState(false); // Prevent multiple simultaneous loads
 
   // Check if we're on a scan, unlock, or success URL
   useEffect(() => {
@@ -215,9 +216,30 @@ function AppContent() {
   }, [user, authLoading, scanId]);
 
   const loadQrDrops = async () => {
+    // Prevent multiple simultaneous loads
+    if (isLoadingQrDrops) {
+      console.log('⏸️ Already loading QR drops, skipping...');
+      return;
+    }
+
+    // Don't load if user is not logged in (will get empty array anyway)
+    if (!user) {
+      setQrDrops([]);
+      setIsLoading(false);
+      return;
+    }
+
     try {
+      setIsLoadingQrDrops(true);
       setIsLoading(true);
       const { qrDrops: data } = await getAllQrDrops();
+      
+      // If no QR drops, just set empty array (no error)
+      if (!data || data.length === 0) {
+        setQrDrops([]);
+        setIsLoading(false);
+        return;
+      }
       
       // Import QRCode library and branding for generating QR codes
       const QRCode = (await import('qrcode')).default;
@@ -285,11 +307,17 @@ function AppContent() {
       );
       
       setQrDrops(qrDropsWithQr);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load QR drops:', error);
-      toast.error(t('app.couldNotLoadQrs'));
+      // Only show error toast if it's not a 401/403 (authentication errors are expected when not logged in)
+      if (error?.status !== 401 && error?.status !== 403) {
+        toast.error(t('app.couldNotLoadQrs'));
+      }
+      // Set empty array on error to prevent UI issues
+      setQrDrops([]);
     } finally {
       setIsLoading(false);
+      setIsLoadingQrDrops(false);
     }
   };
 

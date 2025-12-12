@@ -130,8 +130,12 @@ function AppContent() {
         // NEW: Check for split-key in URL fragment (k1 from QR #1)
         const k1 = extractK1FromUrl();
         
-        // Check if this is unlock route (/unlock/:id) - either with k2 in fragment OR stored in sessionStorage
-        const unlockMatch = window.location.pathname.match(/^\/unlock\/([^/]+)$/);
+        // Check if this is unlock route (/unlock/:id or /scan/unlock/:id) - either with k2 in fragment OR stored in sessionStorage
+        // Try both patterns to handle different URL structures
+        let unlockMatch = window.location.pathname.match(/^\/unlock\/([^/]+)$/);
+        if (!unlockMatch) {
+          unlockMatch = window.location.pathname.match(/^\/scan\/unlock\/([^/]+)$/);
+        }
         const k2FromUrl = extractK2FromUrl();
         
         console.log('🔍 [APP] Checking for unlock route:', {

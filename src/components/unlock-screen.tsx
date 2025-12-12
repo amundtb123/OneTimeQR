@@ -154,26 +154,34 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
         // For split-key mode (k2 in fragment), extract and store k2 BEFORE navigation
         // This ensures we don't lose k2 on mobile browsers that might mishandle fragments
         if (hasK2 && k2Value) {
-          // Extract fileId from path (e.g., /unlock/:id)
-          const pathMatch = url.pathname.match(/\/unlock\/([^/]+)/);
+          // Extract fileId from path (e.g., /unlock/:id or /scan/unlock/:id)
+          // CRITICAL: Use fileId from the SCANNED QR2 URL, NOT qrDropId from props
+          // qrDropId from props is QR1's ID, but we need QR2's ID from the scanned URL
+          // Try both /unlock/:id and /scan/unlock/:id patterns
+          let pathMatch = url.pathname.match(/\/unlock\/([^/]+)/);
+          if (!pathMatch) {
+            pathMatch = url.pathname.match(/\/scan\/unlock\/([^/]+)/);
+          }
           if (pathMatch) {
-            const fileId = pathMatch[1];
+            const fileId = pathMatch[1]; // This is QR2's ID from the scanned URL
             console.log('💾 [UNLOCK SCREEN] Storing k2 in sessionStorage before navigation for:', fileId);
-            console.log('💾 [UNLOCK SCREEN] Current qrDropId (from props):', qrDropId);
-            console.log('💾 [UNLOCK SCREEN] fileId from URL path:', fileId);
+            console.log('💾 [UNLOCK SCREEN] Current qrDropId (from props - QR1 ID):', qrDropId);
+            console.log('💾 [UNLOCK SCREEN] fileId from scanned QR2 URL (QR2 ID):', fileId);
             console.log('💾 [UNLOCK SCREEN] k2 value length:', k2Value.length);
             
-            // CRITICAL: Also store k2 using qrDropId from props as fallback
-            // This handles cases where URL pathname doesn't match qrDropId
+            // CRITICAL FIX: Store k2 with QR2's ID (fileId from scanned URL)
+            // Also store with QR1's ID (qrDropId) as fallback in case they should match
+            // But PRIMARY key should be QR2's ID from the scanned URL
             if (qrDropId && qrDropId !== fileId) {
-              console.warn('⚠️ [UNLOCK SCREEN] fileId mismatch! URL:', fileId, 'vs props:', qrDropId);
+              console.warn('⚠️ [UNLOCK SCREEN] ID mismatch! QR1 ID (props):', qrDropId, 'vs QR2 ID (scanned):', fileId);
               console.log('💾 [UNLOCK SCREEN] Storing k2 with BOTH keys for safety');
+              // Store with QR1's ID as fallback
               sessionStorage.setItem(`k2_temp_${qrDropId}`, k2Value);
               sessionStorage.setItem(`k2_timestamp_${qrDropId}`, Date.now().toString());
             }
             
-            // Store k2 temporarily so App.tsx can find it even if fragment is lost
-            // App.tsx will check for this and combine with k1
+            // Store k2 with QR2's ID (PRIMARY - from scanned URL)
+            // This is the correct ID that should be used for combining with k1
             sessionStorage.setItem(`k2_temp_${fileId}`, k2Value);
             sessionStorage.setItem(`k2_timestamp_${fileId}`, Date.now().toString());
             

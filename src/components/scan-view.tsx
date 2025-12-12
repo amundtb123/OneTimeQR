@@ -1124,7 +1124,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 

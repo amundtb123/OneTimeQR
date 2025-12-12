@@ -458,7 +458,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       downloadCount: 0,
       viewOnly: metadata.viewOnly || false,
       noPreview: metadata.noPreview || false,
-      password: metadata.password || null,
+      password: metadata.password ? await hashPasswordSecure(metadata.password) : null, // Hash password before storing
       qrStyle: metadata.qrStyle || null,
       qrCodeDataUrl: metadata.qrCodeDataUrl || null,
       encrypted: metadata.encrypted || false,
@@ -550,7 +550,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       downloadCount: 0,
       viewOnly: metadata.viewOnly || false,
       noPreview: metadata.noPreview || false,
-      password: metadata.password || null,
+      password: metadata.password ? await hashPasswordSecure(metadata.password) : null, // Hash password before storing
       qrStyle: metadata.qrStyle || null,
       qrCodeDataUrl: metadata.qrCodeDataUrl || null,
       encrypted: metadata.encrypted || false,

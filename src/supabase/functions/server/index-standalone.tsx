@@ -6,7 +6,18 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 const app = new Hono();
 
 // Middleware
-app.use('*', cors());
+// SECURITY: Restrict CORS to allowed origins only
+app.use('*', cors({
+  origin: [
+    'https://onetimeqr.com',
+    'https://www.onetimeqr.com',
+    'http://localhost:5173', // Development
+    'http://localhost:3000', // Development
+  ],
+  credentials: true,
+  allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use('*', logger(console.log));
 
 // Initialize Supabase client
@@ -389,17 +400,85 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       console.log('⚠️ Anonymous upload (no auth token or token is anon key)');
     }
 
+    // SECURITY: Validate metadata size
+    const MAX_METADATA_SIZE = 10 * 1024; // 10 KB
+    const metadataString = JSON.stringify(metadata);
+    if (metadataString.length > MAX_METADATA_SIZE) {
+      return c.json({ error: 'Metadata too large. Maximum size is 10 KB.' }, 400);
+    }
+
+    // SECURITY: Validate file sizes on server side
+    const MAX_FILE_SIZE = userId ? 20 * 1024 * 1024 : 1 * 1024 * 1024; // 20 MB or 1 MB
+    const MAX_TOTAL_SIZE = userId ? 100 * 1024 * 1024 : 5 * 1024 * 1024; // 100 MB or 5 MB total
+    
+    let totalSize = 0;
+    for (const file of files) {
+      if (file.size > MAX_FILE_SIZE) {
+        return c.json({ 
+          error: `File "${file.name}" exceeds maximum size of ${MAX_FILE_SIZE / (1024 * 1024)} MB` 
+        }, 400);
+      }
+      totalSize += file.size;
+    }
+    
+    if (totalSize > MAX_TOTAL_SIZE) {
+      return c.json({ 
+        error: `Total file size exceeds maximum of ${MAX_TOTAL_SIZE / (1024 * 1024)} MB` 
+      }, 400);
+    }
+
+    // SECURITY: Validate file types
+    const ALLOWED_FILE_TYPES = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+      'application/pdf',
+      'text/plain', 'text/csv',
+      'application/zip', 'application/x-zip-compressed',
+      'video/mp4', 'video/webm',
+      'audio/mpeg', 'audio/wav', 'audio/ogg',
+      'application/json',
+    ];
+    
+    const BLOCKED_EXTENSIONS = ['.exe', '.bat', '.sh', '.js', '.html', '.htm', '.php', '.asp', '.jsp'];
+    
+    for (const file of files) {
+      // Check extension
+      const fileName = file.name.toLowerCase();
+      const ext = fileName.substring(fileName.lastIndexOf('.'));
+      if (BLOCKED_EXTENSIONS.includes(ext)) {
+        return c.json({ error: `File type ${ext} is not allowed for security reasons` }, 400);
+      }
+      
+      // Check MIME type if available (but be lenient since MIME types can be spoofed)
+      if (file.type && file.type !== 'application/octet-stream') {
+        // Only block if it's explicitly a dangerous type
+        const dangerousTypes = ['text/html', 'application/x-javascript', 'application/javascript'];
+        if (dangerousTypes.includes(file.type)) {
+          return c.json({ error: `File type ${file.type} is not allowed for security reasons` }, 400);
+        }
+      }
+    }
+
     // Generate unique ID
     const id = crypto.randomUUID();
     const timestamp = Date.now();
 
     // Upload all files to Supabase Storage
     const uploadedFiles: Array<{name: string; type: string; size: number; path: string}> = [];
-    let totalSize = 0;
 
+    // SECURITY: Sanitize filename to prevent path traversal attacks
+    const sanitizeFileName = (fileName: string): string => {
+      // Remove path traversal attempts
+      let sanitized = fileName.replace(/\.\./g, '').replace(/\//g, '_').replace(/\\/g, '_');
+      // Remove or replace dangerous characters
+      sanitized = sanitized.replace(/[^a-zA-Z0-9._-]/g, '_');
+      // Limit length to prevent issues
+      return sanitized.substring(0, 255);
+    };
+    
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const filePath = `${id}/${timestamp}-${i}-${file.name}`;
+      const sanitizedFileName = sanitizeFileName(file.name);
+      const filePath = `${id}/${timestamp}-${i}-${sanitizedFileName}`;
       
       // Get original file type from metadata if available (files are encrypted, so file.type is application/octet-stream)
       const fileKey = i === 0 ? 'file' : `file${i}`;
@@ -427,7 +506,6 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
           size: file.size, // Encrypted size (may differ from original, but we store what we have)
           path: filePath
         });
-        totalSize += file.size;
         console.log(`✅ Uploaded file ${i + 1}/${files.length}: ${file.name}`);
       } catch (error) {
         console.error(`Error uploading file ${i} (${file.name}):`, error);
@@ -500,6 +578,13 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
 app.post('/make-server-c3c9181e/create', async (c) => {
   try {
     const metadata = await c.req.json();
+
+    // SECURITY: Validate metadata size
+    const MAX_METADATA_SIZE = 10 * 1024; // 10 KB
+    const metadataString = JSON.stringify(metadata);
+    if (metadataString.length > MAX_METADATA_SIZE) {
+      return c.json({ error: 'Metadata too large. Maximum size is 10 KB.' }, 400);
+    }
 
     // Get user ID from auth token (OPTIONAL - allows anonymous creation)
     let userId: string | null = null;
@@ -601,6 +686,13 @@ app.post('/make-server-c3c9181e/create', async (c) => {
 app.get('/make-server-c3c9181e/qr/:id', async (c) => {
   try {
     const id = c.req.param('id');
+    
+    // SECURITY: Validate UUID format
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid QR drop ID format' }, 400);
+    }
+    
     const accessToken = c.req.query('access');
     
     // If NO access token is provided, generate one and return it in JSON
@@ -824,6 +916,13 @@ app.post('/make-server-c3c9181e/qr/:id/verify', async (c) => {
 app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
   try {
     const id = c.req.param('id');
+    
+    // SECURITY: Validate UUID format
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid QR drop ID format' }, 400);
+    }
+    
     const qrDrop = await kv.get(`qrdrop:${id}`);
 
     if (!qrDrop) {
@@ -850,6 +949,13 @@ app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
 app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
   try {
     const id = c.req.param('id');
+    
+    // SECURITY: Validate UUID format
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid QR drop ID format' }, 400);
+    }
+    
     const qrDrop = await kv.get(`qrdrop:${id}`);
 
     if (!qrDrop) {
@@ -894,6 +1000,13 @@ app.post('/make-server-c3c9181e/qr/:id/scan', async (c) => {
 // Get file URL(s) (for file downloads) - supports multiple files
 app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
   const id = c.req.param('id');
+  
+  // SECURITY: Validate UUID format
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(id)) {
+    return c.json({ error: 'Invalid QR drop ID format' }, 400);
+  }
+  
   const fileIndex = c.req.query('index'); // Optional: specific file index
   
   try {
@@ -1093,6 +1206,51 @@ app.get('/make-server-c3c9181e/qrdrops', async (c) => {
 app.delete('/make-server-c3c9181e/qr/:id', async (c) => {
   try {
     const id = c.req.param('id');
+    
+    // SECURITY: Validate UUID format
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid QR drop ID format' }, 400);
+    }
+    
+    // SECURITY: Get user ID from auth token and verify ownership
+    const authHeader = c.req.header('Authorization');
+    const accessToken = authHeader?.split(' ')[1];
+    
+    let userId: string | null = null;
+    if (accessToken && accessToken !== Deno.env.get('SUPABASE_ANON_KEY')) {
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+        if (authError || !user) {
+          // If auth fails, allow deletion only if QR drop is anonymous (userId is null)
+          // This maintains backwards compatibility for anonymous uploads
+        } else {
+          userId = user.id;
+        }
+      } catch (error) {
+        console.error('Error getting user during delete:', error);
+        // Continue - will check if QR drop is anonymous
+      }
+    }
+    
+    // Verify ownership - get QR drop first
+    const qrDrop = await kv.get(`qrdrop:${id}`);
+    if (!qrDrop) {
+      return c.json({ error: 'QR drop not found' }, 404);
+    }
+    
+    // SECURITY: Allow deletion if:
+    // 1. User owns the QR drop (userId matches), OR
+    // 2. QR drop is anonymous (qrDrop.userId is null) - backwards compatibility
+    if (qrDrop.userId && userId && qrDrop.userId !== userId) {
+      return c.json({ error: 'Unauthorized: You can only delete your own QR drops' }, 403);
+    }
+    
+    // If QR drop has userId but user is not authenticated, deny
+    if (qrDrop.userId && !userId) {
+      return c.json({ error: 'Authentication required to delete this QR drop' }, 401);
+    }
+    
     await deleteQrDrop(id);
     return c.json({ success: true });
   } catch (error) {
@@ -1120,8 +1278,22 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
       apiVersion: '2024-12-18.acacia',
     });
 
-    const origin = c.req.header('Origin') || c.req.header('Referer') || 'https://onetimeqr.com';
-    const baseUrl = new URL(origin).origin;
+    // SECURITY: Validate and sanitize origin to prevent redirect attacks
+    const ALLOWED_ORIGINS = ['https://onetimeqr.com', 'https://www.onetimeqr.com'];
+    const origin = c.req.header('Origin');
+    let baseUrl = 'https://onetimeqr.com'; // Default fallback
+    
+    if (origin) {
+      try {
+        const originUrl = new URL(origin);
+        if (ALLOWED_ORIGINS.includes(originUrl.origin)) {
+          baseUrl = originUrl.origin;
+        }
+      } catch (error) {
+        // Invalid origin, use default
+        console.warn('Invalid origin header:', origin);
+      }
+    }
 
     // Create Stripe Checkout session
     // Apple Pay and Google Pay are automatically available when supported

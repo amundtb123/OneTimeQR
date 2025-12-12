@@ -81,6 +81,81 @@ export async function decryptData(encryptedBase64: string, keyHex: string): Prom
 }
 
 /**
+ * Encrypt a file using AES-GCM
+ * Returns encrypted file as Blob
+ */
+export async function encryptFile(file: File, keyHex: string): Promise<Blob> {
+  // Convert hex key to CryptoKey
+  const keyBytes = new Uint8Array(keyHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt']
+  );
+
+  // Generate random IV
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  
+  // Read file as ArrayBuffer
+  const fileBuffer = await file.arrayBuffer();
+  
+  // Encrypt
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    fileBuffer
+  );
+
+  // Combine IV + encrypted data
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  
+  // Return as Blob
+  return new Blob([combined], { type: 'application/octet-stream' });
+}
+
+/**
+ * Decrypt a file using AES-GCM
+ * Returns decrypted file as Blob
+ */
+export async function decryptFile(encryptedBlob: Blob, keyHex: string): Promise<Blob> {
+  try {
+    // Convert hex key to CryptoKey
+    const keyBytes = new Uint8Array(keyHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+    const key = await crypto.subtle.importKey(
+      'raw',
+      keyBytes,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['decrypt']
+    );
+
+    // Read encrypted blob as ArrayBuffer
+    const combined = new Uint8Array(await encryptedBlob.arrayBuffer());
+    
+    // Extract IV and encrypted data
+    const iv = combined.slice(0, 12);
+    const encrypted = combined.slice(12);
+
+    // Decrypt
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      encrypted
+    );
+
+    // Return as Blob
+    return new Blob([decrypted]);
+  } catch (error) {
+    console.error('File decryption failed:', error);
+    throw new Error('Failed to decrypt file. Invalid key or corrupted data.');
+  }
+}
+
+/**
  * Create a shareable decryption key URL (for QR #2)
  * Now uses a simple unlock flag instead of embedding the full key
  */

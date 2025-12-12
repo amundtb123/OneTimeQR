@@ -9,7 +9,7 @@ import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { UnlockScreen } from './unlock-screen';
 import { getQrDrop, verifyPassword, incrementScanCount, getFileUrl, incrementDownloadCount } from '../utils/api-client';
-import { decryptData } from '../utils/encryption';
+import { decryptData, decryptFile } from '../utils/encryption';
 import { toast } from 'sonner@2.0.3';
 
 interface ScanViewProps {
@@ -351,6 +351,25 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     if (!qrDrop?.viewOnly && filesToDownload.length > 0) {
       try {
         await incrementDownloadCount(currentQrDropId);
+        
+        // Get decryption key if file is encrypted
+        let decryptionKey: string | null = null;
+        if (qrDrop?.encrypted || qrDrop?.secureMode) {
+          if (qrDrop?.secureMode && unlockKey) {
+            decryptionKey = unlockKey;
+          } else if (qrDrop?.encryptionKey) {
+            // For password-protected files, encryption key is stored on server
+            try {
+              const keyResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/key`);
+              if (keyResponse.ok) {
+                const keyData = await keyResponse.json();
+                decryptionKey = keyData.encryptionKey;
+              }
+            } catch (error) {
+              console.error('Failed to fetch decryption key:', error);
+            }
+          }
+        }
         
         // Download all files (or single file if fileIndex specified)
         for (const file of filesToDownload) {

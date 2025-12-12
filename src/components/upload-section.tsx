@@ -6,7 +6,7 @@ import type { QrDrop } from '../App';
 import { uploadFile, createQrDrop } from '../utils/api-client';
 import { generateStyledQrCode } from '../utils/qr-generator';
 import { createBrandedQrCode } from '../utils/qr-with-branding';
-import { generateEncryptionKey, encryptData, createDecryptionKeyUrl } from '../utils/encryption';
+import { generateEncryptionKey, encryptData, encryptFile, createDecryptionKeyUrl } from '../utils/encryption';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { NordicLogo } from './nordic-logo';
@@ -375,9 +375,33 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       
       // If we have files, use upload endpoint
       if (files.length > 0) {
-        // Upload all files
-        console.log(`📁 Uploading ${files.length} file(s):`, files.map(f => f.name).join(', '));
-        response = await uploadFile(files, metadata);
+        // CRITICAL SECURITY: Encrypt files before upload if password or secureMode is enabled
+        let filesToUpload = files;
+        if (secureMode || usePassword) {
+          console.log('🔐 Encrypting files before upload...');
+          const encryptionKeyForFiles = secureMode ? encryptionKey! : await generateEncryptionKey();
+          
+          // Encrypt each file
+          filesToUpload = await Promise.all(
+            files.map(async (file) => {
+              const encryptedBlob = await encryptFile(file, encryptionKeyForFiles);
+              // Create new File object with encrypted data, preserving original name
+              return new File([encryptedBlob], file.name, { type: 'application/octet-stream' });
+            })
+          );
+          
+          // Store encryption key in metadata if not already set (for password-only mode)
+          if (!secureMode && usePassword) {
+            metadata.encryptionKey = encryptionKeyForFiles;
+            metadata.encrypted = true;
+          }
+          
+          console.log(`✅ Encrypted ${filesToUpload.length} file(s) before upload`);
+        }
+        
+        // Upload all files (encrypted if needed)
+        console.log(`📁 Uploading ${filesToUpload.length} file(s):`, files.map(f => f.name).join(', '));
+        response = await uploadFile(filesToUpload, metadata);
         console.log('✅ Upload response:', response);
       } else {
         // No files, just text/URLs

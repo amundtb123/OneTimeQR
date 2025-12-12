@@ -29,7 +29,7 @@ const resources = {
     translation: {
       common: {
         appName: 'OneTimeQR',
-        tagline: 'Share files via QR',
+        tagline: 'share stuff. safely.',
         upload: 'Upload',
         myQrs: 'My QR codes',
         login: 'Log in',
@@ -307,7 +307,7 @@ const resources = {
     translation: {
       common: {
         appName: 'OneTimeQR',
-        tagline: 'Del filer via QR',
+        tagline: 'del ting. trygt',
         upload: 'Last opp',
         myQrs: 'Mine QR-koder',
         login: 'Logg inn',

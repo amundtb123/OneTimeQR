@@ -48,22 +48,22 @@ export function CoinShop() {
   };
 
   return (
-    <Card className="p-4 bg-gradient-to-br from-indigo-50 to-blue-50 border-indigo-200">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-indigo-100 rounded-lg">
-            <Coins className="size-5 text-indigo-600" />
+    <Card className="p-3 sm:p-4 bg-gradient-to-br from-indigo-50 to-blue-50 border-indigo-200 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 sm:gap-4">
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 min-w-0">
+          <div className="p-1.5 sm:p-2 bg-indigo-100 rounded-lg flex-shrink-0">
+            <Coins className="size-4 sm:size-5 text-indigo-600" />
           </div>
-          <div>
-            <p className="text-sm text-gray-600">{t('coins.yourCoins')}</p>
-            <p className="text-2xl font-bold text-indigo-600">
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm text-gray-600">{t('coins.yourCoins')}</p>
+            <p className="text-xl sm:text-2xl font-bold text-indigo-600">
               {user ? (coins !== null ? coins : '0') : '—'}
             </p>
           </div>
         </div>
         <Button
           onClick={handleBuyCoins}
-          className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold shadow-lg hover:shadow-xl transition-all border-2 border-indigo-800"
+          className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold shadow-lg hover:shadow-xl transition-all border-2 border-indigo-800 flex-shrink-0"
           size="lg"
           disabled={false}
           style={{
@@ -71,13 +71,14 @@ export function CoinShop() {
             borderColor: '#4338CA',
             color: '#FFFFFF',
             fontWeight: '700',
-            fontSize: '16px',
-            minHeight: '48px',
-            padding: '12px 24px'
+            fontSize: 'clamp(12px, 2.5vw, 16px)',
+            minHeight: '44px',
+            padding: '10px 16px',
+            whiteSpace: 'nowrap'
           }}
         >
-          <ShoppingCart className="size-5 mr-2" style={{ color: '#FFFFFF' }} />
-          <span className="font-bold text-base" style={{ color: '#FFFFFF' }}>{t('coins.buy50Coins')}</span>
+          <ShoppingCart className="size-4 sm:size-5 mr-1 sm:mr-2 flex-shrink-0" style={{ color: '#FFFFFF' }} />
+          <span className="font-bold text-sm sm:text-base" style={{ color: '#FFFFFF' }}>{t('coins.buy50Coins')}</span>
         </Button>
       </div>
     </Card>

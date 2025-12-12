@@ -47,6 +47,25 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     };
   }, []);
 
+  // Prevent accidental page refresh when viewing scanned QR codes
+  useEffect(() => {
+    if (!qrDrop) return; // Only activate when QR drop is loaded
+    
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Show browser's default confirmation dialog
+      e.preventDefault();
+      // Modern browsers ignore custom messages, but we can still trigger the dialog
+      e.returnValue = '';
+      return '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [qrDrop]);
+
   useEffect(() => {
     const loadQrDrop = async () => {
       try {
@@ -547,7 +566,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         }
         
         // Download all files (or single file if fileIndex specified)
-        for (const file of filesToDownload) {
+        for (let i = 0; i < filesToDownload.length; i++) {
+          const file = filesToDownload[i];
+          
           // SECURITY: Download via fetch + blob URL to hide signed URL from browser
           const response = await fetch(file.fileUrl);
           if (!response.ok) {
@@ -582,6 +603,12 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           
           // Clean up object URL
           setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+          
+          // MOBILE FIX: Add delay between downloads to prevent mobile browser blocking
+          // Mobile browsers often block multiple rapid programmatic downloads
+          if (i < filesToDownload.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay between downloads
+          }
         }
         
         toast.success(filesToDownload.length > 1 
@@ -1111,15 +1138,15 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                     )}
 
                     {/* File Info */}
-                    <div className="flex items-center justify-between mt-2">
-                      <div>
-                        <p className="text-[#3F3F3F] text-sm font-medium">{file.fileName}</p>
+                    <div className="flex items-center justify-between gap-2 mt-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[#3F3F3F] text-sm font-medium truncate" title={file.fileName}>{file.fileName}</p>
                         <p className="text-[#5B5B5B] text-xs">{formatFileSize(file.fileSize)} • {file.fileType.split('/')[1]?.toUpperCase() || 'FILE'}</p>
                       </div>
                       {!qrDrop?.viewOnly && (
-                        <Button onClick={() => handleDownloadClick(file.fileIndex)} variant="outline" size="sm">
+                        <Button onClick={() => handleDownloadClick(file.fileIndex)} variant="outline" size="sm" className="flex-shrink-0">
                           <Download className="size-4 mr-1" />
-                          {t('scanView.download')}
+                          #download
                         </Button>
                       )}
                     </div>

@@ -209,8 +209,9 @@ function AppContent() {
   }, [currentView, t]);
 
   // Reload QR drops when user changes (login/logout)
+  // Don't reload if we're in detail view (might have just created a QR drop)
   useEffect(() => {
-    if (!authLoading && !scanId) {
+    if (!authLoading && !scanId && currentView !== 'detail') {
       loadQrDrops();
     }
   }, [user, authLoading, scanId]);
@@ -234,8 +235,18 @@ function AppContent() {
       setIsLoading(true);
       const { qrDrops: data } = await getAllQrDrops();
       
-      // If no QR drops, just set empty array (no error)
+      // Store current QR drops to preserve any newly created ones that might not be indexed yet
+      const currentQrDropIds = new Set(qrDrops.map(qr => qr.id));
+      
+      // If no QR drops from backend, check if we have any in state (might be newly created)
       if (!data || data.length === 0) {
+        // If we have QR drops in state, keep them (they might be newly created and not indexed yet)
+        if (qrDrops.length > 0) {
+          console.log('⚠️ Backend returned empty list, but we have QR drops in state. Keeping state.');
+          setIsLoading(false);
+          setIsLoadingQrDrops(false);
+          return;
+        }
         setQrDrops([]);
         setIsLoading(false);
         return;
@@ -306,15 +317,27 @@ function AppContent() {
         })
       );
       
-      setQrDrops(qrDropsWithQr);
+      // Merge with existing QR drops to preserve newly created ones that might not be indexed yet
+      const backendQrDropIds = new Set(qrDropsWithQr.map(qr => qr.id));
+      const newQrDropsFromState = qrDrops.filter(qr => !backendQrDropIds.has(qr.id));
+      
+      // Combine: new QR drops from state (not yet in backend) + QR drops from backend
+      // Sort by creation date (newest first)
+      const mergedQrDrops = [...newQrDropsFromState, ...qrDropsWithQr].sort((a, b) => 
+        b.createdAt.getTime() - a.createdAt.getTime()
+      );
+      
+      setQrDrops(mergedQrDrops);
     } catch (error: any) {
       console.error('Failed to load QR drops:', error);
       // Only show error toast if it's not a 401/403 (authentication errors are expected when not logged in)
       if (error?.status !== 401 && error?.status !== 403) {
         toast.error(t('app.couldNotLoadQrs'));
       }
-      // Set empty array on error to prevent UI issues
-      setQrDrops([]);
+      // Don't clear state on error if we have QR drops (they might be newly created)
+      if (qrDrops.length === 0) {
+        setQrDrops([]);
+      }
     } finally {
       setIsLoading(false);
       setIsLoadingQrDrops(false);
@@ -329,6 +352,17 @@ function AppContent() {
     
     // Scroll til toppen av siden
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Reload QR drops after a short delay to ensure backend has indexed the new QR drop
+    // This ensures the list stays in sync with the backend
+    setTimeout(async () => {
+      try {
+        await loadQrDrops();
+      } catch (error) {
+        console.error('Failed to reload QR drops after creation:', error);
+        // Don't show error toast - the QR drop is already in state
+      }
+    }, 1000); // 1 second delay to allow backend to index
   };
 
   const handleDelete = async (id: string) => {

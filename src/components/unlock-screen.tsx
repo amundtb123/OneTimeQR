@@ -117,10 +117,42 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
       const hash = url.hash;
       const hasK2 = hash && hash.includes('k2=');
       
+      // Extract k2 value if present (for split-key mode)
+      let k2Value: string | null = null;
+      if (hasK2) {
+        const k2Match = hash.match(/k2=([^&]+)/);
+        if (k2Match) {
+          k2Value = k2Match[1];
+          console.log('🔑 Extracted k2 from scanned QR:', k2Value.substring(0, 20) + '...');
+        }
+      }
+      
       // Check if this is QR #2 (legacy: key/unlock, or new: k2 fragment)
       if (key || unlock === '1' || hasK2) {
-        // Navigate to the scanned URL
-        window.location.href = data;
+        // For split-key mode (k2 in fragment), extract and store k2 BEFORE navigation
+        // This ensures we don't lose k2 on mobile browsers that might mishandle fragments
+        if (hasK2 && k2Value) {
+          // Extract fileId from path (e.g., /unlock/:id)
+          const pathMatch = url.pathname.match(/\/unlock\/([^/]+)/);
+          if (pathMatch) {
+            const fileId = pathMatch[1];
+            console.log('💾 Storing k2 in sessionStorage before navigation for:', fileId);
+            
+            // Store k2 temporarily so App.tsx can find it even if fragment is lost
+            // App.tsx will check for this and combine with k1
+            sessionStorage.setItem(`k2_temp_${fileId}`, k2Value);
+            sessionStorage.setItem(`k2_timestamp_${fileId}`, Date.now().toString());
+            
+            // Navigate to unlock route - App.tsx will handle combining k1 + k2
+            window.location.href = url.origin + url.pathname + url.hash;
+          } else {
+            console.error('❌ Could not extract fileId from unlock URL');
+            window.location.href = data;
+          }
+        } else {
+          // Legacy mode or no k2 - navigate normally
+          window.location.href = data;
+        }
       } else {
         alert(t('unlockScreen.invalidQr'));
         setShowScanner(false);

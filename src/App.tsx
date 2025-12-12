@@ -130,13 +130,18 @@ function AppContent() {
         // NEW: Check for split-key in URL fragment (k1 from QR #1)
         const k1 = extractK1FromUrl();
         
-        // NEW: Check if this is unlock route (/unlock/:id#k2=...)
+        // Check if this is unlock route (/unlock/:id) - either with k2 in fragment OR stored in sessionStorage
         const unlockMatch = window.location.pathname.match(/^\/unlock\/([^/]+)$/);
-        const k2 = extractK2FromUrl();
+        const k2FromUrl = extractK2FromUrl();
+        
+        // MOBILE FIX: Also check for k2 stored in sessionStorage (from QR scanner)
+        // This handles cases where mobile browsers lose the fragment during navigation
+        const unlockId = unlockMatch ? unlockMatch[1] : null;
+        const k2FromStorage = unlockId ? sessionStorage.getItem(`k2_temp_${unlockId}`) : null;
+        const k2 = k2FromUrl || k2FromStorage; // Prefer URL fragment, fallback to storage
         
         if (unlockMatch && k2) {
-          // This is QR #2 scanned - unlock route with k2 in fragment
-          const unlockId = unlockMatch[1];
+          // This is QR #2 scanned - unlock route with k2 (from fragment or storage)
           
           // SECURITY CHECK: Ensure QR #1 was scanned first (k1 must be stored)
           const storedK1 = sessionStorage.getItem(`k1_${unlockId}`);
@@ -145,6 +150,11 @@ function AppContent() {
             console.warn('⚠️ QR #2 scanned without QR #1 - showing error message');
             setShowQr2Error(true);
             toast.error(t('app.mustScanQr1First'));
+            // Clean up k2 if stored
+            if (k2FromStorage) {
+              sessionStorage.removeItem(`k2_temp_${unlockId}`);
+              sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
+            }
             return;
           }
           
@@ -158,6 +168,10 @@ function AppContent() {
               console.warn('⚠️ QR #1 scan expired (older than 5 minutes) - please scan QR #1 again');
               sessionStorage.removeItem(`k1_${unlockId}`);
               sessionStorage.removeItem(`qr1_timestamp_${unlockId}`);
+              if (k2FromStorage) {
+                sessionStorage.removeItem(`k2_temp_${unlockId}`);
+                sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
+              }
               setScanId(unlockId);
               setCurrentView('scan');
               toast.error(t('app.qr1ScanExpired'));
@@ -169,10 +183,11 @@ function AppContent() {
           try {
             console.log('🔑 Combining k1 and k2 for QR drop:', unlockId);
             console.log('🔑 k1 (from storage):', storedK1 ? storedK1.substring(0, 20) + '...' : 'MISSING');
-            console.log('🔑 k2 (from URL):', k2 ? k2.substring(0, 20) + '...' : 'MISSING');
+            console.log('🔑 k2 source:', k2FromUrl ? 'URL fragment' : k2FromStorage ? 'sessionStorage' : 'MISSING');
+            console.log('🔑 k2 value:', k2 ? k2.substring(0, 20) + '...' : 'MISSING');
             
             const { combineKeys } = await import('./utils/encryption');
-            const masterKey = combineKeys(storedK1, k2!);
+            const masterKey = combineKeys(storedK1, k2);
             const masterKeyHex = Array.from(masterKey)
               .map(b => b.toString(16).padStart(2, '0'))
               .join('');
@@ -181,6 +196,12 @@ function AppContent() {
             
             // Store master key and redirect to scan view
             sessionStorage.setItem(`master_${unlockId}`, masterKeyHex);
+            
+            // Clean up temporary k2 storage
+            if (k2FromStorage) {
+              sessionStorage.removeItem(`k2_temp_${unlockId}`);
+              sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
+            }
             
             // Verify it was stored
             const verifyMaster = sessionStorage.getItem(`master_${unlockId}`);
@@ -198,6 +219,11 @@ function AppContent() {
           } catch (error) {
             console.error('❌ Failed to combine split keys:', error);
             toast.error('Kunne ikke kombinere nøkler. Prøv på nytt.');
+            // Clean up on error
+            if (k2FromStorage) {
+              sessionStorage.removeItem(`k2_temp_${unlockId}`);
+              sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
+            }
           }
         } else if (k1) {
           // This is QR #1 scanned - store k1 and show scan view

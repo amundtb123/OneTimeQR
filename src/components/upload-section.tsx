@@ -511,11 +511,22 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       if (secureMode && splitKeys) {
         // QR #1: Access code with k1 in URL fragment
         const qr1Url = createQr1Url(window.location.origin, response.id, splitKeys.k1);
+        
+        // DEBUG: Verify URL format
+        console.log('🔍 [DEBUG] QR #1 URL before QR generation:', qr1Url);
+        console.log('🔍 [DEBUG] QR #1 URL contains #k1:', qr1Url.includes('#k1='));
+        console.log('🔍 [DEBUG] QR #1 URL contains @k1:', qr1Url.includes('@k1='));
+        
         const qr1Base = await generateStyledQrCode(qr1Url, qrStyle);
         const qr1Final = await createBrandedQrCode(qr1Base);
         
         // QR #2: Unlock code with k2 in URL fragment
         const qr2Url = createQr2Url(window.location.origin, response.id, splitKeys.k2);
+        
+        // DEBUG: Verify URL format
+        console.log('🔍 [DEBUG] QR #2 URL before QR generation:', qr2Url);
+        console.log('🔍 [DEBUG] QR #2 URL contains #k2:', qr2Url.includes('#k2='));
+        
         console.log('🔑 QR #1 URL (access):', qr1Url.replace(/#k1=.*/, '#k1=***'));
         console.log('🔑 QR #2 URL (unlock):', qr2Url.replace(/#k2=.*/, '#k2=***'));
         console.log('✅ Split-key encryption: Server never sees keys (zero-knowledge)');

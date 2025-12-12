@@ -105,14 +105,18 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   const handleQrScanned = (data: string) => {
     console.log('QR code scanned:', data);
     
-    // Parse URL to extract key or unlock parameter
+    // Parse URL to extract key, unlock parameter, or k2 fragment
     try {
       const url = new URL(data);
       const key = url.searchParams.get('key');
       const unlock = url.searchParams.get('unlock');
       
-      // Check if this is QR #2 (either with key or unlock flag)
-      if (key || unlock === '1') {
+      // NEW: Check for k2 in URL fragment (split-key QR #2)
+      const hash = url.hash;
+      const hasK2 = hash && hash.includes('k2=');
+      
+      // Check if this is QR #2 (legacy: key/unlock, or new: k2 fragment)
+      if (key || unlock === '1' || hasK2) {
         // Navigate to the scanned URL
         window.location.href = data;
       } else {

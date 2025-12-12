@@ -299,13 +299,17 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     loadQrDrop();
   }, [qrDropId, isPreview, isDirectScan, unlockKey]);
 
-  // Reload and decrypt files when unlockKey changes (after QR2 scan)
+  // Reload and decrypt files when unlockKey changes (after QR2 scan) or when password is unlocked
   useEffect(() => {
-    if (unlockKey && qrDrop && (qrDrop.encrypted || qrDrop.secureMode) && (qrDrop.filePath || (qrDrop.files && qrDrop.files.length > 0))) {
-      console.log('🔑 Unlock key received, reloading and decrypting files...');
-      loadFile();
+    if (isUnlocked && qrDrop && (qrDrop.encrypted || qrDrop.secureMode) && (qrDrop.filePath || (qrDrop.files && qrDrop.files.length > 0))) {
+      // Only reload if we have decryption key (unlockKey for secureMode, or encryptionKey for password-protected)
+      const hasDecryptionKey = (qrDrop.secureMode && unlockKey) || (qrDrop.encrypted && qrDrop.encryptionKey);
+      if (hasDecryptionKey && fileUrls.length === 0 && !fileUrl) {
+        console.log('🔑 Unlock key/password available, reloading and decrypting files...');
+        loadFile();
+      }
     }
-  }, [unlockKey]);
+  }, [unlockKey, isUnlocked]);
 
   const loadFile = async () => {
     try {

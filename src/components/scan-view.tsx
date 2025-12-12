@@ -309,6 +309,111 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     loadQrDrop();
   }, [qrDropId, isPreview, isDirectScan, unlockKey]);
 
+  const loadFile = async () => {
+    try {
+      const response = await getFileUrl(currentQrDropId);
+      
+      // Get decryption key if files are encrypted
+      let decryptionKey: string | null = null;
+      if (qrDrop?.encrypted || qrDrop?.secureMode) {
+        if (qrDrop?.secureMode && unlockKey) {
+          decryptionKey = unlockKey;
+        } else if (qrDrop?.encryptionKey) {
+          try {
+            const keyResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/key`);
+            if (keyResponse.ok) {
+              const keyData = await keyResponse.json();
+              decryptionKey = keyData.encryptionKey;
+            }
+          } catch (error) {
+            console.error('Failed to fetch decryption key:', error);
+          }
+        }
+      }
+      
+      // Support both single file (backwards compatibility) and multiple files
+      if (response.files && Array.isArray(response.files)) {
+        // Multiple files
+        console.log(`✅ Loaded ${response.files.length} file(s)`);
+        setFileUrls(response.files);
+        // Set first file URL for backwards compatibility
+        if (response.files.length > 0) {
+          setFileUrl(response.files[0].fileUrl);
+        }
+        
+        // CRITICAL: Decrypt files for preview if encrypted
+        if (decryptionKey && (qrDrop?.encrypted || qrDrop?.secureMode)) {
+          console.log('🔐 Decrypting files for preview...');
+          setIsDecrypting(true);
+          const decryptedUrls: Record<number, string> = {};
+          
+          for (const file of response.files) {
+            try {
+              const fileResponse = await fetch(file.fileUrl);
+              if (!fileResponse.ok) continue;
+              
+              const encryptedBlob = await fileResponse.blob();
+              const decryptedBlob = await decryptFile(encryptedBlob, decryptionKey!);
+              
+              // Preserve original file type for proper display
+              const originalType = file.fileType || 'application/octet-stream';
+              const typedBlob = new Blob([decryptedBlob], { type: originalType });
+              
+              // Create blob URL for preview
+              const blobUrl = URL.createObjectURL(typedBlob);
+              decryptedUrls[file.fileIndex] = blobUrl;
+              console.log(`✅ Decrypted file ${file.fileIndex} for preview:`, blobUrl, 'type:', originalType);
+            } catch (decryptError) {
+              console.error(`❌ Failed to decrypt file ${file.fileIndex}:`, decryptError);
+            }
+          }
+          
+          setDecryptedFileUrls(decryptedUrls);
+          setIsDecrypting(false);
+          console.log('✅ All files decrypted for preview');
+        }
+      } else if (response.fileUrl) {
+        // Single file (backwards compatibility)
+        setFileUrl(response.fileUrl);
+        setFileUrls([{
+          fileUrl: response.fileUrl,
+          fileName: response.fileName || qrDrop?.fileName || 'file',
+          fileType: response.fileType || qrDrop?.fileType || 'application/octet-stream',
+          fileSize: response.fileSize || qrDrop?.fileSize || 0,
+          fileIndex: 0
+        }]);
+        
+        // CRITICAL: Decrypt single file for preview if encrypted
+        if (decryptionKey && (qrDrop?.encrypted || qrDrop?.secureMode)) {
+          console.log('🔐 Decrypting single file for preview...');
+          setIsDecrypting(true);
+          try {
+            const fileResponse = await fetch(response.fileUrl);
+            if (fileResponse.ok) {
+              const encryptedBlob = await fileResponse.blob();
+              const decryptedBlob = await decryptFile(encryptedBlob, decryptionKey!);
+              
+              // Preserve original file type for proper display
+              const originalType = response.fileType || qrDrop?.fileType || 'application/octet-stream';
+              const typedBlob = new Blob([decryptedBlob], { type: originalType });
+              const blobUrl = URL.createObjectURL(typedBlob);
+              
+              setDecryptedFileUrls({ 0: blobUrl });
+              console.log('✅ Single file decrypted for preview:', blobUrl);
+            }
+          } catch (decryptError) {
+            console.error('❌ Failed to decrypt file:', decryptError);
+            toast.error('Kunne ikke dekryptere fil for visning');
+          }
+          setIsDecrypting(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading file(s):', error);
+      toast.error(t('scanView.couldNotLoad'));
+    }
+  };
+
   // Reload and decrypt files when unlockKey changes (after QR2 scan) or when password is unlocked
   useEffect(() => {
     if (!qrDrop) return;

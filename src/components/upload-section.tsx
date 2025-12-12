@@ -410,7 +410,17 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         urlContentCiphertext: encryptedUrlContent ? JSON.stringify(encryptedUrlContent) : undefined,
       } : undefined;
       
-      console.log('📋 Metadata prepared:', { ...metadata });
+      // Log metadata size for debugging
+      const metadataSize = JSON.stringify(metadata).length;
+      console.log(`📋 Metadata prepared, size: ${metadataSize} bytes`);
+      if (metadataSize > 10 * 1024) {
+        const keys = Object.keys(metadata);
+        const sizes = keys.map(key => ({
+          key,
+          size: JSON.stringify(metadata[key]).length
+        })).sort((a, b) => b.size - a.size);
+        console.warn('⚠️ Metadata is large. Top fields:', sizes.slice(0, 5));
+      }
 
       let response;
       

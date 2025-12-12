@@ -586,9 +586,22 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     // Remove ciphertext fields from size check (they're stored separately)
     if (metadataForSizeCheck.textContentCiphertext) delete metadataForSizeCheck.textContentCiphertext;
     if (metadataForSizeCheck.urlContentCiphertext) delete metadataForSizeCheck.urlContentCiphertext;
+    // Remove qrCodeDataUrl if present (should not be sent, but remove for safety)
+    if (metadataForSizeCheck.qrCodeDataUrl) delete metadataForSizeCheck.qrCodeDataUrl;
     
     const metadataString = JSON.stringify(metadataForSizeCheck);
-    if (metadataString.length > MAX_METADATA_SIZE) {
+    const metadataSize = metadataString.length;
+    
+    // Log metadata size for debugging
+    console.log(`📊 Metadata size check: ${metadataSize} bytes (max: ${MAX_METADATA_SIZE} bytes)`);
+    if (metadataSize > MAX_METADATA_SIZE) {
+      // Log what's taking up space
+      const keys = Object.keys(metadataForSizeCheck);
+      const sizes = keys.map(key => ({
+        key,
+        size: JSON.stringify(metadataForSizeCheck[key]).length
+      })).sort((a, b) => b.size - a.size);
+      console.error(`❌ Metadata too large. Top fields:`, sizes.slice(0, 5));
       return c.json({ error: 'Metadata too large. Maximum size is 10 KB.' }, 400);
     }
 

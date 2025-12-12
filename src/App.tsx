@@ -88,7 +88,7 @@ function AppContent() {
 
   // Check if we're on a scan, unlock, or success URL
   useEffect(() => {
-    const updateViewFromPath = () => {
+    const updateViewFromPath = async () => {
       const path = window.location.pathname;
       const scanMatch = path.match(/\/scan\/([^\/]+)/);
       const unlockMatch = path.match(/\/unlock\/([^\/]+)/);
@@ -156,7 +156,7 @@ function AppContent() {
           // Combine k1 and k2 to get master key
           try {
             const { combineKeys } = await import('./utils/encryption');
-            const masterKey = combineKeys(storedK1, k2);
+            const masterKey = combineKeys(storedK1, k2!);
             const masterKeyHex = Array.from(masterKey)
               .map(b => b.toString(16).padStart(2, '0'))
               .join('');
@@ -250,11 +250,11 @@ function AppContent() {
     };
     
     // Initial view update
-    updateViewFromPath();
+    updateViewFromPath().catch(console.error);
     
     // Listen for pathname changes (including browser back/forward)
     const handlePopState = () => {
-      updateViewFromPath();
+      updateViewFromPath().catch(console.error);
     };
     
     window.addEventListener('popstate', handlePopState);

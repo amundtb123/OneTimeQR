@@ -29,6 +29,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const [qrDrop, setQrDrop] = useState<any>(null);
   const [fileUrl, setFileUrl] = useState<string | null>(null); // Backwards compatibility - first file
   const [fileUrls, setFileUrls] = useState<Array<{fileUrl: string; fileName: string; fileType: string; fileSize: number; fileIndex: number}>>([]);
+  const [decryptedFileUrls, setDecryptedFileUrls] = useState<Record<number, string>>({}); // Store decrypted blob URLs for preview
   const [error, setError] = useState<string | null>(null);
   const [, setTick] = useState(0); // Force re-render every second for countdown
   const [isEncrypted, setIsEncrypted] = useState(false);
@@ -292,6 +293,24 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     try {
       const response = await getFileUrl(currentQrDropId);
       
+      // Get decryption key if files are encrypted
+      let decryptionKey: string | null = null;
+      if (qrDrop?.encrypted || qrDrop?.secureMode) {
+        if (qrDrop?.secureMode && unlockKey) {
+          decryptionKey = unlockKey;
+        } else if (qrDrop?.encryptionKey) {
+          try {
+            const keyResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/key`);
+            if (keyResponse.ok) {
+              const keyData = await keyResponse.json();
+              decryptionKey = keyData.encryptionKey;
+            }
+          } catch (error) {
+            console.error('Failed to fetch decryption key:', error);
+          }
+        }
+      }
+      
       // Support both single file (backwards compatibility) and multiple files
       if (response.files && Array.isArray(response.files)) {
         // Multiple files
@@ -300,6 +319,34 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         // Set first file URL for backwards compatibility
         if (response.files.length > 0) {
           setFileUrl(response.files[0].fileUrl);
+        }
+        
+        // CRITICAL: Decrypt files for preview if encrypted
+        if (decryptionKey && (qrDrop?.encrypted || qrDrop?.secureMode)) {
+          console.log('🔐 Decrypting files for preview...');
+          setIsDecrypting(true);
+          const decryptedUrls: Record<number, string> = {};
+          
+          for (const file of response.files) {
+            try {
+              const fileResponse = await fetch(file.fileUrl);
+              if (!fileResponse.ok) continue;
+              
+              const encryptedBlob = await fileResponse.blob();
+              const decryptedBlob = await decryptFile(encryptedBlob, decryptionKey!);
+              
+              // Create blob URL for preview
+              const blobUrl = URL.createObjectURL(decryptedBlob);
+              decryptedUrls[file.fileIndex] = blobUrl;
+              console.log(`✅ Decrypted file ${file.fileIndex} for preview`);
+            } catch (decryptError) {
+              console.error(`❌ Failed to decrypt file ${file.fileIndex}:`, decryptError);
+            }
+          }
+          
+          setDecryptedFileUrls(decryptedUrls);
+          setIsDecrypting(false);
+          console.log('✅ All files decrypted for preview');
         }
       } else if (response.fileUrl) {
         // Single file (backwards compatibility)
@@ -311,6 +358,25 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           fileSize: response.fileSize || qrDrop?.fileSize || 0,
           fileIndex: 0
         }]);
+        
+        // CRITICAL: Decrypt single file for preview if encrypted
+        if (decryptionKey && (qrDrop?.encrypted || qrDrop?.secureMode)) {
+          console.log('🔐 Decrypting file for preview...');
+          setIsDecrypting(true);
+          try {
+            const fileResponse = await fetch(response.fileUrl);
+            if (fileResponse.ok) {
+              const encryptedBlob = await fileResponse.blob();
+              const decryptedBlob = await decryptFile(encryptedBlob, decryptionKey!);
+              const blobUrl = URL.createObjectURL(decryptedBlob);
+              setDecryptedFileUrls({ 0: blobUrl });
+              console.log('✅ File decrypted for preview');
+            }
+          } catch (decryptError) {
+            console.error('❌ Failed to decrypt file:', decryptError);
+          }
+          setIsDecrypting(false);
+        }
       }
     } catch (error) {
       console.error('Error loading file(s):', error);
@@ -826,9 +892,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                 })().map((file, index) => (
                   <div key={index} className="border-4 rounded-2xl p-4" style={{ borderColor: '#D5C5BD' }}>
                     {/* Image Preview */}
-                    {file.fileType.startsWith('image/') && file.fileUrl && (
+                    {file.fileType.startsWith('image/') && (decryptedFileUrls[file.fileIndex] || file.fileUrl) && (
                       <img
-                        src={file.fileUrl}
+                        src={decryptedFileUrls[file.fileIndex] || file.fileUrl}
                         alt={file.fileName}
                         className="w-full h-auto rounded-xl mb-2"
                         style={{ 
@@ -846,14 +912,15 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                         }}
                       />
                     )}
-                    {file.fileType.startsWith('image/') && !file.fileUrl && (
+                    {file.fileType.startsWith('image/') && !decryptedFileUrls[file.fileIndex] && !file.fileUrl && (
                       <div className="w-full h-48 bg-gray-100 rounded-xl mb-2 flex items-center justify-center">
                         <Loader2 className="size-8 text-gray-400 animate-spin" />
+                        {isDecrypting && <span className="ml-2 text-sm text-gray-600">Dekrypterer...</span>}
                       </div>
                     )}
 
                     {/* Video Preview */}
-                    {file.fileType.startsWith('video/') && (
+                    {file.fileType.startsWith('video/') && (decryptedFileUrls[file.fileIndex] || file.fileUrl) && (
                       <div className="mb-2">
                         <video
                           controls
@@ -867,7 +934,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                             }
                           }}
                         >
-                          <source src={file.fileUrl} type={file.fileType} />
+                          <source src={decryptedFileUrls[file.fileIndex] || file.fileUrl} type={file.fileType} />
                           {t('scanView.browserNotSupported')}
                         </video>
                       </div>
@@ -898,7 +965,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                               }
                             }}
                           >
-                            <source src={file.fileUrl} type={file.fileType} />
+                            <source src={decryptedFileUrls[file.fileIndex] || file.fileUrl} type={file.fileType} />
                             {t('scanView.browserNotSupportedAudio')}
                           </audio>
                         </div>

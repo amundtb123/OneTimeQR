@@ -185,32 +185,38 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             console.log('💾 [UNLOCK SCREEN] k2 value length:', k2Value.length);
             
             // CRITICAL FIX: Store k2 with QR2's ID (fileId from scanned URL)
-            // Also store with QR1's ID (qrDropId) as fallback in case they should match
-            // But PRIMARY key should be QR2's ID from the scanned URL
+            // Use localStorage instead of sessionStorage so it works across windows/tabs
+            // This is safe because k2 alone is useless without k1
             if (qrDropId && qrDropId !== fileId) {
               console.warn('⚠️ [UNLOCK SCREEN] ID mismatch! QR1 ID (props):', qrDropId, 'vs QR2 ID (scanned):', fileId);
               console.log('💾 [UNLOCK SCREEN] Storing k2 with BOTH keys for safety');
               // Store with QR1's ID as fallback
-              sessionStorage.setItem(`k2_temp_${qrDropId}`, k2Value);
-              sessionStorage.setItem(`k2_timestamp_${qrDropId}`, Date.now().toString());
+              localStorage.setItem(`k2_temp_${qrDropId}`, k2Value);
+              localStorage.setItem(`k2_timestamp_${qrDropId}`, Date.now().toString());
             }
             
             // Store k2 with QR2's ID (PRIMARY - from scanned URL)
-            // This is the correct ID that should be used for combining with k1
+            // Use localStorage so it persists across windows/tabs
+            localStorage.setItem(`k2_temp_${fileId}`, k2Value);
+            localStorage.setItem(`k2_timestamp_${fileId}`, Date.now().toString());
+            
+            // Also store in sessionStorage as backup (for same-window flow)
             sessionStorage.setItem(`k2_temp_${fileId}`, k2Value);
             sessionStorage.setItem(`k2_timestamp_${fileId}`, Date.now().toString());
             
             // Verify it was stored
-            const verifyK2 = sessionStorage.getItem(`k2_temp_${fileId}`);
-            const verifyK2Alt = qrDropId ? sessionStorage.getItem(`k2_temp_${qrDropId}`) : null;
+            const verifyK2 = localStorage.getItem(`k2_temp_${fileId}`);
+            const verifyK2Alt = qrDropId ? localStorage.getItem(`k2_temp_${qrDropId}`) : null;
             console.log('💾 [UNLOCK SCREEN] k2 stored verification:', {
               withFileId: verifyK2 ? 'SUCCESS' : 'FAILED',
               withQrDropId: verifyK2Alt ? 'SUCCESS' : 'FAILED'
             });
             
-            // List all k2_temp keys in sessionStorage for debugging
-            const allK2Keys = Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_'));
-            console.log('💾 [UNLOCK SCREEN] All k2_temp keys in sessionStorage:', allK2Keys);
+            // List all k2_temp keys in both storages for debugging
+            const allK2KeysSession = Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_'));
+            const allK2KeysLocal = Object.keys(localStorage).filter(k => k.startsWith('k2_temp_'));
+            console.log('💾 [UNLOCK SCREEN] All k2_temp keys in sessionStorage:', allK2KeysSession);
+            console.log('💾 [UNLOCK SCREEN] All k2_temp keys in localStorage:', allK2KeysLocal);
             
             const targetUrl = url.origin + url.pathname + url.hash;
             console.log('🚀 [UNLOCK SCREEN] Navigating to:', targetUrl);
@@ -228,9 +234,13 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
               console.log('🚀 [UNLOCK SCREEN] Executing navigation to:', targetUrl);
               console.log('🚀 [UNLOCK SCREEN] Current location before navigation:', window.location.href);
               
-              // Verify k2 is still in sessionStorage before navigating
-              const verifyK2BeforeNav = sessionStorage.getItem(`k2_temp_${fileId}`);
-              console.log('🔍 [UNLOCK SCREEN] k2 verification before navigation:', verifyK2BeforeNav ? 'FOUND' : 'MISSING');
+              // Verify k2 is still in storage before navigating (check both localStorage and sessionStorage)
+              const verifyK2BeforeNavLocal = localStorage.getItem(`k2_temp_${fileId}`);
+              const verifyK2BeforeNavSession = sessionStorage.getItem(`k2_temp_${fileId}`);
+              console.log('🔍 [UNLOCK SCREEN] k2 verification before navigation:', {
+                localStorage: verifyK2BeforeNavLocal ? 'FOUND' : 'MISSING',
+                sessionStorage: verifyK2BeforeNavSession ? 'FOUND' : 'MISSING'
+              });
               
               window.location.href = targetUrl;
               console.log('✅ [UNLOCK SCREEN] Navigation command executed');
@@ -240,6 +250,8 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             // Fallback: try using qrDropId from props
             if (qrDropId && k2Value) {
               console.log('💾 [UNLOCK SCREEN] Fallback: storing k2 with qrDropId from props:', qrDropId);
+              localStorage.setItem(`k2_temp_${qrDropId}`, k2Value);
+              localStorage.setItem(`k2_timestamp_${qrDropId}`, Date.now().toString());
               sessionStorage.setItem(`k2_temp_${qrDropId}`, k2Value);
               sessionStorage.setItem(`k2_timestamp_${qrDropId}`, Date.now().toString());
             }

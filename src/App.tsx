@@ -182,7 +182,11 @@ function AppContent() {
           console.log('✅ [APP] k2 found:', !!k2);
           
           // SECURITY CHECK: Ensure QR #1 was scanned first (k1 must be stored)
-          // Try both unlockId and id (scanId) for k1 lookup
+          // CRITICAL: QR1 and QR2 might have different IDs, so we need to find k1
+          // Try multiple strategies:
+          // 1. k1 with unlockId (QR2's ID)
+          // 2. k1 with scanId (if we're on /scan/:id)
+          // 3. Find ANY k1_* key and use it (if QR1 and QR2 have different IDs)
           let storedK1 = sessionStorage.getItem(`k1_${unlockId}`);
           if (!storedK1 && id) {
             storedK1 = sessionStorage.getItem(`k1_${id}`);
@@ -191,10 +195,23 @@ function AppContent() {
             }
           }
           
+          // If still not found, search for ANY k1_* key (handles case where QR1 and QR2 have different IDs)
+          if (!storedK1) {
+            console.log('🔍 [APP] k1 not found with unlockId or scanId, searching for ANY k1_* key...');
+            const allK1Keys = Object.keys(sessionStorage).filter(k => k.startsWith('k1_'));
+            if (allK1Keys.length > 0) {
+              // Use the first k1 we find (assuming there's only one active QR1 scan)
+              const firstK1Key = allK1Keys[0];
+              storedK1 = sessionStorage.getItem(firstK1Key);
+              console.log('🔍 [APP] Found k1 using key:', firstK1Key);
+            }
+          }
+          
           console.log('🔍 [APP] k1 lookup:', {
             withUnlockId: !!sessionStorage.getItem(`k1_${unlockId}`),
             withScanId: id ? !!sessionStorage.getItem(`k1_${id}`) : false,
-            finalK1: !!storedK1
+            finalK1: !!storedK1,
+            allK1Keys: Object.keys(sessionStorage).filter(k => k.startsWith('k1_'))
           });
           
           if (!storedK1) {

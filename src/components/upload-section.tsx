@@ -324,8 +324,12 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       let encryptedTextContent: string | undefined;
       let encryptedUrlContent: string | undefined;
       
+      // CRITICAL SECURITY: Generate encryption key for ALL files (not just secureMode)
+      // This ensures files are never stored unencrypted in Supabase Storage
+      const encryptionKeyForFiles = await generateEncryptionKey();
+      
       if (secureMode) {
-        encryptionKey = await generateEncryptionKey();
+        encryptionKey = encryptionKeyForFiles; // Use same key for secureMode
         
         // Encrypt text content if exists
         if (textContent.trim()) {
@@ -348,6 +352,13 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       const qrCodeDataUrl = await generateStyledQrCode(qrUrl, qrStyle);
       const brandedQrCode = await createBrandedQrCode(qrCodeDataUrl);
       
+      // Store original file types in metadata (before encryption)
+      // Files will be encrypted and uploaded as application/octet-stream, but we need original types
+      const originalFileTypes: Record<string, string> = {};
+      files.forEach((file, index) => {
+        originalFileTypes[index === 0 ? 'file' : `file${index}`] = file.type;
+      });
+      
       const metadata = {
         title: title.trim() || undefined,
         contentType: 'bundle' as const, // New type for mixed content
@@ -363,8 +374,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         qrStyle, // Store QR styling preferences
         qrCodeDataUrl: brandedQrCode, // Already generated
         secureMode, // Flag to indicate Secure Mode
-        encrypted: secureMode, // Flag for backend to know data is encrypted
-        encryptionKey: secureMode ? encryptionKey : undefined, // Store encryption key on server
+        encrypted: true, // ALL files are now encrypted
+        encryptionKey: encryptionKeyForFiles, // Store encryption key on server for all files
+        originalFileTypes, // Store original file types for proper decryption
       };
       
       console.log('📋 Metadata prepared:', { ...metadata, qrCodeDataUrl: metadata.qrCodeDataUrl?.substring(0, 50) + '...' });
@@ -375,32 +387,24 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       
       // If we have files, use upload endpoint
       if (files.length > 0) {
-        // CRITICAL SECURITY: Encrypt files before upload if password or secureMode is enabled
-        let filesToUpload = files;
-        if (secureMode || usePassword) {
-          console.log('🔐 Encrypting files before upload...');
-          const encryptionKeyForFiles = secureMode ? encryptionKey! : await generateEncryptionKey();
-          
-          // Encrypt each file
-          filesToUpload = await Promise.all(
-            files.map(async (file) => {
-              const encryptedBlob = await encryptFile(file, encryptionKeyForFiles);
-              // Create new File object with encrypted data, preserving original name
-              return new File([encryptedBlob], file.name, { type: 'application/octet-stream' });
-            })
-          );
-          
-          // Store encryption key in metadata if not already set (for password-only mode)
-          if (!secureMode && usePassword) {
-            metadata.encryptionKey = encryptionKeyForFiles;
-            metadata.encrypted = true;
-          }
-          
-          console.log(`✅ Encrypted ${filesToUpload.length} file(s) before upload`);
-        }
+        // CRITICAL SECURITY: Encrypt ALL files before upload (not just secureMode/password)
+        // This ensures files are never stored unencrypted in Supabase Storage
+        console.log('🔐 Encrypting ALL files before upload for security...');
         
-        // Upload all files (encrypted if needed)
-        console.log(`📁 Uploading ${filesToUpload.length} file(s):`, files.map(f => f.name).join(', '));
+        // Encrypt each file (encryptionKeyForFiles is already defined above)
+        const filesToUpload = await Promise.all(
+          files.map(async (file) => {
+            const encryptedBlob = await encryptFile(file, encryptionKeyForFiles);
+            // Create new File object with encrypted data, preserving original name
+            // Store original file type in metadata for later decryption
+            return new File([encryptedBlob], file.name, { type: 'application/octet-stream' });
+          })
+        );
+        
+        console.log(`✅ Encrypted ${filesToUpload.length} file(s) before upload`);
+        
+        // Upload all files (now encrypted)
+        console.log(`📁 Uploading ${filesToUpload.length} encrypted file(s):`, files.map(f => f.name).join(', '));
         response = await uploadFile(filesToUpload, metadata);
         console.log('✅ Upload response:', response);
       } else {

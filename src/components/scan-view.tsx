@@ -333,19 +333,24 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       const response = await getFileUrl(currentQrDropId);
       
       // Get decryption key if files are encrypted
+      // ALL files are now encrypted, so we always need to decrypt
       let decryptionKey: string | null = null;
       if (qrDrop?.encrypted || qrDrop?.secureMode) {
         if (qrDrop?.secureMode && unlockKey) {
+          // Secure Mode: use unlock key from QR #2
           decryptionKey = unlockKey;
-        } else if (qrDrop?.encryptionKey) {
+        } else {
+          // Standard encrypted files: fetch key from server
           try {
             const keyResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/key`);
             if (keyResponse.ok) {
               const keyData = await keyResponse.json();
               decryptionKey = keyData.encryptionKey;
+            } else {
+              console.error('Failed to fetch decryption key for preview:', keyResponse.status);
             }
           } catch (error) {
-            console.error('Failed to fetch decryption key:', error);
+            console.error('Failed to fetch decryption key for preview:', error);
           }
         }
       }
@@ -547,22 +552,32 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         await incrementDownloadCount(currentQrDropId);
         
         // Get decryption key if file is encrypted
+        // ALL files are now encrypted, so we always need to decrypt
         let decryptionKey: string | null = null;
         if (qrDrop?.encrypted || qrDrop?.secureMode) {
           if (qrDrop?.secureMode && unlockKey) {
+            // Secure Mode: use unlock key from QR #2
             decryptionKey = unlockKey;
-          } else if (qrDrop?.encryptionKey) {
-            // For password-protected files, encryption key is stored on server
+          } else {
+            // Standard encrypted files: fetch key from server
             try {
               const keyResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/key`);
               if (keyResponse.ok) {
                 const keyData = await keyResponse.json();
                 decryptionKey = keyData.encryptionKey;
+              } else {
+                console.error('Failed to fetch decryption key:', keyResponse.status);
               }
             } catch (error) {
               console.error('Failed to fetch decryption key:', error);
             }
           }
+        }
+        
+        // If file is encrypted but no key available, show error
+        if ((qrDrop?.encrypted || qrDrop?.secureMode) && !decryptionKey) {
+          toast.error('Cannot decrypt file. Encryption key not available.');
+          return;
         }
         
         // Download all files (or single file if fileIndex specified)
@@ -576,7 +591,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           }
           let blob = await response.blob();
           
-          // CRITICAL SECURITY: Decrypt file if encrypted
+          // CRITICAL SECURITY: Decrypt file if encrypted (all files are now encrypted)
           if (decryptionKey && (qrDrop?.encrypted || qrDrop?.secureMode)) {
             try {
               console.log('🔐 Decrypting file before download...');

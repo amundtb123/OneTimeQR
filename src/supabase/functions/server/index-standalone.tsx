@@ -400,13 +400,17 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const filePath = `${id}/${timestamp}-${i}-${file.name}`;
+      
+      // Get original file type from metadata if available (files are encrypted, so file.type is application/octet-stream)
+      const fileKey = i === 0 ? 'file' : `file${i}`;
+      const originalFileType = metadata.originalFileTypes?.[fileKey] || file.type;
 
       try {
         const fileBuffer = await file.arrayBuffer();
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from(BUCKET_NAME)
           .upload(filePath, fileBuffer, {
-            contentType: file.type,
+            contentType: 'application/octet-stream', // Always store as octet-stream since files are encrypted
             upsert: false,
           });
 
@@ -416,10 +420,11 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
           continue;
         }
 
+        // Store original file type in metadata (before encryption) for proper decryption and display
         uploadedFiles.push({
           name: file.name,
-          type: file.type,
-          size: file.size,
+          type: originalFileType, // Original type (before encryption) - important for decryption
+          size: file.size, // Encrypted size (may differ from original, but we store what we have)
           path: filePath
         });
         totalSize += file.size;
@@ -577,6 +582,9 @@ app.post('/make-server-c3c9181e/create', async (c) => {
 
     await kv.set(`qrdrop:${id}`, qrDropData);
     await kv.set(`qrdrop:index:${id}`, { id, createdAt: timestamp, userId });
+
+    console.log(`✅ QR drop created, id: ${id}, userId: ${userId || 'null'}`);
+    console.log(`📝 Stored qrDropData.userId: ${qrDropData.userId || 'null'}`);
 
     return c.json({ 
       success: true, 
@@ -1035,6 +1043,12 @@ app.get('/make-server-c3c9181e/qrdrops', async (c) => {
     const ids = indexes.map((idx: any) => idx.id);
     console.log(`📦 Found ${ids.length} QR drop indexes`);
     
+    // Log sample index userIds for debugging
+    if (indexes.length > 0) {
+      const sampleIndexUserIds = indexes.slice(0, 5).map((idx: any) => idx.userId);
+      console.log(`📋 Sample userIds from indexes:`, sampleIndexUserIds);
+    }
+    
     const qrDrops = await kv.mget(ids.map((id: string) => `qrdrop:${id}`));
     
     let validQrDrops = qrDrops.filter((qr: any) => qr !== null);
@@ -1046,13 +1060,22 @@ app.get('/make-server-c3c9181e/qrdrops', async (c) => {
     }
     
     const beforeFilter = validQrDrops.length;
+    
+    // Log sample userIds from QR drops before filtering
+    if (validQrDrops.length > 0) {
+      const sampleQrDropUserIds = validQrDrops.slice(0, 5).map((qr: any) => qr.userId);
+      console.log(`📋 Sample userIds from QR drops:`, sampleQrDropUserIds);
+    }
+    
     validQrDrops = validQrDrops.filter((qr: any) => qr.userId === userId);
     console.log(`🔍 Filtered to ${validQrDrops.length} QR drops for user ${userId} (from ${beforeFilter} total)`);
     
-    // Log sample userIds for debugging
+    // Log sample userIds for debugging if no matches
     if (beforeFilter > 0 && validQrDrops.length === 0) {
-      const sampleUserIds = validQrDrops.slice(0, 3).map((qr: any) => qr.userId);
-      console.log('⚠️ No matches - sample userIds in QR drops:', sampleUserIds);
+      const sampleUserIds = validQrDrops.slice(0, 5).map((qr: any) => qr?.userId || 'null');
+      const allUserIds = qrDrops.filter((qr: any) => qr !== null).slice(0, 5).map((qr: any) => qr?.userId || 'null');
+      console.log('⚠️ No matches - sample userIds in QR drops:', allUserIds);
+      console.log(`⚠️ Looking for userId: ${userId}`);
     }
     
     validQrDrops = validQrDrops.sort((a: any, b: any) => b.createdAt - a.createdAt);

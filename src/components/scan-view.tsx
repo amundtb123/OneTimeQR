@@ -197,15 +197,16 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // If no password is required, automatically unlock and load file
           if (!newResponse.qrDrop.password) {
             setIsUnlocked(true);
-            // Load file URL(s) if there is actually a file (not just text/URL)
-            // Always load if Secure Mode (will decrypt), or if not already loaded
-            if ((newResponse.qrDrop.contentType === 'file' || newResponse.qrDrop.contentType === 'bundle') && (newResponse.qrDrop.filePath || (newResponse.qrDrop.files && newResponse.qrDrop.files.length > 0))) {
-              const needsLoad = fileUrls.length === 0 && !fileUrl;
-              const needsDecrypt = newResponse.qrDrop.secureMode && unlockKey;
-              if (needsLoad || needsDecrypt) {
-                await loadFile();
-              }
+          // Load file URL(s) if there is actually a file (not just text/URL)
+          // Always load files (they need to be decrypted since ALL files are encrypted)
+          if ((newResponse.qrDrop.contentType === 'file' || newResponse.qrDrop.contentType === 'bundle') && (newResponse.qrDrop.filePath || (newResponse.qrDrop.files && newResponse.qrDrop.files.length > 0))) {
+            const needsLoad = fileUrls.length === 0 && !fileUrl;
+            // For secureMode, we need unlockKey. For standard encrypted files, we always need to load/decrypt
+            const needsDecrypt = newResponse.qrDrop.secureMode ? (newResponse.qrDrop.secureMode && unlockKey) : true;
+            if (needsLoad || needsDecrypt) {
+              await loadFile();
             }
+          }
             
             // Only increment scan count AFTER file is loaded (important for "scan once" type)
             if (!isPreview) {
@@ -293,10 +294,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         if (!response.qrDrop.password) {
           setIsUnlocked(true);
           // Load file URL(s) if there is actually a file (not just text/URL)
-          // Always load if Secure Mode (will decrypt), or if not already loaded
+          // Always load files (they need to be decrypted since ALL files are encrypted)
           if ((response.qrDrop.contentType === 'file' || response.qrDrop.contentType === 'bundle') && (response.qrDrop.filePath || (response.qrDrop.files && response.qrDrop.files.length > 0))) {
             const needsLoad = fileUrls.length === 0 && !fileUrl;
-            const needsDecrypt = response.qrDrop.secureMode && unlockKey;
+            // For secureMode, we need unlockKey. For standard encrypted files, we always need to load/decrypt
+            const needsDecrypt = response.qrDrop.secureMode ? (response.qrDrop.secureMode && unlockKey) : true;
             if (needsLoad || needsDecrypt) {
               await loadFile();
             }
@@ -342,13 +344,15 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         if (unlockKey) {
           decryptionKey = unlockKey;
         }
-      } else if (qrDrop?.encrypted) {
-        // Standard encrypted files: fetch key from server
+      } else {
+        // Standard encrypted files (ALL files are encrypted): fetch key from server
+        // Always try to fetch key for non-secureMode files since they're all encrypted
         try {
           const keyResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/key`);
           if (keyResponse.ok) {
             const keyData = await keyResponse.json();
             decryptionKey = keyData.encryptionKey;
+            console.log('✅ Fetched decryption key from server for standard encrypted file');
           } else {
             console.error('Failed to fetch decryption key for preview:', keyResponse.status);
           }
@@ -367,8 +371,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           setFileUrl(response.files[0].fileUrl);
         }
         
-        // CRITICAL: Decrypt files for preview if encrypted (Secure Mode or standard encryption)
-        if (decryptionKey && (qrDrop?.secureMode || qrDrop?.encrypted)) {
+        // CRITICAL: Decrypt files for preview if we have a decryption key
+        // ALL files are encrypted, so we always need to decrypt if we have the key
+        if (decryptionKey) {
           console.log('🔐 Decrypting files for preview...');
           setIsDecrypting(true);
           const decryptedUrls: Record<number, string> = {};
@@ -436,8 +441,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           fileIndex: 0
         }]);
         
-        // CRITICAL: Decrypt single file for preview if encrypted (Secure Mode or standard encryption)
-        if (decryptionKey && (qrDrop?.secureMode || qrDrop?.encrypted)) {
+        // CRITICAL: Decrypt single file for preview if we have a decryption key
+        // ALL files are encrypted, so we always need to decrypt if we have the key
+        if (decryptionKey) {
           console.log('🔐 Decrypting single file for preview...');
           setIsDecrypting(true);
           try {
@@ -562,13 +568,15 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           if (unlockKey) {
             decryptionKey = unlockKey;
           }
-        } else if (qrDrop?.encrypted) {
-          // Standard encrypted files: fetch key from server
+        } else {
+          // Standard encrypted files (ALL files are encrypted): fetch key from server
+          // Always try to fetch key for non-secureMode files since they're all encrypted
           try {
             const keyResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/key`);
             if (keyResponse.ok) {
               const keyData = await keyResponse.json();
               decryptionKey = keyData.encryptionKey;
+              console.log('✅ Fetched decryption key from server for download');
             } else {
               console.error('Failed to fetch decryption key:', keyResponse.status);
             }
@@ -578,7 +586,12 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         }
         
         // If file is encrypted but no key available, show error
-        if ((qrDrop?.secureMode || qrDrop?.encrypted) && !decryptionKey) {
+        // For secureMode, we need unlockKey. For standard encrypted files, we need key from server
+        if (qrDrop?.secureMode && !decryptionKey) {
+          toast.error('Cannot decrypt file. Encryption key not available.');
+          return;
+        } else if (!qrDrop?.secureMode && !decryptionKey) {
+          // For standard encrypted files, if we couldn't fetch the key, show error
           toast.error('Cannot decrypt file. Encryption key not available.');
           return;
         }
@@ -594,8 +607,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           }
           let blob = await response.blob();
           
-          // CRITICAL SECURITY: Decrypt file if encrypted (all files are now encrypted)
-          if (decryptionKey && (qrDrop?.secureMode || qrDrop?.encrypted)) {
+          // CRITICAL SECURITY: Decrypt file if we have a decryption key
+          // ALL files are encrypted, so we always need to decrypt if we have the key
+          if (decryptionKey) {
             try {
               console.log('🔐 Decrypting file before download...');
               blob = await decryptFile(blob, decryptionKey);

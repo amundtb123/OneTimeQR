@@ -830,12 +830,14 @@ app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    // Only return encryption key if it exists (Secure Mode)
+    // Return encryption key if it exists
+    // ALL files are now encrypted, so encryptionKey should exist for all files
     if (!qrDrop.encryptionKey) {
-      return c.json({ error: 'This QR drop is not in Secure Mode' }, 400);
+      console.warn(`⚠️ No encryption key found for QR drop ${id} - this should not happen for encrypted files`);
+      return c.json({ error: 'Encryption key not found' }, 404);
     }
 
-    console.log(`Returning encryption key for QR drop ${id}`);
+    console.log(`Returning encryption key for QR drop ${id} (secureMode: ${qrDrop.secureMode || false})`);
     
     return c.json({ encryptionKey: qrDrop.encryptionKey });
   } catch (error) {

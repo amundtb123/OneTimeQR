@@ -96,9 +96,24 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Continue processing with the new response
           setQrDrop(newResponse.qrDrop);
           
-          // OPTIMIZATION: Check if server already included fileUrl
-          if ((newResponse as any).fileUrl) {
+          // OPTIMIZATION: Check if server already included fileUrl or files
+          if ((newResponse as any).files && Array.isArray((newResponse as any).files)) {
+            // Multiple files in response
+            setFileUrls((newResponse as any).files);
+            if ((newResponse as any).files.length > 0) {
+              setFileUrl((newResponse as any).files[0].fileUrl);
+            }
+            console.log(`✅ ${(newResponse as any).files.length} file(s) received in response - skipping separate /file call`);
+          } else if ((newResponse as any).fileUrl) {
+            // Single file in response (backwards compatibility)
             setFileUrl((newResponse as any).fileUrl);
+            setFileUrls([{
+              fileUrl: (newResponse as any).fileUrl,
+              fileName: (newResponse as any).fileName || newResponse.qrDrop?.fileName || 'file',
+              fileType: (newResponse as any).fileType || newResponse.qrDrop?.fileType || 'application/octet-stream',
+              fileSize: (newResponse as any).fileSize || newResponse.qrDrop?.fileSize || 0,
+              fileIndex: 0
+            }]);
             console.log('✅ fileUrl received in response - skipping separate /file call');
           }
           
@@ -177,9 +192,24 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         
         setQrDrop(response.qrDrop);
         
-        // OPTIMIZATION: Check if server already included fileUrl
-        if ((response as any).fileUrl) {
+        // OPTIMIZATION: Check if server already included fileUrl or files
+        if ((response as any).files && Array.isArray((response as any).files)) {
+          // Multiple files in response
+          setFileUrls((response as any).files);
+          if ((response as any).files.length > 0) {
+            setFileUrl((response as any).files[0].fileUrl);
+          }
+          console.log(`✅ ${(response as any).files.length} file(s) received in response - skipping separate /file call`);
+        } else if ((response as any).fileUrl) {
+          // Single file in response (backwards compatibility)
           setFileUrl((response as any).fileUrl);
+          setFileUrls([{
+            fileUrl: (response as any).fileUrl,
+            fileName: (response as any).fileName || response.qrDrop?.fileName || 'file',
+            fileType: (response as any).fileType || response.qrDrop?.fileType || 'application/octet-stream',
+            fileSize: (response as any).fileSize || response.qrDrop?.fileSize || 0,
+            fileIndex: 0
+          }]);
           console.log('✅ fileUrl received in response - skipping separate /file call');
         }
         
@@ -347,7 +377,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
         }
         
-        toast.success(filesToDownload.length > 1 ? `${filesToDownload.length} ${t('scanView.filesDownloaded', { defaultValue: 'files downloaded' })}` : t('scanView.fileDownloaded'));
+        toast.success(filesToDownload.length > 1 
+          ? t('scanView.filesDownloaded', { count: filesToDownload.length, defaultValue: `${filesToDownload.length} files downloaded` })
+          : t('scanView.fileDownloaded'));
       } catch (error) {
         console.error('Error downloading file(s):', error);
         toast.error(t('scanView.couldNotDownload'));
@@ -555,7 +587,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           </div>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 pb-24"> {/* pb-24 for space for sticky download button */}
           {/* Success Message */}
           {!isDirectScan && (
             <Alert>
@@ -740,12 +772,29 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             )}
 
             {/* File Content - Show all files */}
-            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && (fileUrls.length > 0 || fileUrl) && !qrDrop?.noPreview && (
-              <div className="space-y-4 mb-4">
-                {(fileUrls.length > 0 ? fileUrls : (fileUrl ? [{fileUrl, fileName: qrDrop?.fileName || 'file', fileType: qrDrop?.fileType || 'application/octet-stream', fileSize: qrDrop?.fileSize || 0, fileIndex: 0}] : [])).map((file, index) => (
+            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && (fileUrls.length > 0 || fileUrl || (qrDrop?.files && qrDrop.files.length > 0)) && !qrDrop?.noPreview && (
+              <div className="space-y-4 mb-4 pb-20"> {/* pb-20 for space for sticky button */}
+                {(() => {
+                  // Use fileUrls if loaded, otherwise check qrDrop.files, otherwise fallback to single file
+                  if (fileUrls.length > 0) {
+                    return fileUrls;
+                  } else if (qrDrop?.files && Array.isArray(qrDrop.files) && qrDrop.files.length > 0) {
+                    // Files from backend but URLs not loaded yet - show placeholder
+                    return qrDrop.files.map((file: any, index: number) => ({
+                      fileUrl: '', // Will be loaded
+                      fileName: file.name || qrDrop?.fileName || 'file',
+                      fileType: file.type || qrDrop?.fileType || 'application/octet-stream',
+                      fileSize: file.size || qrDrop?.fileSize || 0,
+                      fileIndex: index
+                    }));
+                  } else if (fileUrl) {
+                    return [{fileUrl, fileName: qrDrop?.fileName || 'file', fileType: qrDrop?.fileType || 'application/octet-stream', fileSize: qrDrop?.fileSize || 0, fileIndex: 0}];
+                  }
+                  return [];
+                })().map((file, index) => (
                   <div key={index} className="border-4 rounded-2xl p-4" style={{ borderColor: '#D5C5BD' }}>
                     {/* Image Preview */}
-                    {file.fileType.startsWith('image/') && (
+                    {file.fileType.startsWith('image/') && file.fileUrl && (
                       <img
                         src={file.fileUrl}
                         alt={file.fileName}
@@ -764,6 +813,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                           }
                         }}
                       />
+                    )}
+                    {file.fileType.startsWith('image/') && !file.fileUrl && (
+                      <div className="w-full h-48 bg-gray-100 rounded-xl mb-2 flex items-center justify-center">
+                        <Loader2 className="size-8 text-gray-400 animate-spin" />
+                      </div>
                     )}
 
                     {/* Video Preview */}
@@ -847,58 +901,45 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               </Alert>
             )}
 
-            {/* Download All Button - Only for files or bundles with files */}
-            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.filePath && fileUrls.length > 1 && (
-              <>
-                {!qrDrop?.viewOnly ? (
-                  fileUrls.length > 0 ? (
-                    <Button onClick={() => handleDownloadClick()} className="w-full" size="lg">
-                      <Download className="size-5 mr-2" />
-                      {t('scanView.downloadAllFiles', { defaultValue: `Download all files (${fileUrls.length})` })}
-                    </Button>
-                  ) : (
-                    <Button disabled className="w-full" size="lg">
-                      <Loader2 className="size-5 mr-2 animate-spin" />
-                      {t('scanView.loadingFile')}
-                    </Button>
-                  )
-                ) : (
-                  <Alert>
-                    <Eye className="size-4" />
-                    <AlertDescription>
-                      {t('scanView.viewOnly')}
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </>
-            )}
-
-            {/* Single File Download Button (backwards compatibility) */}
-            {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && qrDrop?.filePath && fileUrls.length <= 1 && (
-              <>
-                {!qrDrop?.viewOnly ? (
-                  fileUrl ? (
-                    <Button onClick={() => handleDownloadClick()} className="w-full" size="lg">
-                      <Download className="size-5 mr-2" />
-                      {t('scanView.downloadFile')}
-                    </Button>
-                  ) : (
-                    <Button disabled className="w-full" size="lg">
-                      <Loader2 className="size-5 mr-2 animate-spin" />
-                      {t('scanView.loadingFile')}
-                    </Button>
-                  )
-                ) : (
-                  <Alert>
-                    <Eye className="size-4" />
-                    <AlertDescription>
-                      {t('scanView.viewOnly')}
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </>
-            )}
           </Card>
+
+          {/* Sticky Download Button - Fixed at bottom */}
+          {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && (qrDrop?.filePath || (qrDrop?.files && qrDrop.files.length > 0)) && (
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 shadow-lg z-50 max-w-3xl mx-auto">
+              {!qrDrop?.viewOnly ? (
+                (() => {
+                  const totalFiles = fileUrls.length > 0 ? fileUrls.length : (qrDrop?.files && Array.isArray(qrDrop.files) ? qrDrop.files.length : (qrDrop?.filePath ? 1 : 0));
+                  const hasFiles = fileUrls.length > 0 || fileUrl || (qrDrop?.files && qrDrop.files.length > 0);
+                  
+                  if (hasFiles) {
+                    return (
+                      <Button onClick={() => handleDownloadClick()} className="w-full" size="lg">
+                        <Download className="size-5 mr-2" />
+                        {totalFiles > 1 
+                          ? t('scanView.downloadFiles', { count: totalFiles, defaultValue: `Download files (${totalFiles})` })
+                          : t('scanView.downloadFile', { defaultValue: 'Download file' })
+                        }
+                      </Button>
+                    );
+                  } else {
+                    return (
+                      <Button disabled className="w-full" size="lg">
+                        <Loader2 className="size-5 mr-2 animate-spin" />
+                        {t('scanView.loadingFile')}
+                      </Button>
+                    );
+                  }
+                })()
+              ) : (
+                <Alert>
+                  <Eye className="size-4" />
+                  <AlertDescription>
+                    {t('scanView.viewOnly')}
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
 
           {/* Statistics */}
           {!isDirectScan && (

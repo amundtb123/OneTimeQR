@@ -115,6 +115,18 @@ function AppContent() {
         const key = searchParams.get('key'); // Legacy: decryption key in query
         const unlock = searchParams.get('unlock'); // Legacy: unlock flag
         
+        // PRIORITY: Check if we have master key already stored (from QR #2 scan that redirected here)
+        // This must be checked FIRST, before checking for k1/k2 in URL
+        const storedMasterKey = sessionStorage.getItem(`master_${id}`);
+        if (storedMasterKey) {
+          // We already have the master key from QR #2 - use it directly
+          console.log('✅ Master key found in sessionStorage (priority check) - using for decryption');
+          setScanId(id);
+          setUnlockKey(storedMasterKey);
+          setCurrentView('scan');
+          return; // Don't continue to other checks
+        }
+        
         // NEW: Check for split-key in URL fragment (k1 from QR #1)
         const k1 = extractK1FromUrl();
         
@@ -251,25 +263,17 @@ function AppContent() {
             });
         } else {
           // Regular scan (not QR #2, no split-key)
-          // BUT: Check if we have master key already stored (from QR #2 scan that redirected here)
-          const storedMasterKey = sessionStorage.getItem(`master_${id}`);
+          // Check if we have k1 stored (waiting for QR #2)
           const storedK1 = sessionStorage.getItem(`k1_${id}`);
           
-          console.log(`🔍 Scan check for ${id}:`, {
-            hasMasterKey: !!storedMasterKey,
+          console.log(`🔍 Regular scan check for ${id}:`, {
             hasK1: !!storedK1,
             hasKeyParam: !!key,
             path: window.location.pathname,
             hash: window.location.hash
           });
           
-          if (storedMasterKey) {
-            // We already have the master key from QR #2 - use it directly
-            console.log('✅ Master key found in sessionStorage - using for decryption');
-            setScanId(id);
-            setUnlockKey(storedMasterKey);
-            setCurrentView('scan');
-          } else if (storedK1) {
+          if (storedK1) {
             // We have k1 but not master key - waiting for QR #2
             console.log('⏳ k1 found but no master key - waiting for QR #2');
             setScanId(id);

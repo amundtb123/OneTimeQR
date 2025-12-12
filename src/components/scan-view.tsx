@@ -378,7 +378,20 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           if (!response.ok) {
             throw new Error(`Failed to fetch file: ${response.status}`);
           }
-          const blob = await response.blob();
+          let blob = await response.blob();
+          
+          // CRITICAL SECURITY: Decrypt file if encrypted
+          if (decryptionKey && (qrDrop?.encrypted || qrDrop?.secureMode)) {
+            try {
+              console.log('🔐 Decrypting file before download...');
+              blob = await decryptFile(blob, decryptionKey);
+              console.log('✅ File decrypted successfully');
+            } catch (decryptError) {
+              console.error('❌ Failed to decrypt file:', decryptError);
+              toast.error('Failed to decrypt file. Please ensure you have the correct decryption key.');
+              return;
+            }
+          }
           
           // Create blob URL (this hides the original signed URL)
           const blobType = file.fileType || 'application/octet-stream';

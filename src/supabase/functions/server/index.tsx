@@ -109,18 +109,37 @@ app.get('/make-server-c3c9181e/health', (c) => {
   return c.json({ status: 'ok', service: 'qrdrop' });
 });
 
-// Upload file and create QR drop
+// Upload files and create QR drop (supports multiple files)
 app.post('/make-server-c3c9181e/upload', async (c) => {
   try {
     const formData = await c.req.formData();
-    const file = formData.get('file') as File;
     const metadata = JSON.parse(formData.get('metadata') as string);
 
     console.log('Upload endpoint - received metadata:', JSON.stringify(metadata, null, 2));
 
-    if (!file) {
-      return c.json({ error: 'No file provided' }, 400);
+    // Get all files from formData (can be multiple)
+    const files: File[] = [];
+    let fileIndex = 0;
+    while (true) {
+      const file = formData.get(`file${fileIndex === 0 ? '' : fileIndex}`) as File;
+      if (!file) break;
+      files.push(file);
+      fileIndex++;
     }
+
+    // Also check for 'file' (backwards compatibility)
+    if (files.length === 0) {
+      const singleFile = formData.get('file') as File;
+      if (singleFile) {
+        files.push(singleFile);
+      }
+    }
+
+    if (files.length === 0) {
+      return c.json({ error: 'No files provided' }, 400);
+    }
+
+    console.log(`📁 Uploading ${files.length} file(s)`);
 
     // Get user ID from auth token (OPTIONAL - allows anonymous uploads)
     let userId: string | null = null;
@@ -142,20 +161,46 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     // Generate unique ID
     const id = crypto.randomUUID();
     const timestamp = Date.now();
-    const filePath = `${id}/${timestamp}-${file.name}`;
 
-    // Upload file to Supabase Storage
-    const fileBuffer = await file.arrayBuffer();
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from(BUCKET_NAME)
-      .upload(filePath, fileBuffer, {
-        contentType: file.type,
-        upsert: false,
-      });
+    // Upload all files to Supabase Storage
+    const uploadedFiles: Array<{name: string; type: string; size: number; path: string}> = [];
+    let totalSize = 0;
 
-    if (uploadError) {
-      console.error('Upload error:', uploadError);
-      return c.json({ error: `Failed to upload file: ${uploadError.message}` }, 500);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const filePath = `${id}/${timestamp}-${i}-${file.name}`;
+
+      try {
+        const fileBuffer = await file.arrayBuffer();
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from(BUCKET_NAME)
+          .upload(filePath, fileBuffer, {
+            contentType: file.type,
+            upsert: false,
+          });
+
+        if (uploadError) {
+          console.error(`Upload error for file ${i} (${file.name}):`, uploadError);
+          // Continue with other files, but log error
+          continue;
+        }
+
+        uploadedFiles.push({
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          path: filePath
+        });
+        totalSize += file.size;
+        console.log(`✅ Uploaded file ${i + 1}/${files.length}: ${file.name}`);
+      } catch (error) {
+        console.error(`Error uploading file ${i} (${file.name}):`, error);
+        // Continue with other files
+      }
+    }
+
+    if (uploadedFiles.length === 0) {
+      return c.json({ error: 'Failed to upload any files' }, 500);
     }
 
     // Calculate expiry timestamp
@@ -165,15 +210,21 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     }
 
     // Store metadata in KV
+    // For backwards compatibility, also store first file info in old fields
+    const firstFile = uploadedFiles[0];
     const qrDropData = {
       id,
-      userId, // Store user ID (null for anonymous uploads)
-      contentType: metadata.contentType || 'file' as const,
+      userId,
+      contentType: metadata.contentType || (uploadedFiles.length > 1 ? 'bundle' : 'file') as const,
       title: metadata.title || null,
-      fileName: file.name,
-      fileType: file.type,
-      fileSize: file.size,
-      filePath,
+      // Backwards compatibility fields (first file)
+      fileName: firstFile.name,
+      fileType: firstFile.type,
+      fileSize: totalSize,
+      filePath: firstFile.path,
+      // New fields for multiple files
+      files: uploadedFiles,
+      fileCount: uploadedFiles.length,
       textContent: metadata.textContent || null,
       urlContent: metadata.urlContent || null,
       expiryType: metadata.expiryType,
@@ -187,14 +238,16 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       password: metadata.password || null,
       qrStyle: metadata.qrStyle || null,
       qrCodeDataUrl: metadata.qrCodeDataUrl || null,
-      encrypted: metadata.encrypted || false, // Secure Mode flag
-      secureMode: metadata.secureMode || false, // Secure Mode flag
-      encryptionKey: metadata.encryptionKey || null, // Store encryption key for Secure Mode
+      encrypted: metadata.encrypted || false,
+      secureMode: metadata.secureMode || false,
+      encryptionKey: metadata.encryptionKey || null,
       createdAt: timestamp,
     };
 
     await kv.set(`qrdrop:${id}`, qrDropData);
     await kv.set(`qrdrop:index:${id}`, { id, createdAt: timestamp, userId });
+
+    console.log(`✅ QR drop created with ${uploadedFiles.length} file(s)`);
 
     return c.json({ 
       success: true, 
@@ -539,9 +592,10 @@ app.post('/make-server-c3c9181e/qr/:id/scan', async (c) => {
   }
 });
 
-// Get file URL (for file downloads)
+// Get file URL(s) (for file downloads) - supports multiple files
 app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
   const id = c.req.param('id');
+  const fileIndex = c.req.query('index'); // Optional: specific file index
   
   try {
     const qrDrop = await kv.get(`qrdrop:${id}`);
@@ -549,14 +603,15 @@ app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    // Check if this QR drop actually has a file
-    if (!qrDrop.filePath) {
-      return c.json({ error: 'This QR drop does not contain a file' }, 404);
+    // Support both single file (backwards compatibility) and multiple files
+    const files = qrDrop.files && Array.isArray(qrDrop.files) ? qrDrop.files : 
+                   (qrDrop.filePath ? [{ name: qrDrop.fileName, type: qrDrop.fileType, size: qrDrop.fileSize, path: qrDrop.filePath }] : []);
+
+    if (files.length === 0) {
+      return c.json({ error: 'This QR drop does not contain any files' }, 404);
     }
 
-    // Check if expired
     if (qrDrop.expiresAt && Date.now() > qrDrop.expiresAt) {
-      // Mark as expired
       await kv.set(`qrdrop:${id}`, { ...qrDrop, expiredAt: Date.now() });
       return c.json({ 
         error: 'This QR drop has expired',
@@ -564,9 +619,7 @@ app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
       }, 410);
     }
 
-    // Check if max downloads reached
     if (qrDrop.maxDownloads && qrDrop.downloadCount >= qrDrop.maxDownloads) {
-      // Mark as expired
       await kv.set(`qrdrop:${id}`, { ...qrDrop, expiredAt: Date.now() });
       return c.json({ 
         error: 'Maximum downloads reached',
@@ -574,25 +627,70 @@ app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
       }, 410);
     }
 
-    console.log('Getting file from path:', qrDrop.filePath);
+    // If specific index requested, return only that file
+    if (fileIndex !== undefined) {
+      const index = parseInt(fileIndex);
+      if (index >= 0 && index < files.length) {
+        const file = files[index];
+        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+          .from(BUCKET_NAME)
+          .createSignedUrl(file.path, 60 * 60);
 
-    // Get signed URL for file
-    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-      .from(BUCKET_NAME)
-      .createSignedUrl(qrDrop.filePath, 60 * 60); // 1 hour expiry
+        if (signedUrlError) {
+          console.error('Error getting signed URL:', signedUrlError);
+          return c.json({ error: 'Error getting file URL' }, 500);
+        }
 
-    if (signedUrlError) {
-      console.error('Error getting signed URL:', signedUrlError);
-      return c.json({ error: 'Error getting file URL' }, 500);
+        return c.json({ 
+          fileUrl: signedUrlData.signedUrl,
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          fileIndex: index,
+          totalFiles: files.length
+        });
+      } else {
+        return c.json({ error: 'Invalid file index' }, 400);
+      }
     }
 
+    // Return all files with signed URLs
+    const filesWithUrls = await Promise.all(files.map(async (file: any, index: number) => {
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+        .from(BUCKET_NAME)
+        .createSignedUrl(file.path, 60 * 60);
+
+      if (signedUrlError) {
+        console.error(`Error getting signed URL for file ${index}:`, signedUrlError);
+        return null;
+      }
+
+      return {
+        fileUrl: signedUrlData.signedUrl,
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+        fileIndex: index
+      };
+    }));
+
+    const validFiles = filesWithUrls.filter(f => f !== null);
+
+    if (validFiles.length === 0) {
+      return c.json({ error: 'Error getting file URLs' }, 500);
+    }
+
+    // For backwards compatibility, also include first file at root level
     return c.json({ 
-      fileUrl: signedUrlData.signedUrl,
-      fileName: qrDrop.fileName,
-      fileType: qrDrop.fileType
+      files: validFiles,
+      fileCount: validFiles.length,
+      // Backwards compatibility fields (first file)
+      fileUrl: validFiles[0].fileUrl,
+      fileName: validFiles[0].fileName,
+      fileType: validFiles[0].fileType
     });
   } catch (error) {
-    console.error('Error getting file:', error);
+    console.error('Error getting files:', error);
     return c.json({ error: 'Server error' }, 500);
   }
 });
@@ -676,18 +774,37 @@ async function deleteQrDrop(id: string) {
   const qrDrop = await kv.get(`qrdrop:${id}`);
   
   if (qrDrop) {
-    // Delete file from storage - only if filePath exists (for file uploads)
+    // Delete files from storage - support both single file and multiple files
+    const filesToDelete: string[] = [];
+    
+    // Add single file path (backwards compatibility)
     if (qrDrop.filePath) {
+      filesToDelete.push(qrDrop.filePath);
+    }
+    
+    // Add multiple files if they exist
+    if (qrDrop.files && Array.isArray(qrDrop.files)) {
+      qrDrop.files.forEach((file: any) => {
+        if (file.path && !filesToDelete.includes(file.path)) {
+          filesToDelete.push(file.path);
+        }
+      });
+    }
+    
+    // Delete all files
+    if (filesToDelete.length > 0) {
       try {
         const { error } = await supabase.storage
           .from(BUCKET_NAME)
-          .remove([qrDrop.filePath]);
-        
+          .remove(filesToDelete);
+
         if (error && error.message !== 'Object not found') {
-          console.error(`Error deleting file ${qrDrop.filePath}:`, error);
+          console.error(`Error deleting files:`, error);
+        } else {
+          console.log(`✅ Deleted ${filesToDelete.length} file(s)`);
         }
       } catch (error) {
-        console.error(`Error during file deletion for ${qrDrop.filePath}:`, error);
+        console.error(`Error during file deletion:`, error);
       }
     }
   }

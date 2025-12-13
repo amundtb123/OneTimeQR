@@ -202,7 +202,8 @@ function AppContent() {
             } else {
               console.warn('⚠️ [APP] Server says QR1 was not scanned');
               setShowQr2Error(true);
-              setCurrentView('upload'); // Ensure error screen is shown, not UnlockScreen
+              setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
+              setCurrentView('scan'); // Show scan view with error, not redirect to upload
               toast.error(t('app.mustScanQr1First'));
               // Clean up k2 if stored
               if (k2FromStorage) {
@@ -263,7 +264,8 @@ function AppContent() {
             console.warn('⚠️ [APP] Server verified QR1 was scanned, but k1 not found locally');
             console.warn('⚠️ [APP] This means QR1 was scanned on a different device - k1 is in QR1 URL fragment');
             setShowQr2Error(true);
-            setCurrentView('upload'); // Ensure error screen is shown, not UnlockScreen
+            setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
+            setCurrentView('scan'); // Show scan view with error, not redirect to upload
             toast.error('QR1 må scannes på samme enhet som QR2 (k1 er i QR1 URL)');
             // Clean up k2 if stored
             if (k2FromStorage) {
@@ -283,7 +285,8 @@ function AppContent() {
               scanId: id ? `k1_${id}` : 'N/A'
             });
             setShowQr2Error(true);
-            setCurrentView('upload'); // Ensure error screen is shown, not UnlockScreen
+            setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
+            setCurrentView('scan'); // Show scan view with error, not redirect to upload
             toast.error(t('app.mustScanQr1First'));
             // Clean up k2 if stored (both localStorage and sessionStorage)
             if (k2FromStorage) {

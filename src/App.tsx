@@ -110,6 +110,8 @@ function AppContent() {
         // This is QR #2 scanned - unlock route with k2 (from fragment or storage)
         const unlockId = unlockMatch[1];
         console.log('🔓 [APP] Detected /unlock/:id route, unlockId:', unlockId);
+        console.log('🔓 [APP] Current URL:', window.location.href);
+        console.log('🔓 [APP] Hash:', window.location.hash);
         
         const k2FromUrl = extractK2FromUrl();
         
@@ -228,17 +230,40 @@ function AppContent() {
           // 2. Find ANY k1_* key and use it (if QR1 and QR2 have different IDs)
           let storedK1 = localStorage.getItem(`k1_${unlockId}`) || sessionStorage.getItem(`k1_${unlockId}`);
           
+          // CRITICAL FIX: Also check if k1 is in the current URL hash (in case QR1 was just scanned)
+          // This handles the case where user scans QR1 and QR2 in quick succession
+          if (!storedK1) {
+            const k1FromCurrentUrl = extractK1FromUrl();
+            if (k1FromCurrentUrl) {
+              console.log('🔍 [APP] Found k1 in current URL hash - storing it now!');
+              // Store k1 immediately
+              localStorage.setItem(`k1_${unlockId}`, k1FromCurrentUrl);
+              sessionStorage.setItem(`k1_${unlockId}`, k1FromCurrentUrl);
+              localStorage.setItem(`qr1_timestamp_${unlockId}`, Date.now().toString());
+              sessionStorage.setItem(`qr1_timestamp_${unlockId}`, Date.now().toString());
+              storedK1 = k1FromCurrentUrl;
+              console.log('✅ [APP] k1 stored from URL hash');
+            }
+          }
+          
           // If still not found, search for ANY k1_* key (handles case where QR1 and QR2 have different IDs)
           if (!storedK1) {
-            console.log('🔍 [APP] k1 not found with unlockId or scanId, searching for ANY k1_* key...');
+            console.log('🔍 [APP] k1 not found with unlockId, searching for ANY k1_* key...');
             const allK1KeysLocal = Object.keys(localStorage).filter(k => k.startsWith('k1_'));
             const allK1KeysSession = Object.keys(sessionStorage).filter(k => k.startsWith('k1_'));
             const allK1Keys = [...allK1KeysLocal, ...allK1KeysSession];
+            console.log('🔍 [APP] All k1 keys found:', allK1Keys);
             if (allK1Keys.length > 0) {
               // Use the first k1 we find (assuming there's only one active QR1 scan)
               const firstK1Key = allK1Keys[0];
               storedK1 = localStorage.getItem(firstK1Key) || sessionStorage.getItem(firstK1Key);
               console.log('🔍 [APP] Found k1 using key:', firstK1Key);
+              // Also store it with unlockId for future use
+              if (storedK1) {
+                localStorage.setItem(`k1_${unlockId}`, storedK1);
+                sessionStorage.setItem(`k1_${unlockId}`, storedK1);
+                console.log('✅ [APP] k1 copied to unlockId key');
+              }
             }
           }
           

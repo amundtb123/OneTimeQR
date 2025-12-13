@@ -262,8 +262,16 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
                 sessionStorage: verifyK2BeforeNavSession ? 'FOUND' : 'MISSING'
               });
               
-              window.location.href = targetUrl;
-              console.log('✅ [UNLOCK SCREEN] Navigation command executed');
+              // CRITICAL: Use history.pushState instead of window.location.href to avoid full reload
+              // Full reload can clear sessionStorage and cause timing issues on mobile
+              // Since k2 is already in localStorage, we can safely use pushState
+              console.log('🚀 [UNLOCK SCREEN] Using history.pushState instead of window.location.href to preserve storage');
+              window.history.pushState({}, '', targetUrl);
+              
+              // Trigger popstate event to make App.tsx re-evaluate the route
+              window.dispatchEvent(new PopStateEvent('popstate'));
+              
+              console.log('✅ [UNLOCK SCREEN] Navigation command executed (pushState)');
             }, 100);
           } else {
             console.error('❌ [UNLOCK SCREEN] Could not extract fileId from unlock URL. Pathname:', url.pathname);

@@ -42,6 +42,25 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptedContent, setDecryptedContent] = useState<{text?: string; urls?: string[]}>({});
   const [currentQrDropId] = useState(qrDropId); // Store ID in state so it doesn't get lost
+  const [effectiveUnlockKey, setEffectiveUnlockKey] = useState<string | null>(unlockKey); // Use state to track unlockKey from prop or storage
+
+  // CRITICAL FIX: Check storage for unlockKey if prop is not set
+  // This handles the case where App.tsx has combined k1+k2 and stored masterKey in sessionStorage
+  // but the prop hasn't been passed yet (React batching/timing issue)
+  useEffect(() => {
+    if (!unlockKey && qrDropId) {
+      // Check sessionStorage for master key (App.tsx stores it as master_${id})
+      const storedMasterKey = sessionStorage.getItem(`master_${qrDropId}`);
+      if (storedMasterKey) {
+        console.log('🔑 [SCAN VIEW] Found master key in storage, using it:', storedMasterKey.substring(0, 20) + '...');
+        setEffectiveUnlockKey(storedMasterKey);
+      } else {
+        setEffectiveUnlockKey(null);
+      }
+    } else {
+      setEffectiveUnlockKey(unlockKey);
+    }
+  }, [unlockKey, qrDropId]);
 
   // Cleanup blob URLs on unmount
   useEffect(() => {
@@ -84,7 +103,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         
         // 🔐 SECURE MODE: If this is a direct scan without unlock key or unlock param,
         // this might be QR #1 - just show UnlockScreen without loading data
-        if (isDirectScan && !unlockKey && !unlockParam && !accessToken) {
+        // Use effectiveUnlockKey (from prop or storage) instead of just unlockKey prop
+        if (isDirectScan && !effectiveUnlockKey && !unlockParam && !accessToken) {
           // We need to check if this is a Secure Mode QR drop
           // Make a lightweight check without incrementing scan count
           const lightCheck = await fetch(`https://${(await import('../utils/supabase/info')).projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/check`, {
@@ -116,8 +136,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           if (unlockParam === '1') {
             redirectUrl += '&unlock=1';
           }
-          if (unlockKey) {
-            redirectUrl += `&key=${encodeURIComponent(unlockKey)}`;
+          if (effectiveUnlockKey) {
+            redirectUrl += `&key=${encodeURIComponent(effectiveUnlockKey)}`;
           }
           
           // Use pushState instead of full page reload to preserve React state
@@ -169,13 +189,14 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           setQrDrop(newResponse.qrDrop);
           
           // If Secure Mode but no unlock key, we'll show UnlockScreen later
-          if (isSecureMode && !unlockKey) {
+          // Use effectiveUnlockKey (from prop or storage) instead of just unlockKey prop
+          if (isSecureMode && !effectiveUnlockKey) {
             setIsLoading(false);
             return;
           }
           
           // Decrypt content if we have the key (Secure Mode)
-          if (isSecureMode && unlockKey) {
+          if (isSecureMode && effectiveUnlockKey) {
             try {
               setIsDecrypting(true);
               const decrypted: {text?: string; urls?: string[]} = {};
@@ -186,7 +207,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               if (isSplitKey) {
                 // NEW: Split-key zero-knowledge decryption
                 const masterKeyBytes = new Uint8Array(
-                  unlockKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
+                  effectiveUnlockKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
                 );
                 
                 if (newResponse.qrDrop.textContent) {
@@ -212,11 +233,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               } else {
                 // LEGACY: Traditional decryption
                 if (newResponse.qrDrop.textContent) {
-                  decrypted.text = await decryptData(newResponse.qrDrop.textContent, unlockKey);
+                  decrypted.text = await decryptData(newResponse.qrDrop.textContent, effectiveUnlockKey);
                 }
                 
                 if (newResponse.qrDrop.urlContent) {
-                  const decryptedUrlJson = await decryptData(newResponse.qrDrop.urlContent, unlockKey);
+                  const decryptedUrlJson = await decryptData(newResponse.qrDrop.urlContent, effectiveUnlockKey);
                   decrypted.urls = JSON.parse(decryptedUrlJson);
                 }
               }
@@ -240,8 +261,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Always load files (they need to be decrypted since ALL files are encrypted)
           if ((newResponse.qrDrop.contentType === 'file' || newResponse.qrDrop.contentType === 'bundle') && (newResponse.qrDrop.filePath || (newResponse.qrDrop.files && newResponse.qrDrop.files.length > 0))) {
             const needsLoad = fileUrls.length === 0 && !fileUrl;
-            // For secureMode, we need unlockKey. For standard encrypted files, we always need to load/decrypt
-            const needsDecrypt = newResponse.qrDrop.secureMode ? (newResponse.qrDrop.secureMode && unlockKey) : true;
+            // For secureMode, we need effectiveUnlockKey. For standard encrypted files, we always need to load/decrypt
+            const needsDecrypt = newResponse.qrDrop.secureMode ? (newResponse.qrDrop.secureMode && effectiveUnlockKey) : true;
             if (needsLoad || needsDecrypt) {
               await loadFile();
             }
@@ -298,13 +319,13 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         setQrDrop(response.qrDrop);
         
         // If Secure Mode but no unlock key, we'll show UnlockScreen later
-        if (isSecureMode && !unlockKey) {
+        if (isSecureMode && !effectiveUnlockKey) {
           setIsLoading(false);
           return;
         }
         
         // Decrypt content if we have the key (Secure Mode)
-        if (isSecureMode && unlockKey) {
+        if (isSecureMode && effectiveUnlockKey) {
           try {
             setIsDecrypting(true);
             const decrypted: {text?: string; urls?: string[]} = {};
@@ -317,7 +338,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             if (isSplitKey) {
               // NEW: Split-key zero-knowledge decryption
               const masterKeyBytes = new Uint8Array(
-                unlockKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
+                effectiveUnlockKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
               );
               
               // Decrypt text content if exists
@@ -345,11 +366,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             } else {
               // LEGACY: Traditional decryption with hex key
               if (response.qrDrop.textContent) {
-                decrypted.text = await decryptData(response.qrDrop.textContent, unlockKey);
+                decrypted.text = await decryptData(response.qrDrop.textContent, effectiveUnlockKey);
               }
               
               if (response.qrDrop.urlContent) {
-                const decryptedUrlJson = await decryptData(response.qrDrop.urlContent, unlockKey);
+                const decryptedUrlJson = await decryptData(response.qrDrop.urlContent, effectiveUnlockKey);
                 decrypted.urls = JSON.parse(decryptedUrlJson);
               }
             }
@@ -373,8 +394,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Always load files (they need to be decrypted since ALL files are encrypted)
           if ((response.qrDrop.contentType === 'file' || response.qrDrop.contentType === 'bundle') && (response.qrDrop.filePath || (response.qrDrop.files && response.qrDrop.files.length > 0))) {
             const needsLoad = fileUrls.length === 0 && !fileUrl;
-            // For secureMode, we need unlockKey. For standard encrypted files, we always need to load/decrypt
-            const needsDecrypt = response.qrDrop.secureMode ? (response.qrDrop.secureMode && unlockKey) : true;
+            // For secureMode, we need effectiveUnlockKey. For standard encrypted files, we always need to load/decrypt
+            const needsDecrypt = response.qrDrop.secureMode ? (response.qrDrop.secureMode && effectiveUnlockKey) : true;
             if (needsLoad || needsDecrypt) {
               await loadFile();
             }
@@ -406,7 +427,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     };
 
     loadQrDrop();
-  }, [qrDropId, isPreview, isDirectScan, unlockKey]);
+  }, [qrDropId, isPreview, isDirectScan, effectiveUnlockKey]);
 
   const loadFile = async () => {
     try {
@@ -420,8 +441,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         // Secure Mode: use unlock key from QR #2
         // Check if this is split-key (no encryptionKey on server) or legacy
         isSplitKeyMode = !qrDrop.encryptionKey;
-        if (unlockKey) {
-          decryptionKey = unlockKey;
+        if (effectiveUnlockKey) {
+          decryptionKey = effectiveUnlockKey;
         }
       } else {
         // Standard encrypted files (ALL files are encrypted): fetch key from server
@@ -590,12 +611,12 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     
     if (!isSecureMode || !hasFiles) return;
     
-    // Check if we have decryption key (unlockKey for secureMode)
-    const hasDecryptionKey = isSecureMode && unlockKey;
+    // Check if we have decryption key (effectiveUnlockKey for secureMode)
+    const hasDecryptionKey = isSecureMode && effectiveUnlockKey;
     
     if (hasDecryptionKey) {
       console.log('🔑 Decryption key available, loading/decrypting files...', {
-        unlockKey: unlockKey ? 'present' : 'missing',
+        unlockKey: effectiveUnlockKey ? 'present' : 'missing',
         secureMode: qrDrop.secureMode,
         encrypted: qrDrop.encrypted,
         filesLoaded: fileUrls.length > 0 || !!fileUrl
@@ -604,7 +625,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       // Always reload to decrypt (loadFile handles both loading and decrypting)
       loadFile();
     }
-  }, [unlockKey, isUnlocked, qrDrop?.id, qrDrop?.secureMode]);
+  }, [effectiveUnlockKey, isUnlocked, qrDrop?.id, qrDrop?.secureMode]);
 
   const handlePasswordSubmit = async () => {
     try {
@@ -667,7 +688,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         }
         
         // If file is encrypted but no key available, show error
-        // For secureMode, we need unlockKey. For standard encrypted files, we need key from server
+        // For secureMode, we need effectiveUnlockKey. For standard encrypted files, we need key from server
         if (qrDrop?.secureMode && !decryptionKey) {
           toast.error('Cannot decrypt file. Encryption key not available.');
           return;
@@ -803,7 +824,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   if (!qrDrop) {
     // EXCEPTION: If this is Secure Mode QR #1, we can show UnlockScreen without qrDrop data
     // Only check secureMode, not encrypted (encrypted is for standard encryption)
-    if (isEncrypted && !unlockKey && !isLoading) {
+    if (isEncrypted && !effectiveUnlockKey && !isLoading) {
       return (
         <UnlockScreen 
           onUnlock={async (key: string) => {
@@ -877,7 +898,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   // Show unlock screen if Secure Mode and no key provided
   // NOTE: isEncrypted is set based on secureMode, not encrypted flag
   // BUT: If showQr2Error is true, don't show UnlockScreen - let App.tsx show the error screen
-  if (isEncrypted && !unlockKey && !showQr2Error) {
+  // CRITICAL FIX: Also check isLoading - if we're loading and effectiveUnlockKey is set, don't show UnlockScreen yet
+  // This prevents showing UnlockScreen when effectiveUnlockKey was just set and useEffect is reloading data
+  if (isEncrypted && !effectiveUnlockKey && !showQr2Error && !isLoading) {
     return (
       <UnlockScreen 
         onUnlock={async (key: string) => {
@@ -951,7 +974,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           {/* Content Preview */}
           <Card className="p-4 sm:p-6">
             {/* Secure Mode Badge - shown if Secure Mode content was decrypted */}
-            {isEncrypted && unlockKey && (
+            {isEncrypted && effectiveUnlockKey && (
               <div 
                 className="mb-4 inline-flex px-3 py-1.5 rounded-xl border backdrop-blur-sm items-center gap-2"
                 style={{ 

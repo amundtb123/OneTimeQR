@@ -1042,25 +1042,38 @@ app.post('/make-server-c3c9181e/qrdrop/:id/qr1-scanned', async (c) => {
     
     // Store that QR1 was scanned (with timestamp for expiry)
     // We don't see k1 - it's in the URL fragment which never reaches the server
+    const now = Date.now();
+    const expiryMs = 5 * 60 * 1000; // 5 minutes in milliseconds
     const qr1ScanData = {
       qrDropId: id,
-      scannedAt: Date.now(),
-      expiresAt: Date.now() + (5 * 60 * 1000) // 5 minutes expiry
+      scannedAt: now,
+      expiresAt: now + expiryMs // 5 minutes expiry
     };
     
     const qr1ScanKey = `qr1_scanned:${id}`;
     console.log(`💾 [QR1-SCANNED] Storing QR1 scan data with key: ${qr1ScanKey}`);
+    console.log(`💾 [QR1-SCANNED] Expiry calculation: now=${now}, expiryMs=${expiryMs}, expiresAt=${qr1ScanData.expiresAt}`);
+    console.log(`💾 [QR1-SCANNED] Expiry duration: ${expiryMs / 1000} seconds = ${expiryMs / (60 * 1000)} minutes`);
     await kv.set(qr1ScanKey, qr1ScanData); // Note: expireIn parameter not supported by current kv.set implementation
     
     // Verify it was stored
     const verifyStored = await kv.get(qr1ScanKey);
     console.log(`💾 [QR1-SCANNED] Verification - data stored:`, verifyStored ? 'YES' : 'NO');
     if (verifyStored) {
+      const storedScannedAt = new Date(verifyStored.scannedAt).toISOString();
+      const storedExpiresAt = new Date(verifyStored.expiresAt).toISOString();
+      const actualExpiryMs = verifyStored.expiresAt - verifyStored.scannedAt;
       console.log(`💾 [QR1-SCANNED] Stored data:`, {
         qrDropId: verifyStored.qrDropId,
-        scannedAt: new Date(verifyStored.scannedAt).toISOString(),
-        expiresAt: new Date(verifyStored.expiresAt).toISOString()
+        scannedAt: storedScannedAt,
+        expiresAt: storedExpiresAt,
+        actualExpiryDuration: `${actualExpiryMs / 1000} seconds = ${actualExpiryMs / (60 * 1000)} minutes`
       });
+      
+      // CRITICAL: Warn if expiry is not 5 minutes
+      if (actualExpiryMs < (4 * 60 * 1000)) {
+        console.error(`❌ [QR1-SCANNED] WARNING: Expiry is only ${actualExpiryMs / 1000} seconds, expected 300 seconds (5 minutes)!`);
+      }
     }
     
     console.log(`✅ QR1 scanned for secureMode QR drop ${id} (zero-knowledge - server never saw k1)`);
@@ -1134,11 +1147,13 @@ app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
     // This token proves to the client that server verified QR1 was scanned
     // Client still combines k1+k2 locally (server never sees keys)
     const unlockToken = crypto.randomUUID();
+    const unlockNow = Date.now();
+    const unlockExpiryMs = 2 * 60 * 1000; // 2 minutes to use
     await kv.set(`unlock_token:${unlockToken}`, {
       qrDropId: id,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + (2 * 60 * 1000) // 2 minutes to use
-    }, { expireIn: 2 * 60 });
+      createdAt: unlockNow,
+      expiresAt: unlockNow + unlockExpiryMs // 2 minutes to use
+    }); // Note: expireIn parameter not supported by current kv.set implementation
     
     console.log(`✅ QR1 verified for QR2 unlock - QR drop ${id} (zero-knowledge - server never saw k1 or k2)`);
     

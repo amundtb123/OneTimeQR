@@ -89,7 +89,12 @@ function AppContent() {
   // Check if we're on a scan, unlock, or success URL
   useEffect(() => {
     const updateViewFromPath = async () => {
+      // MOBILE FIX: Small delay to ensure localStorage/sessionStorage is accessible after navigation
+      // Some mobile browsers need a moment after navigation before storage is ready
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
       console.log('🔄 [APP] updateViewFromPath called, current path:', window.location.pathname, 'hash:', window.location.hash);
+      console.log('🔄 [APP] Storage check - localStorage keys:', Object.keys(localStorage).filter(k => k.startsWith('k2_temp_')).length, 'sessionStorage keys:', Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_')).length);
       const path = window.location.pathname;
       const scanMatch = path.match(/\/scan\/([^\/]+)/);
       const unlockMatch = path.match(/\/unlock\/([^\/]+)/);

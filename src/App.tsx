@@ -426,15 +426,25 @@ function AppContent() {
         }
         
         // NEW: Check for split-key in URL fragment (k1 from QR #1)
-        const k1 = extractK1FromUrl();
+        // Also check if k1 is already stored (in case QR1 was scanned earlier)
+        let k1 = extractK1FromUrl();
+        const storedK1 = localStorage.getItem(`k1_${id}`) || sessionStorage.getItem(`k1_${id}`);
         
         console.log('🔍 [APP] QR1 scan check:', {
           id,
           hasK1InUrl: !!k1,
-          k1Value: k1 ? k1.substring(0, 20) + '...' : null,
+          hasK1InStorage: !!storedK1,
+          k1Value: k1 ? k1.substring(0, 20) + '...' : (storedK1 ? storedK1.substring(0, 20) + '...' : null),
           hash: window.location.hash ? window.location.hash.substring(0, 50) + '...' : 'none',
-          pathname: window.location.pathname
+          pathname: window.location.pathname,
+          fullUrl: window.location.href.substring(0, 100) + '...'
         });
+        
+        // Use k1 from URL if available, otherwise use stored k1
+        if (!k1 && storedK1) {
+          console.log('💾 [APP] k1 not in URL, but found in storage - using stored k1');
+          k1 = storedK1;
+        }
         
         if (k1) {
           // This is QR #1 scanned - store k1 and show scan view

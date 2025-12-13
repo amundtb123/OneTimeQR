@@ -94,7 +94,25 @@ function AppContent() {
       await new Promise(resolve => setTimeout(resolve, 50));
       
       console.log('🔄 [APP] updateViewFromPath called, current path:', window.location.pathname, 'hash:', window.location.hash);
+      console.log('🔄 [APP] Full URL:', window.location.href);
       console.log('🔄 [APP] Storage check - localStorage keys:', Object.keys(localStorage).filter(k => k.startsWith('k2_temp_')).length, 'sessionStorage keys:', Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_')).length);
+      
+      // CRITICAL FIX: Extract and store k1 immediately if present in URL (before any other processing)
+      // This handles cases where QR1 is scanned and URL fragment might be lost during navigation
+      const k1FromUrl = extractK1FromUrl();
+      if (k1FromUrl) {
+        const scanMatchForK1 = window.location.pathname.match(/\/scan\/([^\/]+)/);
+        if (scanMatchForK1) {
+          const qrId = scanMatchForK1[1];
+          console.log('🔑 [APP] Found k1 in URL hash - storing immediately for QR:', qrId);
+          localStorage.setItem(`k1_${qrId}`, k1FromUrl);
+          sessionStorage.setItem(`k1_${qrId}`, k1FromUrl);
+          localStorage.setItem(`qr1_timestamp_${qrId}`, Date.now().toString());
+          sessionStorage.setItem(`qr1_timestamp_${qrId}`, Date.now().toString());
+          console.log('✅ [APP] k1 stored immediately from URL hash');
+        }
+      }
+      
       const path = window.location.pathname;
       const scanMatch = path.match(/\/scan\/([^\/]+)/);
       const unlockMatch = path.match(/\/unlock\/([^\/]+)/);

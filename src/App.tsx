@@ -252,17 +252,20 @@ function AppContent() {
           });
           
           // If server verified but no local k1, we can't decrypt (k1 is in URL fragment from QR1)
+          // This happens when QR1 was scanned on a different device, or k1 was lost
           if (serverVerified && !storedK1) {
             console.warn('⚠️ [APP] Server verified QR1 was scanned, but k1 not found locally');
-            console.warn('⚠️ [APP] This means QR1 was scanned on a different device - k1 is in QR1 URL fragment');
+            console.warn('⚠️ [APP] This means QR1 was scanned on a different device, or k1 was lost');
+            console.warn('⚠️ [APP] Solution: User must scan QR1 again on THIS device to get k1');
             console.log('🔴 [APP] Setting showQr2Error to TRUE (server verified but no k1)');
             setShowQr2Error(true);
             setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
             setCurrentView('scan'); // Show scan view with error, not redirect to upload
             console.log('🔴 [APP] showQr2Error set, scanId:', unlockId, 'currentView: scan');
-            toast.error('QR1 må scannes på samme enhet som QR2 (k1 er i QR1 URL)');
-            // Clean up k2 if stored
+            // Don't show error toast - the error screen will explain it better
+            // Clean up k2 if stored (we'll need to scan QR2 again after scanning QR1)
             if (k2FromStorage) {
+              console.log('🧹 [APP] Cleaning up k2 since k1 is missing - user needs to scan QR1 first');
               localStorage.removeItem(`k2_temp_${unlockId}`);
               localStorage.removeItem(`k2_timestamp_${unlockId}`);
               sessionStorage.removeItem(`k2_temp_${unlockId}`);
@@ -400,14 +403,31 @@ function AppContent() {
         // NEW: Check for split-key in URL fragment (k1 from QR #1)
         const k1 = extractK1FromUrl();
         
+        console.log('🔍 [APP] QR1 scan check:', {
+          id,
+          hasK1InUrl: !!k1,
+          k1Value: k1 ? k1.substring(0, 20) + '...' : null,
+          hash: window.location.hash ? window.location.hash.substring(0, 50) + '...' : 'none',
+          pathname: window.location.pathname
+        });
+        
         if (k1) {
           // This is QR #1 scanned - store k1 and show scan view
           // Use localStorage so it works across windows/tabs (when user opens in new window)
+          console.log('💾 [APP] Storing k1 for QR1:', id, 'k1 length:', k1.length);
           localStorage.setItem(`k1_${id}`, k1);
           localStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
           // Also store in sessionStorage as backup (for same-window flow)
           sessionStorage.setItem(`k1_${id}`, k1);
           sessionStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
+          
+          // Verify it was stored
+          const verifyK1Local = localStorage.getItem(`k1_${id}`);
+          const verifyK1Session = sessionStorage.getItem(`k1_${id}`);
+          console.log('✅ [APP] k1 storage verification:', {
+            localStorage: verifyK1Local ? 'SUCCESS' : 'FAILED',
+            sessionStorage: verifyK1Session ? 'SUCCESS' : 'FAILED'
+          });
           
           // CRITICAL: Mark QR1 as scanned on server (zero-knowledge - server never sees k1)
           // This allows QR2 to be scanned on a different device and still work

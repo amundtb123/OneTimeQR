@@ -5,6 +5,7 @@ import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { QrScanner } from './qr-scanner-html5';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { markQr1Scanned } from '../utils/api-client';
 
 interface UnlockScreenProps {
   onUnlock: (key: string) => Promise<void>;
@@ -32,7 +33,7 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   // This must happen synchronously so QR #2 can check it instantly
   // IMPORTANT: Use sessionStorage to match App.tsx which checks sessionStorage for k1
   const hasMarkedRef = useRef(false);
-  if (!hasMarkedRef.current) {
+  if (!hasMarkedRef.current && qrDropId) {
     // Note: k1 is stored in App.tsx when QR #1 is scanned with k1 in fragment
     // This is just a backup marker - the real k1 storage happens in App.tsx
     sessionStorage.setItem(`qr1_scanned_${qrDropId}`, Date.now().toString());
@@ -40,6 +41,25 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
     console.log('🔐 [SYNC] qrDropId full value:', JSON.stringify(qrDropId));
     hasMarkedRef.current = true;
   }
+
+  // CRITICAL: Call API to mark QR1 as scanned on server (for cross-device support)
+  useEffect(() => {
+    if (qrDropId && hasMarkedRef.current) {
+      // Only call once per qrDropId
+      const apiCallKey = `qr1_api_called_${qrDropId}`;
+      if (!sessionStorage.getItem(apiCallKey)) {
+        sessionStorage.setItem(apiCallKey, 'true');
+        markQr1Scanned(qrDropId)
+          .then((result) => {
+            console.log('✅ [UNLOCK SCREEN] QR #1 scan recorded on server:', result);
+          })
+          .catch((error) => {
+            console.error('⚠️ [UNLOCK SCREEN] Failed to record QR1 scan on server:', error);
+            // Continue anyway - local storage is backup
+          });
+      }
+    }
+  }, [qrDropId]);
 
   const [showScanner, setShowScanner] = useState(false);
   const [expiryDate, setExpiryDate] = useState<Date | null>(null);

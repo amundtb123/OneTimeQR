@@ -23,9 +23,10 @@ interface ScanViewProps {
   isPreview?: boolean; // Preview mode doesn't count scans
   isDirectScan?: boolean; // Direct scan from QR code (hide navigation)
   unlockKey?: string | null; // Decryption key from QR #2 (for Secure Mode)
+  showQr2Error?: boolean; // Show error if QR2 was scanned without QR1
 }
 
-export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = false, unlockKey = null }: ScanViewProps) {
+export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = false, unlockKey = null, showQr2Error = false }: ScanViewProps) {
   const { t } = useTranslation();
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState(false);
@@ -875,7 +876,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   
   // Show unlock screen if Secure Mode and no key provided
   // NOTE: isEncrypted is set based on secureMode, not encrypted flag
-  if (isEncrypted && !unlockKey) {
+  // BUT: If showQr2Error is true, don't show UnlockScreen - let App.tsx show the error screen
+  if (isEncrypted && !unlockKey && !showQr2Error) {
     return (
       <UnlockScreen 
         onUnlock={async (key: string) => {

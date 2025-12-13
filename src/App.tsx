@@ -227,9 +227,11 @@ function AppContent() {
               return;
             } else {
               console.warn('⚠️ [APP] Server says QR1 was not scanned');
+              console.log('🔴 [APP] Setting showQr2Error to TRUE');
               setShowQr2Error(true);
               setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
               setCurrentView('scan'); // Show scan view with error, not redirect to upload
+              console.log('🔴 [APP] showQr2Error set, scanId:', unlockId, 'currentView: scan');
               toast.error(t('app.mustScanQr1First'));
               // Clean up k2 if stored
               if (k2FromStorage) {
@@ -289,9 +291,11 @@ function AppContent() {
           if (serverVerified && !storedK1) {
             console.warn('⚠️ [APP] Server verified QR1 was scanned, but k1 not found locally');
             console.warn('⚠️ [APP] This means QR1 was scanned on a different device - k1 is in QR1 URL fragment');
+            console.log('🔴 [APP] Setting showQr2Error to TRUE (server verified but no k1)');
             setShowQr2Error(true);
             setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
             setCurrentView('scan'); // Show scan view with error, not redirect to upload
+            console.log('🔴 [APP] showQr2Error set, scanId:', unlockId, 'currentView: scan');
             toast.error('QR1 må scannes på samme enhet som QR2 (k1 er i QR1 URL)');
             // Clean up k2 if stored
             if (k2FromStorage) {
@@ -310,9 +314,11 @@ function AppContent() {
               unlockId: `k1_${unlockId}`,
               scanId: id ? `k1_${id}` : 'N/A'
             });
+            console.log('🔴 [APP] Setting showQr2Error to TRUE (no server verification and no k1)');
             setShowQr2Error(true);
             setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
             setCurrentView('scan'); // Show scan view with error, not redirect to upload
+            console.log('🔴 [APP] showQr2Error set, scanId:', unlockId, 'currentView: scan');
             toast.error(t('app.mustScanQr1First'));
             // Clean up k2 if stored (both localStorage and sessionStorage)
             if (k2FromStorage) {
@@ -839,6 +845,10 @@ function AppContent() {
 
       {/* Main Content */}
       <main className="relative z-10 max-w-5xl mx-auto px-4 py-8">
+        {(() => {
+          console.log('🎨 [APP] Rendering main content - showQr2Error:', showQr2Error, 'scanId:', scanId, 'currentView:', currentView);
+          return null;
+        })()}
         {showQr2Error ? (
           // Show error screen when QR #2 is scanned without QR #1
           <div className="max-w-3xl mx-auto">
@@ -892,6 +902,7 @@ function AppContent() {
               qrDropId={scanId}
               isDirectScan={true}
               unlockKey={unlockKey}
+              showQr2Error={showQr2Error}
               onBack={() => {
                 window.location.href = '/';
               }}

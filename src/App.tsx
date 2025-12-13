@@ -193,7 +193,11 @@ function AppContent() {
           let serverVerified = false;
           try {
             const { verifyQr1ForQr2 } = await import('./utils/api-client');
+            console.log('📤 [APP] Calling verifyQr1ForQr2 with unlockId:', unlockId);
+            console.log('📤 [APP] Current scanId (from /scan/:id):', id);
+            console.log('📤 [APP] ID comparison - unlockId === id?', unlockId === id);
             const verifyResult = await verifyQr1ForQr2(unlockId);
+            console.log('📥 [APP] verifyQr1ForQr2 result:', verifyResult);
             
             if (verifyResult.success && verifyResult.qr1Scanned) {
               serverVerified = true;
@@ -398,10 +402,12 @@ function AppContent() {
           // This allows QR2 to be scanned on a different device and still work
           try {
             const { markQr1Scanned } = await import('./utils/api-client');
-            await markQr1Scanned(id);
-            console.log('✅ QR #1 scan recorded on server (zero-knowledge)');
+            console.log('📤 [APP] Calling markQr1Scanned with ID:', id);
+            const result = await markQr1Scanned(id);
+            console.log('✅ [APP] QR #1 scan recorded on server (zero-knowledge):', result);
+            console.log('✅ [APP] ID used for QR1 scan:', id);
           } catch (error) {
-            console.error('⚠️ Failed to record QR1 scan on server:', error);
+            console.error('⚠️ [APP] Failed to record QR1 scan on server:', error);
             // Continue anyway - local storage is backup
           }
           

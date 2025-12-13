@@ -1048,7 +1048,20 @@ app.post('/make-server-c3c9181e/qrdrop/:id/qr1-scanned', async (c) => {
       expiresAt: Date.now() + (5 * 60 * 1000) // 5 minutes expiry
     };
     
-    await kv.set(`qr1_scanned:${id}`, qr1ScanData, { expireIn: 5 * 60 }); // 5 minutes TTL
+    const qr1ScanKey = `qr1_scanned:${id}`;
+    console.log(`💾 [QR1-SCANNED] Storing QR1 scan data with key: ${qr1ScanKey}`);
+    await kv.set(qr1ScanKey, qr1ScanData); // Note: expireIn parameter not supported by current kv.set implementation
+    
+    // Verify it was stored
+    const verifyStored = await kv.get(qr1ScanKey);
+    console.log(`💾 [QR1-SCANNED] Verification - data stored:`, verifyStored ? 'YES' : 'NO');
+    if (verifyStored) {
+      console.log(`💾 [QR1-SCANNED] Stored data:`, {
+        qrDropId: verifyStored.qrDropId,
+        scannedAt: new Date(verifyStored.scannedAt).toISOString(),
+        expiresAt: new Date(verifyStored.expiresAt).toISOString()
+      });
+    }
     
     console.log(`✅ QR1 scanned for secureMode QR drop ${id} (zero-knowledge - server never saw k1)`);
     
@@ -1085,9 +1098,20 @@ app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
     }
     
     // Check if QR1 was scanned
-    const qr1ScanData = await kv.get(`qr1_scanned:${id}`);
+    const qr1ScanKey = `qr1_scanned:${id}`;
+    console.log(`🔍 [VERIFY] Looking for QR1 scan data with key: ${qr1ScanKey}`);
+    const qr1ScanData = await kv.get(qr1ScanKey);
+    console.log(`🔍 [VERIFY] QR1 scan data found:`, qr1ScanData ? 'YES' : 'NO');
     
     if (!qr1ScanData) {
+      // Debug: Check if any qr1_scanned keys exist
+      const allQr1Scans = await kv.getByPrefix('qr1_scanned:');
+      console.log(`🔍 [VERIFY] Total QR1 scans in KV store: ${allQr1Scans.length}`);
+      if (allQr1Scans.length > 0) {
+        const sampleKeys = allQr1Scans.slice(0, 3).map((scan: any) => scan?.qrDropId || 'unknown');
+        console.log(`🔍 [VERIFY] Sample QR1 scan IDs:`, sampleKeys);
+      }
+      
       return c.json({ 
         success: false,
         qr1Scanned: false,

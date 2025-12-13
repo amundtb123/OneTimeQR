@@ -165,12 +165,38 @@ function AppContent() {
         console.log('🔍 [APP] All k2_temp keys in localStorage:', allK2KeysLocal);
         console.log('🔍 [APP] All k2_temp keys in sessionStorage:', allK2KeysSession);
         
-        const k2 = k2FromUrl || k2FromStorage; // Prefer URL fragment, fallback to storage
+        let k2 = k2FromUrl || k2FromStorage; // Prefer URL fragment, fallback to storage
+        
+        // MOBILE FIX: If we're on unlock route but k2 is missing from URL, try to get it from storage
+        // This handles cases where mobile browsers lose the fragment during navigation
+        if (unlockMatch && !k2) {
+          console.log('⚠️ [APP] On unlock route but k2 missing from URL and storage - checking all k2_temp keys...');
+          // Try to find ANY k2_temp key (in case ID mismatch)
+          const allK2Keys = [
+            ...Object.keys(localStorage).filter(k => k.startsWith('k2_temp_')),
+            ...Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_'))
+          ];
+          if (allK2Keys.length > 0) {
+            // Use the most recent k2_temp key (assuming there's only one active QR2 scan)
+            const firstK2Key = allK2Keys[0];
+            const foundK2 = localStorage.getItem(firstK2Key) || sessionStorage.getItem(firstK2Key);
+            if (foundK2) {
+              console.log('✅ [APP] Found k2 in storage using fallback key:', firstK2Key);
+              k2 = foundK2; // Use the found k2
+            }
+          }
+        }
         
         console.log('🔍 [APP] k2 sources:', {
           k2FromUrl: !!k2FromUrl,
+          k2FromUrlValue: k2FromUrl ? k2FromUrl.substring(0, 20) + '...' : null,
           k2FromStorage: !!k2FromStorage,
-          finalK2: !!k2
+          k2FromStorageValue: k2FromStorage ? k2FromStorage.substring(0, 20) + '...' : null,
+          finalK2: !!k2,
+          finalK2Value: k2 ? k2.substring(0, 20) + '...' : null,
+          unlockId: unlockId,
+          allK2KeysLocal: Object.keys(localStorage).filter(k => k.startsWith('k2_temp_')),
+          allK2KeysSession: Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_'))
         });
         
         if (unlockMatch && k2) {

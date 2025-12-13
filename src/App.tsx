@@ -105,40 +105,18 @@ function AppContent() {
         setCurrentView('legal');
       } else if (successMatch) {
         setCurrentView('success');
-      } else if (scanMatch) {
-        // We're on a scan page (QR #1 scanned)
-        const id = scanMatch[1];
-        const searchParams = new URLSearchParams(window.location.search);
-        const key = searchParams.get('key'); // Legacy: decryption key in query
-        const unlock = searchParams.get('unlock'); // Legacy: unlock flag
+      } else if (unlockMatch) {
+        // CRITICAL FIX: Handle /unlock/:id route FIRST (before scanMatch)
+        // This is QR #2 scanned - unlock route with k2 (from fragment or storage)
+        const unlockId = unlockMatch[1];
+        console.log('🔓 [APP] Detected /unlock/:id route, unlockId:', unlockId);
         
-        // PRIORITY: Check if we have master key already stored (from QR #2 scan that redirected here)
-        // This must be checked FIRST, before checking for k1/k2 in URL
-        const storedMasterKey = sessionStorage.getItem(`master_${id}`);
-        if (storedMasterKey) {
-          // We already have the master key from QR #2 - use it directly
-          console.log('✅ Master key found in sessionStorage (priority check) - using for decryption');
-          setScanId(id);
-          setUnlockKey(storedMasterKey);
-          setCurrentView('scan');
-          return; // Don't continue to other checks
-        }
-        
-        // NEW: Check for split-key in URL fragment (k1 from QR #1)
-        const k1 = extractK1FromUrl();
-        
-        // Check if this is unlock route (/unlock/:id or /scan/unlock/:id) - either with k2 in fragment OR stored in sessionStorage
-        // Try both patterns to handle different URL structures
-        let unlockMatch = window.location.pathname.match(/^\/unlock\/([^/]+)$/);
-        if (!unlockMatch) {
-          unlockMatch = window.location.pathname.match(/^\/scan\/unlock\/([^/]+)$/);
-        }
         const k2FromUrl = extractK2FromUrl();
         
         console.log('🔍 [APP] Checking for unlock route:', {
           pathname: window.location.pathname,
           hasUnlockMatch: !!unlockMatch,
-          unlockId: unlockMatch ? unlockMatch[1] : null,
+          unlockId: unlockId,
           k2FromUrl: k2FromUrl ? k2FromUrl.substring(0, 20) + '...' : null,
           hash: window.location.hash ? window.location.hash.substring(0, 50) + '...' : 'none'
         });
@@ -146,7 +124,6 @@ function AppContent() {
         // MOBILE FIX: Also check for k2 stored in localStorage/sessionStorage (from QR scanner)
         // Use localStorage so it works across windows/tabs (when user opens in new window)
         // This handles cases where mobile browsers lose the fragment during navigation
-        const unlockId = unlockMatch ? unlockMatch[1] : null;
         
         // Check for k2 in localStorage first (works across windows), then sessionStorage (same window)
         let k2FromStorage = null;
@@ -154,13 +131,6 @@ function AppContent() {
           k2FromStorage = localStorage.getItem(`k2_temp_${unlockId}`) || sessionStorage.getItem(`k2_temp_${unlockId}`);
           if (k2FromStorage) {
             console.log('🔍 [APP] Found k2 in storage (unlockId):', localStorage.getItem(`k2_temp_${unlockId}`) ? 'localStorage' : 'sessionStorage');
-          }
-        }
-        // Also check with scan ID as fallback (in case we're on /scan/:id but k2 was stored with that ID)
-        if (!k2FromStorage && id) {
-          k2FromStorage = localStorage.getItem(`k2_temp_${id}`) || sessionStorage.getItem(`k2_temp_${id}`);
-          if (k2FromStorage) {
-            console.log('🔍 [APP] Found k2 in storage using scan ID:', id, localStorage.getItem(`k2_temp_${id}`) ? 'localStorage' : 'sessionStorage');
           }
         }
         
@@ -174,7 +144,7 @@ function AppContent() {
         
         // MOBILE FIX: If we're on unlock route but k2 is missing from URL, try to get it from storage
         // This handles cases where mobile browsers lose the fragment during navigation
-        if (unlockMatch && !k2) {
+        if (!k2) {
           console.log('⚠️ [APP] On unlock route but k2 missing from URL and storage - checking all k2_temp keys...');
           // Try to find ANY k2_temp key (in case ID mismatch)
           const allK2Keys = [
@@ -204,9 +174,9 @@ function AppContent() {
           allK2KeysSession: Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_'))
         });
         
-        if (unlockMatch && k2) {
+        if (k2) {
           // This is QR #2 scanned - unlock route with k2 (from fragment or storage)
-          console.log('✅ [APP] unlockMatch && k2 is TRUE - processing QR #2 unlock');
+          console.log('✅ [APP] k2 found - processing QR #2 unlock');
           console.log('✅ [APP] unlockId:', unlockId);
           console.log('✅ [APP] k2 found:', !!k2);
           
@@ -216,8 +186,6 @@ function AppContent() {
           try {
             const { verifyQr1ForQr2 } = await import('./utils/api-client');
             console.log('📤 [APP] Calling verifyQr1ForQr2 with unlockId:', unlockId);
-            console.log('📤 [APP] Current scanId (from /scan/:id):', id);
-            console.log('📤 [APP] ID comparison - unlockId === id?', unlockId === id);
             const verifyResult = await verifyQr1ForQr2(unlockId);
             console.log('📥 [APP] verifyQr1ForQr2 result:', verifyResult);
             
@@ -257,15 +225,8 @@ function AppContent() {
           // Use localStorage so it works across windows/tabs (when user opens in new window)
           // Try multiple strategies:
           // 1. k1 with unlockId (QR2's ID) - check localStorage first, then sessionStorage
-          // 2. k1 with scanId (if we're on /scan/:id)
-          // 3. Find ANY k1_* key and use it (if QR1 and QR2 have different IDs)
+          // 2. Find ANY k1_* key and use it (if QR1 and QR2 have different IDs)
           let storedK1 = localStorage.getItem(`k1_${unlockId}`) || sessionStorage.getItem(`k1_${unlockId}`);
-          if (!storedK1 && id) {
-            storedK1 = localStorage.getItem(`k1_${id}`) || sessionStorage.getItem(`k1_${id}`);
-            if (storedK1) {
-              console.log('🔍 [APP] Found k1 using scan ID instead of unlockId');
-            }
-          }
           
           // If still not found, search for ANY k1_* key (handles case where QR1 and QR2 have different IDs)
           if (!storedK1) {
@@ -285,8 +246,6 @@ function AppContent() {
             serverVerified,
             withUnlockIdLocal: !!localStorage.getItem(`k1_${unlockId}`),
             withUnlockIdSession: !!sessionStorage.getItem(`k1_${unlockId}`),
-            withScanIdLocal: id ? !!localStorage.getItem(`k1_${id}`) : false,
-            withScanIdSession: id ? !!sessionStorage.getItem(`k1_${id}`) : false,
             finalK1: !!storedK1,
             allK1KeysLocal: Object.keys(localStorage).filter(k => k.startsWith('k1_')),
             allK1KeysSession: Object.keys(sessionStorage).filter(k => k.startsWith('k1_'))
@@ -316,8 +275,7 @@ function AppContent() {
           if (!serverVerified && !storedK1) {
             console.warn('⚠️ [APP] QR #2 scanned without QR #1 - showing error message');
             console.warn('⚠️ [APP] Checked keys:', {
-              unlockId: `k1_${unlockId}`,
-              scanId: id ? `k1_${id}` : 'N/A'
+              unlockId: `k1_${unlockId}`
             });
             console.log('🔴 [APP] Setting showQr2Error to TRUE (no server verification and no k1)');
             setShowQr2Error(true);
@@ -375,12 +333,8 @@ function AppContent() {
             
             console.log('✅ [APP] Master key generated, storing in sessionStorage...');
             
-            // Store master key with BOTH unlockId and id (scanId) for safety
+            // Store master key with unlockId
             sessionStorage.setItem(`master_${unlockId}`, masterKeyHex);
-            if (id && id !== unlockId) {
-              sessionStorage.setItem(`master_${id}`, masterKeyHex);
-              console.log('💾 [APP] Also stored master key with scanId:', id);
-            }
             
             // Clean up temporary k2 storage (both localStorage and sessionStorage)
             if (k2FromStorage) {
@@ -388,13 +342,6 @@ function AppContent() {
               localStorage.removeItem(`k2_timestamp_${unlockId}`);
               sessionStorage.removeItem(`k2_temp_${unlockId}`);
               sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
-              // Also clean up if stored with scanId
-              if (id && id !== unlockId) {
-                localStorage.removeItem(`k2_temp_${id}`);
-                localStorage.removeItem(`k2_timestamp_${id}`);
-                sessionStorage.removeItem(`k2_temp_${id}`);
-                sessionStorage.removeItem(`k2_timestamp_${id}`);
-              }
             }
             
             // Verify it was stored
@@ -423,7 +370,37 @@ function AppContent() {
               sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
             }
           }
-        } else if (k1) {
+        } else {
+          // k2 not found - show error
+          console.warn('⚠️ [APP] On /unlock/:id route but k2 not found');
+          setShowQr2Error(true);
+          setScanId(unlockId);
+          setCurrentView('scan');
+          toast.error('QR2 nøkkel ikke funnet. Prøv å skanne QR2 på nytt.');
+        }
+      } else if (scanMatch) {
+        // We're on a scan page (QR #1 scanned)
+        const id = scanMatch[1];
+        const searchParams = new URLSearchParams(window.location.search);
+        const key = searchParams.get('key'); // Legacy: decryption key in query
+        const unlock = searchParams.get('unlock'); // Legacy: unlock flag
+        
+        // PRIORITY: Check if we have master key already stored (from QR #2 scan that redirected here)
+        // This must be checked FIRST, before checking for k1/k2 in URL
+        const storedMasterKey = sessionStorage.getItem(`master_${id}`);
+        if (storedMasterKey) {
+          // We already have the master key from QR #2 - use it directly
+          console.log('✅ Master key found in sessionStorage (priority check) - using for decryption');
+          setScanId(id);
+          setUnlockKey(storedMasterKey);
+          setCurrentView('scan');
+          return; // Don't continue to other checks
+        }
+        
+        // NEW: Check for split-key in URL fragment (k1 from QR #1)
+        const k1 = extractK1FromUrl();
+        
+        if (k1) {
           // This is QR #1 scanned - store k1 and show scan view
           // Use localStorage so it works across windows/tabs (when user opens in new window)
           localStorage.setItem(`k1_${id}`, k1);

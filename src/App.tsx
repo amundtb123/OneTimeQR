@@ -739,8 +739,19 @@ function AppContent() {
               toast.error(t('app.couldNotFetchKey'));
               setIsFetchingKey(false);
             });
+        } else if (key) {
+          // Legacy: Direct key in URL query parameter (old unlock method)
+          // This is a single-key unlock (not Secure Mode split-key)
+          console.log('🔑 [APP] Legacy key parameter found in URL - using for unlock');
+          console.log('🔑 [APP] Key length:', key.length);
+          setScanId(id);
+          setUnlockKey(key);
+          setCurrentView('scan');
+          // Clean up URL - remove key parameter but keep ID
+          window.history.replaceState({}, '', `/scan/${id}`);
+          console.log('✅ [APP] Legacy unlock key set, ready for decryption');
         } else {
-          // Regular scan (not QR #2, no split-key)
+          // Regular scan (not QR #2, no split-key, no legacy key)
           // BUT: Check if we have k2 in localStorage/sessionStorage (from QR #2 scan that navigated here)
           // Use localStorage so it works across windows/tabs
           // This handles the case where we navigated to /unlock/:id but ended up on /scan/:id

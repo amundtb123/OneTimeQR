@@ -16,9 +16,23 @@ function b64u(bytes: Uint8Array): string {
  * Base64URL decoding
  */
 function fromB64u(s: string): Uint8Array {
-  const pad = s.length % 4 ? '='.repeat(4 - (s.length % 4)) : '';
-  const b64 = (s + pad).replace(/-/g, '+').replace(/_/g, '/');
-  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  if (!s || typeof s !== 'string') {
+    throw new Error(`Invalid base64url string: ${s}`);
+  }
+  
+  try {
+    const pad = s.length % 4 ? '='.repeat(4 - (s.length % 4)) : '';
+    const b64 = (s + pad).replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = atob(b64);
+    return Uint8Array.from(decoded, c => c.charCodeAt(0));
+  } catch (error) {
+    console.error('❌ [B64U] Failed to decode base64url:', {
+      input: s,
+      inputLength: s?.length,
+      error: error.message
+    });
+    throw new Error(`Failed to decode base64url string: ${error.message}`);
+  }
 }
 
 /**
@@ -103,18 +117,61 @@ export async function decryptBytes(
   master: Uint8Array,
   fileId: string
 ): Promise<Uint8Array> {
-  const iv = fromB64u(enc.iv);
-  const salt = fromB64u(enc.salt);
-  const ct = fromB64u(enc.ciphertext);
-  const key = await hkdfKey(master, salt, `OneTimeQR:file:${fileId}`);
+  console.log('🔍 [DECRYPT] decryptBytes called:', {
+    ivString: enc.iv,
+    ivStringLength: enc.iv?.length,
+    saltString: enc.salt?.substring(0, 20) + '...',
+    saltStringLength: enc.salt?.length,
+    ciphertextLength: enc.ciphertext?.length,
+    masterKeyLength: master.length,
+    fileId
+  });
   
-  const plain = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv, additionalData: te.encode(fileId) },
-    key,
-    ct
-  );
-  
-  return new Uint8Array(plain);
+  try {
+    const iv = fromB64u(enc.iv);
+    console.log('✅ [DECRYPT] IV decoded:', {
+      ivLength: iv.length,
+      expectedLength: 12,
+      isValid: iv.length === 12,
+      ivPreview: Array.from(iv.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join('') + '...'
+    });
+    
+    if (iv.length !== 12) {
+      throw new Error(`IV length is ${iv.length}, expected 12 bytes. IV string: ${enc.iv}`);
+    }
+    
+    const salt = fromB64u(enc.salt);
+    console.log('✅ [DECRYPT] Salt decoded:', {
+      saltLength: salt.length,
+      expectedLength: 16,
+      isValid: salt.length === 16
+    });
+    
+    const ct = fromB64u(enc.ciphertext);
+    console.log('✅ [DECRYPT] Ciphertext decoded:', {
+      ciphertextLength: ct.length
+    });
+    
+    const key = await hkdfKey(master, salt, `OneTimeQR:file:${fileId}`);
+    console.log('✅ [DECRYPT] HKDF key derived');
+    
+    const plain = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv, additionalData: te.encode(fileId) },
+      key,
+      ct
+    );
+    
+    console.log('✅ [DECRYPT] Decryption successful');
+    return new Uint8Array(plain);
+  } catch (error) {
+    console.error('❌ [DECRYPT] Decryption failed:', error);
+    console.error('❌ [DECRYPT] Error details:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack
+    });
+    throw error;
+  }
 }
 
 /**

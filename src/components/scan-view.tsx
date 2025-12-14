@@ -217,9 +217,34 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               
               if (isSplitKey) {
                 // NEW: Split-key zero-knowledge decryption
+                // Validate master key format (should be hex string, 64 chars = 32 bytes)
+                if (!effectiveUnlockKey || typeof effectiveUnlockKey !== 'string') {
+                  throw new Error(`Invalid master key: expected hex string, got ${typeof effectiveUnlockKey}`);
+                }
+                
+                const hexMatch = effectiveUnlockKey.match(/^[0-9a-fA-F]+$/);
+                if (!hexMatch) {
+                  throw new Error(`Invalid master key format: not a valid hex string. Length: ${effectiveUnlockKey.length}`);
+                }
+                
+                if (effectiveUnlockKey.length !== 64) {
+                  console.warn(`⚠️ [SCAN VIEW] Master key length is ${effectiveUnlockKey.length}, expected 64 (32 bytes)`);
+                }
+                
                 const masterKeyBytes = new Uint8Array(
                   effectiveUnlockKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
                 );
+                
+                console.log('🔑 [SCAN VIEW] Master key validation (retry):', {
+                  keyLength: effectiveUnlockKey.length,
+                  keyBytes: masterKeyBytes.length,
+                  expectedBytes: 32,
+                  isValid: masterKeyBytes.length === 32
+                });
+                
+                if (masterKeyBytes.length !== 32) {
+                  throw new Error(`Invalid master key length: ${masterKeyBytes.length} bytes, expected 32 bytes`);
+                }
                 
                 if (newResponse.qrDrop.textContent) {
                   try {
@@ -382,9 +407,35 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             
             if (isSplitKey) {
               // NEW: Split-key zero-knowledge decryption
+              // Validate master key format (should be hex string, 64 chars = 32 bytes)
+              if (!effectiveUnlockKey || typeof effectiveUnlockKey !== 'string') {
+                throw new Error(`Invalid master key: expected hex string, got ${typeof effectiveUnlockKey}`);
+              }
+              
+              const hexMatch = effectiveUnlockKey.match(/^[0-9a-fA-F]+$/);
+              if (!hexMatch) {
+                throw new Error(`Invalid master key format: not a valid hex string. Length: ${effectiveUnlockKey.length}`);
+              }
+              
+              if (effectiveUnlockKey.length !== 64) {
+                console.warn(`⚠️ [SCAN VIEW] Master key length is ${effectiveUnlockKey.length}, expected 64 (32 bytes)`);
+              }
+              
               const masterKeyBytes = new Uint8Array(
                 effectiveUnlockKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
               );
+              
+              console.log('🔑 [SCAN VIEW] Master key validation:', {
+                keyLength: effectiveUnlockKey.length,
+                keyBytes: masterKeyBytes.length,
+                expectedBytes: 32,
+                isValid: masterKeyBytes.length === 32,
+                keyPreview: effectiveUnlockKey.substring(0, 20) + '...'
+              });
+              
+              if (masterKeyBytes.length !== 32) {
+                throw new Error(`Invalid master key length: ${masterKeyBytes.length} bytes, expected 32 bytes`);
+              }
               
               // Decrypt text content if exists
               if (response.qrDrop.textContent) {

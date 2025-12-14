@@ -174,8 +174,17 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           }
           
           // Clean up URL after getting data
+          // CRITICAL FIX: Don't remove ID from URL - we need it for k1/k2 recovery
+          // Only clean up access token, but keep the ID
           if (isDirectScan) {
-            window.history.replaceState({}, '', '/scan');
+            // Keep the ID in URL - don't remove it!
+            // Only remove access token if present
+            const urlParams = new URLSearchParams(window.location.search);
+            urlParams.delete('access');
+            const newSearch = urlParams.toString();
+            const newUrl = newSearch ? `/scan/${currentQrDropId}?${newSearch}` : `/scan/${currentQrDropId}`;
+            window.history.replaceState({}, '', newUrl);
+            console.log('🧹 [SCAN VIEW] Cleaned URL but kept ID:', newUrl);
           } else if (newAccessToken) {
             window.history.replaceState({}, '', `/scan/${currentQrDropId}`);
           }
@@ -278,10 +287,16 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           return; // Stop here, we've processed everything
         }
         
-        // Token was valid and used - now clean up the URL completely (hide ID and token)
+        // Token was valid and used - now clean up the URL
+        // CRITICAL FIX: Keep the ID in URL - we need it for k1/k2 recovery
         if (isDirectScan) {
-          // For direct scans (from QR code), hide the entire URL path
-          window.history.replaceState({}, '', '/scan');
+          // For direct scans, keep the ID but remove access token
+          const urlParams = new URLSearchParams(window.location.search);
+          urlParams.delete('access');
+          const newSearch = urlParams.toString();
+          const newUrl = newSearch ? `/scan/${currentQrDropId}?${newSearch}` : `/scan/${currentQrDropId}`;
+          window.history.replaceState({}, '', newUrl);
+          console.log('🧹 [SCAN VIEW] Cleaned URL but kept ID (token used):', newUrl);
         } else if (accessToken) {
           // For preview mode, just remove the token but keep the ID
           window.history.replaceState({}, '', `/scan/${currentQrDropId}`);

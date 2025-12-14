@@ -73,6 +73,98 @@ export default function App() {
   );
 }
 
+// Cleanup old keys from localStorage to prevent quota exceeded errors
+function cleanupOldKeys() {
+  try {
+    const now = Date.now();
+    const FIVE_MINUTES = 5 * 60 * 1000;
+    const ONE_HOUR = 60 * 60 * 1000;
+    let cleaned = 0;
+    
+    // Clean up old k1 keys (older than 1 hour)
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('k1_')) {
+        const timestampKey = `qr1_timestamp_${key.substring(3)}`;
+        const timestamp = localStorage.getItem(timestampKey);
+        if (timestamp) {
+          const age = now - parseInt(timestamp, 10);
+          if (age > ONE_HOUR) {
+            localStorage.removeItem(key);
+            localStorage.removeItem(timestampKey);
+            cleaned++;
+          }
+        }
+      }
+    }
+    
+    // Clean up old k2_temp keys (older than 1 hour)
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('k2_temp_')) {
+        const timestampKey = `k2_timestamp_${key.substring(8)}`;
+        const timestamp = localStorage.getItem(timestampKey);
+        if (timestamp) {
+          const age = now - parseInt(timestamp, 10);
+          if (age > ONE_HOUR) {
+            localStorage.removeItem(key);
+            localStorage.removeItem(timestampKey);
+            cleaned++;
+          }
+        }
+      }
+    }
+    
+    // Clean up old master keys (older than 1 hour)
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key?.startsWith('master_')) {
+        // Master keys don't have timestamps, but we can clean old ones
+        // Keep only the most recent 10 master keys
+        const masterKeys = Array.from({ length: sessionStorage.length }, (_, idx) => sessionStorage.key(idx))
+          .filter(k => k?.startsWith('master_'));
+        if (masterKeys.length > 10) {
+          // Remove oldest ones (keep last 10)
+          masterKeys.slice(0, masterKeys.length - 10).forEach(k => {
+            if (k) {
+              sessionStorage.removeItem(k);
+              cleaned++;
+            }
+          });
+        }
+      }
+    }
+    
+    if (cleaned > 0) {
+      console.log(`🧹 [APP] Cleaned up ${cleaned} old keys from storage`);
+    }
+  } catch (error) {
+    console.error('❌ [APP] Error during cleanup:', error);
+  }
+}
+
+// Safe storage wrapper that handles quota errors
+function safeSetItem(storage: Storage, key: string, value: string): boolean {
+  try {
+    storage.setItem(key, value);
+    return true;
+  } catch (error: any) {
+    if (error.name === 'QuotaExceededError' || error.message?.includes('quota')) {
+      console.warn(`⚠️ [APP] Storage quota exceeded for key: ${key}. Attempting cleanup...`);
+      cleanupOldKeys();
+      try {
+        storage.setItem(key, value);
+        return true;
+      } catch (retryError) {
+        console.error(`❌ [APP] Failed to store after cleanup: ${key}`, retryError);
+        return false;
+      }
+    }
+    console.error(`❌ [APP] Storage error for key: ${key}`, error);
+    return false;
+  }
+}
+
 function AppContent() {
   const { user, loading: authLoading } = useAuth();
   const { t } = useTranslation();
@@ -85,6 +177,11 @@ function AppContent() {
   const [isFetchingKey, setIsFetchingKey] = useState(false); // Track if we're fetching encryption key
   const [showQr2Error, setShowQr2Error] = useState(false); // Track if QR #2 was scanned without QR #1
   const [isLoadingQrDrops, setIsLoadingQrDrops] = useState(false); // Prevent multiple simultaneous loads
+  
+  // Cleanup old keys on mount
+  useEffect(() => {
+    cleanupOldKeys();
+  }, []);
 
   // Check if we're on a scan, unlock, or success URL
   useEffect(() => {
@@ -118,11 +215,12 @@ function AppContent() {
             hash: window.location.hash ? window.location.hash.substring(0, 50) + '...' : 'none'
           });
           
-          try {
-            localStorage.setItem(`k1_${qrId}`, k1FromUrl);
-            sessionStorage.setItem(`k1_${qrId}`, k1FromUrl);
-            localStorage.setItem(`qr1_timestamp_${qrId}`, Date.now().toString());
-            sessionStorage.setItem(`qr1_timestamp_${qrId}`, Date.now().toString());
+            try {
+              const timestamp = Date.now().toString();
+              safeSetItem(localStorage, `k1_${qrId}`, k1FromUrl);
+              safeSetItem(sessionStorage, `k1_${qrId}`, k1FromUrl);
+              safeSetItem(localStorage, `qr1_timestamp_${qrId}`, timestamp);
+              safeSetItem(sessionStorage, `qr1_timestamp_${qrId}`, timestamp);
             
             // Verify immediately
             const verifyK1Local = localStorage.getItem(`k1_${qrId}`);
@@ -619,11 +717,17 @@ function AppContent() {
           });
           
           try {
-            localStorage.setItem(`k1_${id}`, k1);
-            localStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
+            const timestamp = Date.now().toString();
+            const storedLocal = safeSetItem(localStorage, `k1_${id}`, k1);
+            const storedTimestamp = safeSetItem(localStorage, `qr1_timestamp_${id}`, timestamp);
             // Also store in sessionStorage as backup (for same-window flow)
-            sessionStorage.setItem(`k1_${id}`, k1);
-            sessionStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
+            const storedSession = safeSetItem(sessionStorage, `k1_${id}`, k1);
+            const storedSessionTimestamp = safeSetItem(sessionStorage, `qr1_timestamp_${id}`, timestamp);
+            
+            if (!storedLocal || !storedSession) {
+              console.error('❌ [APP] Failed to store k1 due to storage quota');
+              toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
+            }
             
             // Verify it was stored IMMEDIATELY (synchronous check)
             const verifyK1Local = localStorage.getItem(`k1_${id}`);
@@ -641,8 +745,8 @@ function AppContent() {
             if (!verifyK1Local || !verifyK1Session || verifyK1Local !== k1) {
               console.warn('⚠️ [APP] k1 storage verification failed or mismatch, retrying...');
               setTimeout(() => {
-                localStorage.setItem(`k1_${id}`, k1);
-                sessionStorage.setItem(`k1_${id}`, k1);
+                safeSetItem(localStorage, `k1_${id}`, k1);
+                safeSetItem(sessionStorage, `k1_${id}`, k1);
                 const retryVerify = localStorage.getItem(`k1_${id}`);
                 const retryMatch = retryVerify === k1;
                 console.log('✅ [APP] k1 retry storage verification:', {
@@ -656,9 +760,13 @@ function AppContent() {
             console.error('❌ [APP] Failed to store k1:', storageError);
             // Try one more time
             try {
-              localStorage.setItem(`k1_${id}`, k1);
-              sessionStorage.setItem(`k1_${id}`, k1);
-              console.log('✅ [APP] k1 storage retry after error: SUCCESS');
+              const stored = safeSetItem(localStorage, `k1_${id}`, k1);
+              const storedSession = safeSetItem(sessionStorage, `k1_${id}`, k1);
+              if (stored && storedSession) {
+                console.log('✅ [APP] k1 storage retry after error: SUCCESS');
+              } else {
+                console.error('❌ [APP] k1 storage retry also failed: quota exceeded');
+              }
             } catch (retryError) {
               console.error('❌ [APP] k1 storage retry also failed:', retryError);
             }
@@ -768,10 +876,16 @@ function AppContent() {
                 console.log('💾 [APP] Storing k2_temp for ID:', id);
                 
                 // Store k2 immediately (both localStorage and sessionStorage)
-                localStorage.setItem(`k2_temp_${id}`, key);
-                localStorage.setItem(`k2_timestamp_${id}`, Date.now().toString());
-                sessionStorage.setItem(`k2_temp_${id}`, key);
-                sessionStorage.setItem(`k2_timestamp_${id}`, Date.now().toString());
+                const timestamp = Date.now().toString();
+                const storedK2Local = safeSetItem(localStorage, `k2_temp_${id}`, key);
+                const storedK2Timestamp = safeSetItem(localStorage, `k2_timestamp_${id}`, timestamp);
+                const storedK2Session = safeSetItem(sessionStorage, `k2_temp_${id}`, key);
+                const storedK2SessionTimestamp = safeSetItem(sessionStorage, `k2_timestamp_${id}`, timestamp);
+                
+                if (!storedK2Local || !storedK2Session) {
+                  console.error('❌ [APP] Failed to store k2 due to storage quota');
+                  toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
+                }
                 
                 // Verify storage
                 const verifyK2 = localStorage.getItem(`k2_temp_${id}`) || sessionStorage.getItem(`k2_temp_${id}`);
@@ -791,7 +905,11 @@ function AppContent() {
                       .join('');
                     
                     // Store master key
-                    sessionStorage.setItem(`master_${id}`, masterKeyHex);
+                    const storedMaster = safeSetItem(sessionStorage, `master_${id}`, masterKeyHex);
+                    if (!storedMaster) {
+                      console.error('❌ [APP] Failed to store master key due to storage quota');
+                      toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
+                    }
                     
                     // Clean up temporary k2 storage
                     localStorage.removeItem(`k2_temp_${id}`);

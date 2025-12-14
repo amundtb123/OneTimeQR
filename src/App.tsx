@@ -110,17 +110,51 @@ function AppContent() {
         if (scanMatchForK1) {
           const qrId = scanMatchForK1[1];
           console.log('🔑 [APP] Found k1 in URL hash - storing immediately for QR:', qrId);
-          localStorage.setItem(`k1_${qrId}`, k1FromUrl);
-          sessionStorage.setItem(`k1_${qrId}`, k1FromUrl);
-          localStorage.setItem(`qr1_timestamp_${qrId}`, Date.now().toString());
-          sessionStorage.setItem(`qr1_timestamp_${qrId}`, Date.now().toString());
-          console.log('✅ [APP] k1 stored immediately from URL hash');
+          console.log('💾 [APP] Early k1 storage - BEFORE storage:', {
+            qrId,
+            k1Length: k1FromUrl.length,
+            k1Preview: k1FromUrl.substring(0, 20) + '...',
+            pathname: window.location.pathname,
+            hash: window.location.hash ? window.location.hash.substring(0, 50) + '...' : 'none'
+          });
+          
+          try {
+            localStorage.setItem(`k1_${qrId}`, k1FromUrl);
+            sessionStorage.setItem(`k1_${qrId}`, k1FromUrl);
+            localStorage.setItem(`qr1_timestamp_${qrId}`, Date.now().toString());
+            sessionStorage.setItem(`qr1_timestamp_${qrId}`, Date.now().toString());
+            
+            // Verify immediately
+            const verifyK1Local = localStorage.getItem(`k1_${qrId}`);
+            const verifyK1Session = sessionStorage.getItem(`k1_${qrId}`);
+            console.log('✅ [APP] Early k1 storage verification:', {
+              localStorage: verifyK1Local ? 'SUCCESS' : 'FAILED',
+              sessionStorage: verifyK1Session ? 'SUCCESS' : 'FAILED',
+              k1Length: k1FromUrl.length,
+              storedLength: verifyK1Local?.length || 0,
+              keysMatch: verifyK1Local === k1FromUrl
+            });
+            
+            if (!verifyK1Local || verifyK1Local !== k1FromUrl) {
+              console.warn('⚠️ [APP] Early k1 storage verification failed, retrying...');
+              setTimeout(() => {
+                localStorage.setItem(`k1_${qrId}`, k1FromUrl);
+                sessionStorage.setItem(`k1_${qrId}`, k1FromUrl);
+                const retryVerify = localStorage.getItem(`k1_${qrId}`);
+                console.log('✅ [APP] Early k1 retry verification:', retryVerify === k1FromUrl ? 'SUCCESS' : 'FAILED');
+              }, 50);
+            }
+          } catch (error) {
+            console.error('❌ [APP] Failed to store k1 in early check:', error);
+          }
         } else {
           console.warn('⚠️ [APP] k1 found in URL but no scan ID in pathname:', window.location.pathname);
+          console.warn('⚠️ [APP] Expected pathname format: /scan/:id, got:', window.location.pathname);
         }
       } else {
         console.warn('⚠️ [APP] k1 NOT found in URL hash - this is the problem!');
         console.warn('⚠️ [APP] This means QR1 URL fragment (#k1=...) was lost or QR1 was scanned on different device');
+        console.warn('⚠️ [APP] Current hash:', window.location.hash || 'EMPTY');
       }
       
       const path = window.location.pathname;
@@ -496,31 +530,58 @@ function AppContent() {
           
           // CRITICAL FIX: Store k1 IMMEDIATELY and verify BEFORE any async operations
           // This ensures k1 is persisted even if there are timing issues
-          localStorage.setItem(`k1_${id}`, k1);
-          localStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
-          // Also store in sessionStorage as backup (for same-window flow)
-          sessionStorage.setItem(`k1_${id}`, k1);
-          sessionStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
-          
-          // Verify it was stored IMMEDIATELY (synchronous check)
-          const verifyK1Local = localStorage.getItem(`k1_${id}`);
-          const verifyK1Session = sessionStorage.getItem(`k1_${id}`);
-          console.log('✅ [APP] k1 storage verification (immediate):', {
-            localStorage: verifyK1Local ? 'SUCCESS' : 'FAILED',
-            sessionStorage: verifyK1Session ? 'SUCCESS' : 'FAILED',
+          console.log('💾 [APP] Storing k1 - BEFORE storage:', {
+            id,
             k1Length: k1.length,
-            storedLength: verifyK1Local?.length || 0
+            k1Preview: k1.substring(0, 20) + '...',
+            localStorageAvailable: typeof localStorage !== 'undefined',
+            sessionStorageAvailable: typeof sessionStorage !== 'undefined'
           });
           
-          // CRITICAL: If storage failed, try again with a small delay (mobile browser quirk)
-          if (!verifyK1Local || !verifyK1Session) {
-            console.warn('⚠️ [APP] k1 storage verification failed, retrying...');
-            setTimeout(() => {
+          try {
+            localStorage.setItem(`k1_${id}`, k1);
+            localStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
+            // Also store in sessionStorage as backup (for same-window flow)
+            sessionStorage.setItem(`k1_${id}`, k1);
+            sessionStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
+            
+            // Verify it was stored IMMEDIATELY (synchronous check)
+            const verifyK1Local = localStorage.getItem(`k1_${id}`);
+            const verifyK1Session = sessionStorage.getItem(`k1_${id}`);
+            console.log('✅ [APP] k1 storage verification (immediate):', {
+              localStorage: verifyK1Local ? 'SUCCESS' : 'FAILED',
+              sessionStorage: verifyK1Session ? 'SUCCESS' : 'FAILED',
+              k1Length: k1.length,
+              storedLength: verifyK1Local?.length || 0,
+              storedPreview: verifyK1Local ? verifyK1Local.substring(0, 20) + '...' : 'MISSING',
+              keysMatch: verifyK1Local === k1
+            });
+            
+            // CRITICAL: If storage failed, try again with a small delay (mobile browser quirk)
+            if (!verifyK1Local || !verifyK1Session || verifyK1Local !== k1) {
+              console.warn('⚠️ [APP] k1 storage verification failed or mismatch, retrying...');
+              setTimeout(() => {
+                localStorage.setItem(`k1_${id}`, k1);
+                sessionStorage.setItem(`k1_${id}`, k1);
+                const retryVerify = localStorage.getItem(`k1_${id}`);
+                const retryMatch = retryVerify === k1;
+                console.log('✅ [APP] k1 retry storage verification:', {
+                  success: retryVerify ? 'YES' : 'NO',
+                  match: retryMatch ? 'YES' : 'NO',
+                  storedLength: retryVerify?.length || 0
+                });
+              }, 50);
+            }
+          } catch (storageError) {
+            console.error('❌ [APP] Failed to store k1:', storageError);
+            // Try one more time
+            try {
               localStorage.setItem(`k1_${id}`, k1);
               sessionStorage.setItem(`k1_${id}`, k1);
-              const retryVerify = localStorage.getItem(`k1_${id}`);
-              console.log('✅ [APP] k1 retry storage verification:', retryVerify ? 'SUCCESS' : 'FAILED');
-            }, 50);
+              console.log('✅ [APP] k1 storage retry after error: SUCCESS');
+            } catch (retryError) {
+              console.error('❌ [APP] k1 storage retry also failed:', retryError);
+            }
           }
           
           // CRITICAL: Mark QR1 as scanned on server (zero-knowledge - server never sees k1)

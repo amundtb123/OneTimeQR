@@ -160,8 +160,57 @@ function AppContent() {
       const path = window.location.pathname;
       const scanMatch = path.match(/\/scan\/([^\/]+)/);
       const unlockMatch = path.match(/\/unlock\/([^\/]+)/);
+      const scanOnlyMatch = path === '/scan'; // Just /scan without ID
       const successMatch = path === '/success';
       const termsMatch = path === '/terms';
+      
+      // CRITICAL FIX: Handle /scan without ID (mobile issue where ID is lost)
+      if (scanOnlyMatch) {
+        console.warn('⚠️ [APP] Detected /scan without ID - trying to recover from storage...');
+        
+        // Try to find ID from k1 or k2 storage keys
+        const allK1Keys = [
+          ...Object.keys(localStorage).filter(k => k.startsWith('k1_')),
+          ...Object.keys(sessionStorage).filter(k => k.startsWith('k1_'))
+        ];
+        const allK2Keys = [
+          ...Object.keys(localStorage).filter(k => k.startsWith('k2_temp_')),
+          ...Object.keys(sessionStorage).filter(k => k.startsWith('k2_temp_'))
+        ];
+        
+        console.log('🔍 [APP] Storage keys found:', {
+          k1Keys: allK1Keys,
+          k2Keys: allK2Keys
+        });
+        
+        // Try to extract ID from storage keys
+        let recoveredId: string | null = null;
+        if (allK1Keys.length > 0) {
+          const firstK1Key = allK1Keys[0];
+          recoveredId = firstK1Key.replace('k1_', '');
+          console.log('✅ [APP] Recovered ID from k1 storage key:', recoveredId);
+        } else if (allK2Keys.length > 0) {
+          const firstK2Key = allK2Keys[0];
+          recoveredId = firstK2Key.replace('k2_temp_', '');
+          console.log('✅ [APP] Recovered ID from k2 storage key:', recoveredId);
+        }
+        
+        if (recoveredId) {
+          console.log('🔄 [APP] Redirecting to /scan/' + recoveredId);
+          window.history.replaceState({}, '', `/scan/${recoveredId}`);
+          // Re-trigger path update by calling updateViewFromPath again
+          setTimeout(() => {
+            updateViewFromPath().catch(console.error);
+          }, 100);
+          return;
+        } else {
+          console.error('❌ [APP] Could not recover ID from storage');
+          console.error('❌ [APP] This means k1 and k2 were lost - user needs to start over');
+          // Redirect to home instead of showing error (better UX)
+          window.location.href = '/';
+          return;
+        }
+      }
       
       if (termsMatch) {
         setCurrentView('legal');

@@ -223,22 +223,50 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                 
                 if (newResponse.qrDrop.textContent) {
                   try {
+                    console.log('🔍 [SCAN VIEW] Attempting to decrypt textContent (retry):', {
+                      textContentType: typeof newResponse.qrDrop.textContent,
+                      textContentLength: newResponse.qrDrop.textContent.length,
+                      textContentPreview: newResponse.qrDrop.textContent.substring(0, 100) + '...'
+                    });
+                    
                     const ciphertextObj = JSON.parse(newResponse.qrDrop.textContent);
+                    console.log('✅ [SCAN VIEW] Parsed ciphertext object (retry):', {
+                      hasIv: !!ciphertextObj.iv,
+                      hasSalt: !!ciphertextObj.salt,
+                      hasCiphertext: !!ciphertextObj.ciphertext
+                    });
+                    
                     decrypted.text = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
+                    console.log('✅ [SCAN VIEW] Successfully decrypted textContent (retry)');
                   } catch (parseError) {
-                    console.error('Failed to parse textContent ciphertext:', parseError);
-                    throw new Error('Invalid ciphertext format');
+                    console.error('❌ [SCAN VIEW] Failed to parse/decrypt textContent ciphertext (retry):', parseError);
+                    console.error('❌ [SCAN VIEW] textContent value:', newResponse.qrDrop.textContent);
+                    throw new Error(`Invalid ciphertext format: ${parseError.message}`);
                   }
                 }
                 
                 if (newResponse.qrDrop.urlContent) {
                   try {
+                    console.log('🔍 [SCAN VIEW] Attempting to decrypt urlContent (retry):', {
+                      urlContentType: typeof newResponse.qrDrop.urlContent,
+                      urlContentLength: newResponse.qrDrop.urlContent.length,
+                      urlContentPreview: newResponse.qrDrop.urlContent.substring(0, 100) + '...'
+                    });
+                    
                     const ciphertextObj = JSON.parse(newResponse.qrDrop.urlContent);
+                    console.log('✅ [SCAN VIEW] Parsed urlContent ciphertext object (retry):', {
+                      hasIv: !!ciphertextObj.iv,
+                      hasSalt: !!ciphertextObj.salt,
+                      hasCiphertext: !!ciphertextObj.ciphertext
+                    });
+                    
                     const decryptedUrlJson = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
                     decrypted.urls = JSON.parse(decryptedUrlJson);
+                    console.log('✅ [SCAN VIEW] Successfully decrypted urlContent (retry)');
                   } catch (parseError) {
-                    console.error('Failed to parse urlContent ciphertext:', parseError);
-                    throw new Error('Invalid ciphertext format');
+                    console.error('❌ [SCAN VIEW] Failed to parse/decrypt urlContent ciphertext (retry):', parseError);
+                    console.error('❌ [SCAN VIEW] urlContent value:', newResponse.qrDrop.urlContent);
+                    throw new Error(`Invalid ciphertext format: ${parseError.message}`);
                   }
                 }
               } else {
@@ -361,23 +389,68 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               // Decrypt text content if exists
               if (response.qrDrop.textContent) {
                 try {
+                  console.log('🔍 [SCAN VIEW] Attempting to decrypt textContent:', {
+                    textContentType: typeof response.qrDrop.textContent,
+                    textContentLength: response.qrDrop.textContent.length,
+                    textContentPreview: response.qrDrop.textContent.substring(0, 100) + '...',
+                    masterKeyLength: masterKeyBytes.length,
+                    qrDropId: currentQrDropId
+                  });
+                  
                   const ciphertextObj = JSON.parse(response.qrDrop.textContent);
+                  console.log('✅ [SCAN VIEW] Parsed ciphertext object:', {
+                    hasIv: !!ciphertextObj.iv,
+                    hasSalt: !!ciphertextObj.salt,
+                    hasCiphertext: !!ciphertextObj.ciphertext,
+                    ivLength: ciphertextObj.iv?.length,
+                    saltLength: ciphertextObj.salt?.length,
+                    ciphertextLength: ciphertextObj.ciphertext?.length
+                  });
+                  
                   decrypted.text = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
+                  console.log('✅ [SCAN VIEW] Successfully decrypted textContent');
                 } catch (parseError) {
-                  console.error('Failed to parse textContent ciphertext:', parseError);
-                  throw new Error('Invalid ciphertext format');
+                  console.error('❌ [SCAN VIEW] Failed to parse/decrypt textContent ciphertext:', parseError);
+                  console.error('❌ [SCAN VIEW] textContent value:', response.qrDrop.textContent);
+                  console.error('❌ [SCAN VIEW] parseError details:', {
+                    message: parseError.message,
+                    stack: parseError.stack,
+                    name: parseError.name
+                  });
+                  throw new Error(`Invalid ciphertext format: ${parseError.message}`);
                 }
               }
               
               // Decrypt URL content if exists
               if (response.qrDrop.urlContent) {
                 try {
+                  console.log('🔍 [SCAN VIEW] Attempting to decrypt urlContent:', {
+                    urlContentType: typeof response.qrDrop.urlContent,
+                    urlContentLength: response.qrDrop.urlContent.length,
+                    urlContentPreview: response.qrDrop.urlContent.substring(0, 100) + '...',
+                    masterKeyLength: masterKeyBytes.length,
+                    qrDropId: currentQrDropId
+                  });
+                  
                   const ciphertextObj = JSON.parse(response.qrDrop.urlContent);
+                  console.log('✅ [SCAN VIEW] Parsed urlContent ciphertext object:', {
+                    hasIv: !!ciphertextObj.iv,
+                    hasSalt: !!ciphertextObj.salt,
+                    hasCiphertext: !!ciphertextObj.ciphertext
+                  });
+                  
                   const decryptedUrlJson = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
                   decrypted.urls = JSON.parse(decryptedUrlJson);
+                  console.log('✅ [SCAN VIEW] Successfully decrypted urlContent');
                 } catch (parseError) {
-                  console.error('Failed to parse urlContent ciphertext:', parseError);
-                  throw new Error('Invalid ciphertext format');
+                  console.error('❌ [SCAN VIEW] Failed to parse/decrypt urlContent ciphertext:', parseError);
+                  console.error('❌ [SCAN VIEW] urlContent value:', response.qrDrop.urlContent);
+                  console.error('❌ [SCAN VIEW] parseError details:', {
+                    message: parseError.message,
+                    stack: parseError.stack,
+                    name: parseError.name
+                  });
+                  throw new Error(`Invalid ciphertext format: ${parseError.message}`);
                 }
               }
             } else {

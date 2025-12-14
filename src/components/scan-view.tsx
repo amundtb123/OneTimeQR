@@ -176,15 +176,17 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Clean up URL after getting data
           // CRITICAL FIX: Don't remove ID from URL - we need it for k1/k2 recovery
           // Only clean up access token, but keep the ID
+          // IMPORTANT: Don't remove ?key= parameter here - App.tsx handles it
           if (isDirectScan) {
             // Keep the ID in URL - don't remove it!
-            // Only remove access token if present
+            // Only remove access token if present, but keep ?key= (App.tsx will handle it)
             const urlParams = new URLSearchParams(window.location.search);
             urlParams.delete('access');
+            // DON'T delete 'key' here - App.tsx needs to process it first
             const newSearch = urlParams.toString();
             const newUrl = newSearch ? `/scan/${currentQrDropId}?${newSearch}` : `/scan/${currentQrDropId}`;
             window.history.replaceState({}, '', newUrl);
-            console.log('🧹 [SCAN VIEW] Cleaned URL but kept ID:', newUrl);
+            console.log('🧹 [SCAN VIEW] Cleaned URL but kept ID and key param:', newUrl);
           } else if (newAccessToken) {
             window.history.replaceState({}, '', `/scan/${currentQrDropId}`);
           }

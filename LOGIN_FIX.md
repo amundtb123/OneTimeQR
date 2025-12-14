@@ -149,3 +149,4 @@ Gå gjennom hver punkt:
 
 
 
+

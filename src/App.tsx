@@ -740,16 +740,109 @@ function AppContent() {
               setIsFetchingKey(false);
             });
         } else if (key) {
-          // Legacy: Direct key in URL query parameter (old unlock method)
-          // This is a single-key unlock (not Secure Mode split-key)
-          console.log('🔑 [APP] Legacy key parameter found in URL - using for unlock');
+          // CRITICAL: ?key= can be either:
+          // 1. Legacy single-key unlock (not Secure Mode)
+          // 2. K2 from QR2 in Secure Mode (if hash fragment was converted to query param)
+          // We need to check Secure Mode first!
+          console.log('🔑 [APP] Key parameter found in URL - checking if Secure Mode...');
           console.log('🔑 [APP] Key length:', key.length);
-          setScanId(id);
-          setUnlockKey(key);
-          setCurrentView('scan');
-          // Clean up URL - remove key parameter but keep ID
-          window.history.replaceState({}, '', `/scan/${id}`);
-          console.log('✅ [APP] Legacy unlock key set, ready for decryption');
+          
+          // Check if this is Secure Mode QR drop
+          try {
+            const { projectId, publicAnonKey } = await import('./utils/supabase/info');
+            const checkResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${id}/check`, {
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`
+              }
+            });
+            
+            if (checkResponse.ok) {
+              const checkData = await checkResponse.json();
+              const isSecureMode = checkData.secureMode;
+              
+              console.log('🔍 [APP] QR drop Secure Mode check:', isSecureMode);
+              
+              if (isSecureMode) {
+                // This is K2 from QR2 in Secure Mode - store it as k2_temp
+                console.log('🔑 [APP] Secure Mode detected - storing ?key= as k2_temp');
+                console.log('💾 [APP] Storing k2_temp for ID:', id);
+                
+                // Store k2 immediately (both localStorage and sessionStorage)
+                localStorage.setItem(`k2_temp_${id}`, key);
+                localStorage.setItem(`k2_timestamp_${id}`, Date.now().toString());
+                sessionStorage.setItem(`k2_temp_${id}`, key);
+                sessionStorage.setItem(`k2_timestamp_${id}`, Date.now().toString());
+                
+                // Verify storage
+                const verifyK2 = localStorage.getItem(`k2_temp_${id}`) || sessionStorage.getItem(`k2_temp_${id}`);
+                console.log('✅ [APP] k2_temp storage verification:', verifyK2 ? 'SUCCESS' : 'FAILED');
+                
+                // Check if we have k1 already
+                const storedK1 = localStorage.getItem(`k1_${id}`) || sessionStorage.getItem(`k1_${id}`);
+                
+                if (storedK1) {
+                  // We have both k1 and k2 - combine them NOW!
+                  console.log('🔑 [APP] Found both k1 and k2 - combining now!');
+                  try {
+                    const { combineKeys } = await import('./utils/encryption');
+                    const masterKey = combineKeys(storedK1, key);
+                    const masterKeyHex = Array.from(masterKey)
+                      .map(b => b.toString(16).padStart(2, '0'))
+                      .join('');
+                    
+                    // Store master key
+                    sessionStorage.setItem(`master_${id}`, masterKeyHex);
+                    
+                    // Clean up temporary k2 storage
+                    localStorage.removeItem(`k2_temp_${id}`);
+                    localStorage.removeItem(`k2_timestamp_${id}`);
+                    sessionStorage.removeItem(`k2_temp_${id}`);
+                    sessionStorage.removeItem(`k2_timestamp_${id}`);
+                    
+                    setScanId(id);
+                    setUnlockKey(masterKeyHex);
+                    setCurrentView('scan');
+                    
+                    // Clean up URL - remove key parameter but keep ID
+                    window.history.replaceState({}, '', `/scan/${id}`);
+                    console.log('✅ [APP] Combined k1+k2 from ?key= parameter - master key ready');
+                    return;
+                  } catch (error) {
+                    console.error('❌ [APP] Failed to combine keys:', error);
+                  }
+                } else {
+                  // We have k2 but not k1 - show scan view and wait for QR1
+                  console.log('⏳ [APP] k2 stored, but k1 not found - waiting for QR1');
+                  setScanId(id);
+                  setCurrentView('scan');
+                  
+                  // Clean up URL - remove key parameter but keep ID
+                  window.history.replaceState({}, '', `/scan/${id}`);
+                  console.log('✅ [APP] k2 stored, waiting for k1');
+                  return;
+                }
+              } else {
+                // Not Secure Mode - this is legacy single-key unlock
+                console.log('🔑 [APP] Not Secure Mode - treating as legacy single-key unlock');
+                setScanId(id);
+                setUnlockKey(key);
+                setCurrentView('scan');
+                // Clean up URL - remove key parameter but keep ID
+                window.history.replaceState({}, '', `/scan/${id}`);
+                console.log('✅ [APP] Legacy unlock key set, ready for decryption');
+                return;
+              }
+            }
+          } catch (error) {
+            console.error('⚠️ [APP] Failed to check Secure Mode, assuming legacy:', error);
+            // Fallback: assume legacy if check fails
+            setScanId(id);
+            setUnlockKey(key);
+            setCurrentView('scan');
+            window.history.replaceState({}, '', `/scan/${id}`);
+            console.log('✅ [APP] Legacy unlock key set (fallback), ready for decryption');
+            return;
+          }
         } else {
           // Regular scan (not QR #2, no split-key, no legacy key)
           // BUT: Check if we have k2 in localStorage/sessionStorage (from QR #2 scan that navigated here)

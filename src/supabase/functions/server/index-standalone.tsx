@@ -595,6 +595,15 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
 app.post('/make-server-c3c9181e/create', async (c) => {
   try {
     const metadata = await c.req.json();
+    
+    // DEBUG: Log raw metadata to see what we receive
+    console.log('🔍 [SERVER] Raw metadata received:', {
+      hasClientId: !!metadata.clientId,
+      clientIdValue: metadata.clientId,
+      clientIdType: typeof metadata.clientId,
+      secureMode: metadata.secureMode,
+      allKeys: Object.keys(metadata).slice(0, 20) // First 20 keys
+    });
 
     // SECURITY: Validate metadata size (excluding ciphertext for secureMode)
     // For secureMode, ciphertext is sent as separate fields and not counted in metadata size

@@ -300,6 +300,8 @@ const resources = {
         fetchingDecryptionKey: 'Fetching decryption key...',
         couldNotFetchKey: '⚠️ Could not fetch decryption key',
         qr1ScanExpired: '⚠️ QR #1 scan expired. Scan QR #1 again!',
+        qr1MayBeOnDifferentDevice: 'Tip: If you scanned QR1 on a different device or in a different browser, scan QR1 again on this device to continue.',
+        scanQr1Now: 'Scan QR #1 Now',
       },
     },
   },
@@ -564,6 +566,8 @@ const resources = {
         fetchingDecryptionKey: 'Henter dekrypteringsnøkkel...',
         couldNotFetchKey: '⚠️ Kunne ikke hente dekrypteringsnøkkel',
         qr1ScanExpired: '⚠️ QR #1 scan utløpt. Skann QR #1 på nytt!',
+        qr1MayBeOnDifferentDevice: 'Tips: Hvis du skannet QR1 på en annen enhet eller i en annen nettleser, skann QR1 på nytt på denne enheten for å fortsette.',
+        scanQr1Now: 'Skann QR #1 Nå',
       },
       coins: {
         yourCoins: 'Dine mynter',

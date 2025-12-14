@@ -248,8 +248,10 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             });
             
             // Navigate to unlock route - App.tsx will handle combining k1 + k2
-            // Use setTimeout to ensure sessionStorage is written before navigation
-            console.log('⏳ [UNLOCK SCREEN] Waiting 100ms before navigation to ensure sessionStorage is written...');
+            // MOBILE FIX: Use longer delay for mobile browsers which may need more time
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            const delay = isMobile ? 200 : 100;
+            console.log(`⏳ [UNLOCK SCREEN] Waiting ${delay}ms before navigation (mobile: ${isMobile}) to ensure storage is written...`);
             setTimeout(() => {
               console.log('🚀 [UNLOCK SCREEN] Executing navigation to:', targetUrl);
               console.log('🚀 [UNLOCK SCREEN] Current location before navigation:', window.location.href);
@@ -262,16 +264,31 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
                 sessionStorage: verifyK2BeforeNavSession ? 'FOUND' : 'MISSING'
               });
               
-              // CRITICAL: Use history.pushState instead of window.location.href to avoid full reload
-              // Full reload can clear sessionStorage and cause timing issues on mobile
-              // Since k2 is already in localStorage, we can safely use pushState
-              console.log('🚀 [UNLOCK SCREEN] Using history.pushState instead of window.location.href to preserve storage');
+            // CRITICAL: Use history.pushState instead of window.location.href to avoid full reload
+            // Full reload can clear sessionStorage and cause timing issues on mobile
+            // Since k2 is already in localStorage, we can safely use pushState
+            console.log('🚀 [UNLOCK SCREEN] Using history.pushState instead of window.location.href to preserve storage');
+            
+            // MOBILE FIX: Double-check k2 is stored before navigation (mobile browsers can be finicky)
+            const finalK2Check = localStorage.getItem(`k2_temp_${fileId}`);
+            if (!finalK2Check) {
+              console.warn('⚠️ [UNLOCK SCREEN] k2 missing before navigation - storing again');
+              localStorage.setItem(`k2_temp_${fileId}`, k2Value);
+              localStorage.setItem(`k2_timestamp_${fileId}`, Date.now().toString());
+            }
+            
+            try {
               window.history.pushState({}, '', targetUrl);
               
               // Trigger popstate event to make App.tsx re-evaluate the route
               window.dispatchEvent(new PopStateEvent('popstate'));
               
               console.log('✅ [UNLOCK SCREEN] Navigation command executed (pushState)');
+            } catch (error) {
+              console.error('❌ [UNLOCK SCREEN] pushState failed, falling back to window.location:', error);
+              // Fallback for browsers that don't support pushState properly
+              window.location.href = targetUrl;
+            }
             }, 100);
           } else {
             console.error('❌ [UNLOCK SCREEN] Could not extract fileId from unlock URL. Pathname:', url.pathname);

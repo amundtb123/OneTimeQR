@@ -100,6 +100,11 @@ function AppContent() {
       // CRITICAL FIX: Extract and store k1 immediately if present in URL (before any other processing)
       // This handles cases where QR1 is scanned and URL fragment might be lost during navigation
       const k1FromUrl = extractK1FromUrl();
+      console.log('🔍 [APP] Initial k1 check:', {
+        hasK1InUrl: !!k1FromUrl,
+        hash: window.location.hash ? window.location.hash.substring(0, 50) + '...' : 'none',
+        fullUrl: window.location.href.substring(0, 150) + '...'
+      });
       if (k1FromUrl) {
         const scanMatchForK1 = window.location.pathname.match(/\/scan\/([^\/]+)/);
         if (scanMatchForK1) {
@@ -110,7 +115,12 @@ function AppContent() {
           localStorage.setItem(`qr1_timestamp_${qrId}`, Date.now().toString());
           sessionStorage.setItem(`qr1_timestamp_${qrId}`, Date.now().toString());
           console.log('✅ [APP] k1 stored immediately from URL hash');
+        } else {
+          console.warn('⚠️ [APP] k1 found in URL but no scan ID in pathname:', window.location.pathname);
         }
+      } else {
+        console.warn('⚠️ [APP] k1 NOT found in URL hash - this is the problem!');
+        console.warn('⚠️ [APP] This means QR1 URL fragment (#k1=...) was lost or QR1 was scanned on different device');
       }
       
       const path = window.location.pathname;
@@ -296,25 +306,40 @@ function AppContent() {
           
           // If server verified but no local k1, we can't decrypt (k1 is in URL fragment from QR1)
           // This happens when QR1 was scanned on a different device, or k1 was lost
+          // IMPROVED: Check URL one more time in case k1 is still in fragment (mobile browser quirk)
           if (serverVerified && !storedK1) {
             console.warn('⚠️ [APP] Server verified QR1 was scanned, but k1 not found locally');
             console.warn('⚠️ [APP] This means QR1 was scanned on a different device, or k1 was lost');
-            console.warn('⚠️ [APP] Solution: User must scan QR1 again on THIS device to get k1');
-            console.log('🔴 [APP] Setting showQr2Error to TRUE (server verified but no k1)');
-            setShowQr2Error(true);
-            setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
-            setCurrentView('scan'); // Show scan view with error, not redirect to upload
-            console.log('🔴 [APP] showQr2Error set, scanId:', unlockId, 'currentView: scan');
-            // Don't show error toast - the error screen will explain it better
-            // Clean up k2 if stored (we'll need to scan QR2 again after scanning QR1)
-            if (k2FromStorage) {
-              console.log('🧹 [APP] Cleaning up k2 since k1 is missing - user needs to scan QR1 first');
-              localStorage.removeItem(`k2_temp_${unlockId}`);
-              localStorage.removeItem(`k2_timestamp_${unlockId}`);
-              sessionStorage.removeItem(`k2_temp_${unlockId}`);
-              sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
+            
+            // LAST CHANCE: Check if k1 is still in URL fragment (mobile browsers sometimes preserve it)
+            const k1FromUrlLastChance = extractK1FromUrl();
+            if (k1FromUrlLastChance) {
+              console.log('🔍 [APP] Found k1 in URL fragment on last check - storing now!');
+              localStorage.setItem(`k1_${unlockId}`, k1FromUrlLastChance);
+              sessionStorage.setItem(`k1_${unlockId}`, k1FromUrlLastChance);
+              localStorage.setItem(`qr1_timestamp_${unlockId}`, Date.now().toString());
+              sessionStorage.setItem(`qr1_timestamp_${unlockId}`, Date.now().toString());
+              storedK1 = k1FromUrlLastChance;
+              console.log('✅ [APP] k1 recovered from URL fragment - continuing with unlock');
+              // Continue to combine k1+k2 below instead of returning
+            } else {
+              console.warn('⚠️ [APP] Solution: User must scan QR1 again on THIS device to get k1');
+              console.log('🔴 [APP] Setting showQr2Error to TRUE (server verified but no k1)');
+              setShowQr2Error(true);
+              setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
+              setCurrentView('scan'); // Show scan view with error, not redirect to upload
+              console.log('🔴 [APP] showQr2Error set, scanId:', unlockId, 'currentView: scan');
+              // Don't show error toast - the error screen will explain it better
+              // Clean up k2 if stored (we'll need to scan QR2 again after scanning QR1)
+              if (k2FromStorage) {
+                console.log('🧹 [APP] Cleaning up k2 since k1 is missing - user needs to scan QR1 first');
+                localStorage.removeItem(`k2_temp_${unlockId}`);
+                localStorage.removeItem(`k2_timestamp_${unlockId}`);
+                sessionStorage.removeItem(`k2_temp_${unlockId}`);
+                sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
+              }
+              return;
             }
-            return;
           }
           
           // If no server verification and no local k1, fail
@@ -468,19 +493,35 @@ function AppContent() {
           // This is QR #1 scanned - store k1 and show scan view
           // Use localStorage so it works across windows/tabs (when user opens in new window)
           console.log('💾 [APP] Storing k1 for QR1:', id, 'k1 length:', k1.length);
+          
+          // CRITICAL FIX: Store k1 IMMEDIATELY and verify BEFORE any async operations
+          // This ensures k1 is persisted even if there are timing issues
           localStorage.setItem(`k1_${id}`, k1);
           localStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
           // Also store in sessionStorage as backup (for same-window flow)
           sessionStorage.setItem(`k1_${id}`, k1);
           sessionStorage.setItem(`qr1_timestamp_${id}`, Date.now().toString());
           
-          // Verify it was stored
+          // Verify it was stored IMMEDIATELY (synchronous check)
           const verifyK1Local = localStorage.getItem(`k1_${id}`);
           const verifyK1Session = sessionStorage.getItem(`k1_${id}`);
-          console.log('✅ [APP] k1 storage verification:', {
+          console.log('✅ [APP] k1 storage verification (immediate):', {
             localStorage: verifyK1Local ? 'SUCCESS' : 'FAILED',
-            sessionStorage: verifyK1Session ? 'SUCCESS' : 'FAILED'
+            sessionStorage: verifyK1Session ? 'SUCCESS' : 'FAILED',
+            k1Length: k1.length,
+            storedLength: verifyK1Local?.length || 0
           });
+          
+          // CRITICAL: If storage failed, try again with a small delay (mobile browser quirk)
+          if (!verifyK1Local || !verifyK1Session) {
+            console.warn('⚠️ [APP] k1 storage verification failed, retrying...');
+            setTimeout(() => {
+              localStorage.setItem(`k1_${id}`, k1);
+              sessionStorage.setItem(`k1_${id}`, k1);
+              const retryVerify = localStorage.getItem(`k1_${id}`);
+              console.log('✅ [APP] k1 retry storage verification:', retryVerify ? 'SUCCESS' : 'FAILED');
+            }, 50);
+          }
           
           // CRITICAL: Mark QR1 as scanned on server (zero-knowledge - server never sees k1)
           // This allows QR2 to be scanned on a different device and still work
@@ -498,8 +539,12 @@ function AppContent() {
           setScanId(id);
           setCurrentView('scan');
           
-          // Clean up URL fragment
-          window.history.replaceState({}, '', `/scan/${id}`);
+          // CRITICAL FIX: Clean up URL fragment AFTER k1 is stored and verified
+          // Use setTimeout to ensure storage operations complete first (especially on mobile)
+          setTimeout(() => {
+            window.history.replaceState({}, '', `/scan/${id}`);
+            console.log('🧹 [APP] URL fragment cleaned after k1 storage');
+          }, 100);
           
           console.log('✅ QR #1 scanned - k1 stored, waiting for QR #2');
         } else if (unlock === '1') {
@@ -926,21 +971,46 @@ function AppContent() {
                 {t('app.qr1AccessCode')}
                 <br />
                 {t('app.qr2UnlockCode')}
+                <br /><br />
+                <span className="text-sm">
+                  {t('app.qr1MayBeOnDifferentDevice', { defaultValue: 'Tip: If you scanned QR1 on a different device or in a different browser, scan QR1 again on this device to continue.' })}
+                </span>
               </p>
-              <button
-                onClick={() => {
-                  setShowQr2Error(false);
-                  window.location.href = '/';
-                }}
-                className="px-6 py-3 rounded-xl transition-colors"
-                style={{ 
-                  backgroundColor: '#E8927E', 
-                  color: 'white',
-                  border: 'none'
-                }}
-              >
-                {t('app.backToHome')}
-              </button>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => {
+                    // Navigate to scan QR1 for this QR drop
+                    setShowQr2Error(false);
+                    if (scanId) {
+                      window.location.href = `/scan/${scanId}`;
+                    } else {
+                      window.location.href = '/';
+                    }
+                  }}
+                  className="px-6 py-3 rounded-xl transition-colors"
+                  style={{ 
+                    backgroundColor: '#5D8CC9', 
+                    color: 'white',
+                    border: 'none'
+                  }}
+                >
+                  {t('app.scanQr1Now', { defaultValue: 'Scan QR #1 Now' })}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowQr2Error(false);
+                    window.location.href = '/';
+                  }}
+                  className="px-6 py-3 rounded-xl transition-colors"
+                  style={{ 
+                    backgroundColor: '#E8927E', 
+                    color: 'white',
+                    border: 'none'
+                  }}
+                >
+                  {t('app.backToHome')}
+                </button>
+              </div>
             </div>
           </div>
         ) : scanId ? (

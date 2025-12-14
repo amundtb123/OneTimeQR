@@ -505,7 +505,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                     wasCorrected: ivToDecode !== ciphertextObj.iv || saltToDecode !== ciphertextObj.salt
                   });
                   
-                  decrypted.text = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
+                  decrypted.text = await decryptTextWithSplitKey(correctedCiphertextObj, masterKeyBytes, currentQrDropId);
                   console.log('✅ [SCAN VIEW] Successfully decrypted textContent');
                 } catch (parseError) {
                   console.error('❌ [SCAN VIEW] Failed to parse/decrypt textContent ciphertext:', parseError);

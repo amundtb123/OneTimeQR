@@ -174,15 +174,70 @@ export async function decryptBytes(
     
     const salt = fromB64u(enc.salt);
     console.log('✅ [DECRYPT] Salt decoded:', {
+      saltStringLength: enc.salt?.length,
       saltLength: salt.length,
       expectedLength: 16,
-      isValid: salt.length === 16
+      isValid: salt.length === 16,
+      saltPreview: Array.from(salt.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join('') + '...'
     });
+    
+    // CRITICAL FIX: Handle legacy QR drops with 12-byte salt
+    // New QR drops use 16-byte salt, but old ones might have 12-byte salt
+    if (salt.length === 12) {
+      console.warn('⚠️ [DECRYPT] Salt is 12 bytes (legacy format), padding to 16 bytes for HKDF compatibility');
+      // Pad salt to 16 bytes by appending zeros (HKDF can handle this)
+      const paddedSalt = new Uint8Array(16);
+      paddedSalt.set(salt, 0);
+      // Use padded salt for HKDF
+      const key = await hkdfKey(master, paddedSalt, `OneTimeQR:file:${fileId}`);
+      console.log('✅ [DECRYPT] HKDF key derived with padded salt');
+      
+      // Continue with decryption using padded salt
+      const additionalData = te.encode(fileId);
+      console.log('🔍 [DECRYPT] Decryption parameters:', {
+        ivLength: iv.length,
+        saltLength: paddedSalt.length,
+        ciphertextLength: ct.length,
+        fileId: fileId,
+        fileIdLength: fileId.length,
+        additionalDataLength: additionalData.length
+      });
+      
+      try {
+        const plain = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv, additionalData },
+          key,
+          ct
+        );
+        
+        console.log('✅ [DECRYPT] Decryption successful (with padded salt), plaintext length:', plain.byteLength);
+        return new Uint8Array(plain);
+      } catch (cryptoError: any) {
+        console.error('❌ [DECRYPT] Web Crypto API error (with padded salt):', {
+          name: cryptoError.name,
+          message: cryptoError.message,
+          code: cryptoError.code,
+          possibleCauses: [
+            'Wrong master key (k1/k2 mismatch)',
+            'Corrupted ciphertext',
+            'Wrong fileId (additionalData mismatch)',
+            'IV/salt decoding error',
+            'Ciphertext format mismatch'
+          ]
+        });
+        throw new Error(`Decryption failed: ${cryptoError.name || 'Unknown error'} - ${cryptoError.message || 'No details'}. Possible causes: wrong key, corrupted data, or format mismatch.`);
+      }
+    }
     
     const ct = fromB64u(enc.ciphertext);
     console.log('✅ [DECRYPT] Ciphertext decoded:', {
       ciphertextLength: ct.length
     });
+    
+    // Validate salt length (should be 16 bytes for new QR drops)
+    if (salt.length !== 16) {
+      throw new Error(`Invalid salt length: ${salt.length} bytes, expected 16 bytes. Salt string: ${enc.salt?.substring(0, 30)}...`);
+    }
     
     const key = await hkdfKey(master, salt, `OneTimeQR:file:${fileId}`);
     console.log('✅ [DECRYPT] HKDF key derived');

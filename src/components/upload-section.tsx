@@ -491,6 +491,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                 ...metadata,
                 textContentCiphertext: secureModeCiphertext.textContentCiphertext,
                 urlContentCiphertext: secureModeCiphertext.urlContentCiphertext,
+                clientId: secureModeCiphertext.clientId, // Send client-generated ID
               }
             : metadata;
           

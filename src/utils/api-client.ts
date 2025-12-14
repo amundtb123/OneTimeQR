@@ -212,6 +212,14 @@ export async function uploadFile(fileOrFiles: File | File[], metadata: QrDropMet
 
 export async function createQrDrop(metadata: QrDropMetadata) {
   console.log('📤 createQrDrop called with metadata:', metadata);
+  console.log('🔍 [API] Metadata clientId check:', {
+    hasClientId: !!metadata.clientId,
+    clientIdValue: metadata.clientId,
+    clientIdType: typeof metadata.clientId,
+    secureMode: metadata.secureMode,
+    allKeys: Object.keys(metadata)
+  });
+  
   try {
     // For secureMode: Send ciphertext as separate fields in same request body
     // This keeps metadata small while allowing large ciphertext
@@ -222,6 +230,10 @@ export async function createQrDrop(metadata: QrDropMetadata) {
     
     const jsonBody = JSON.stringify(requestBody);
     console.log('📦 JSON body prepared, length:', jsonBody.length);
+    console.log('🔍 [API] Request body clientId check:', {
+      hasClientId: !!requestBody.clientId,
+      clientIdValue: requestBody.clientId
+    });
     const result = await fetchApi('/create', {
       method: 'POST',
       headers: {

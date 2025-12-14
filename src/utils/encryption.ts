@@ -155,14 +155,50 @@ export async function decryptBytes(
     const key = await hkdfKey(master, salt, `OneTimeQR:file:${fileId}`);
     console.log('✅ [DECRYPT] HKDF key derived');
     
-    const plain = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv, additionalData: te.encode(fileId) },
-      key,
-      ct
-    );
+    // Validate ciphertext length (must be at least 16 bytes for AES-GCM tag)
+    if (ct.length < 16) {
+      throw new Error(`Ciphertext too short: ${ct.length} bytes (minimum 16 bytes required for AES-GCM tag)`);
+    }
     
-    console.log('✅ [DECRYPT] Decryption successful');
-    return new Uint8Array(plain);
+    // Validate fileId for additionalData
+    const additionalData = te.encode(fileId);
+    console.log('🔍 [DECRYPT] Decryption parameters:', {
+      ivLength: iv.length,
+      saltLength: salt.length,
+      ciphertextLength: ct.length,
+      fileId: fileId,
+      fileIdLength: fileId.length,
+      additionalDataLength: additionalData.length
+    });
+    
+    try {
+      const plain = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv, additionalData },
+        key,
+        ct
+      );
+      
+      console.log('✅ [DECRYPT] Decryption successful, plaintext length:', plain.byteLength);
+      return new Uint8Array(plain);
+    } catch (cryptoError: any) {
+      // Web Crypto API errors are often generic - provide more context
+      console.error('❌ [DECRYPT] Web Crypto API error:', {
+        name: cryptoError.name,
+        message: cryptoError.message,
+        code: cryptoError.code,
+        // Common causes:
+        possibleCauses: [
+          'Wrong master key (k1/k2 mismatch)',
+          'Corrupted ciphertext',
+          'Wrong fileId (additionalData mismatch)',
+          'IV/salt decoding error',
+          'Ciphertext format mismatch'
+        ]
+      });
+      
+      // Re-throw with more context
+      throw new Error(`Decryption failed: ${cryptoError.name || 'Unknown error'} - ${cryptoError.message || 'No details'}. Possible causes: wrong key, corrupted data, or format mismatch.`);
+    }
   } catch (error) {
     console.error('❌ [DECRYPT] Decryption failed:', error);
     console.error('❌ [DECRYPT] Error details:', {

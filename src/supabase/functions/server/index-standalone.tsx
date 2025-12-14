@@ -460,13 +460,23 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
 
     // Generate unique ID (use client-provided ID if available for Secure Mode)
     // This ensures encryption/decryption use the same ID
+    console.log('🔍 [SERVER] Checking for clientId in metadata (file upload):', {
+      hasClientId: !!metadata.clientId,
+      clientIdValue: metadata.clientId,
+      clientIdType: typeof metadata.clientId,
+      metadataKeys: Object.keys(metadata).slice(0, 10) // First 10 keys for debugging
+    });
+    
     const id = metadata.clientId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(metadata.clientId)
       ? metadata.clientId
       : crypto.randomUUID();
     const timestamp = Date.now();
     
     if (metadata.clientId && id === metadata.clientId) {
-      console.log('✅ Using client-provided ID for Secure Mode (file upload):', id);
+      console.log('✅ [SERVER] Using client-provided ID for Secure Mode (file upload):', id);
+    } else if (metadata.secureMode && !metadata.clientId) {
+      console.warn('⚠️ [SERVER] Secure Mode file upload WITHOUT clientId! This will cause decryption to fail!');
+      console.warn('⚠️ [SERVER] Generated new ID:', id);
     }
 
     // Upload all files to Supabase Storage
@@ -658,13 +668,28 @@ app.post('/make-server-c3c9181e/create', async (c) => {
 
     // Generate unique ID (use client-provided ID if available for Secure Mode)
     // This ensures encryption/decryption use the same ID
+    console.log('🔍 [SERVER] Checking for clientId in metadata:', {
+      hasClientId: !!metadata.clientId,
+      clientIdValue: metadata.clientId,
+      clientIdType: typeof metadata.clientId,
+      isSecureMode: isSecureMode,
+      metadataKeys: Object.keys(metadata).slice(0, 10) // First 10 keys for debugging
+    });
+    
     const id = metadata.clientId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(metadata.clientId)
       ? metadata.clientId
       : crypto.randomUUID();
     const timestamp = Date.now();
     
     if (metadata.clientId && id === metadata.clientId) {
-      console.log('✅ Using client-provided ID for Secure Mode:', id);
+      console.log('✅ [SERVER] Using client-provided ID for Secure Mode:', id);
+    } else if (isSecureMode && !metadata.clientId) {
+      console.warn('⚠️ [SERVER] Secure Mode QR drop created WITHOUT clientId! This will cause decryption to fail!');
+      console.warn('⚠️ [SERVER] Generated new ID:', id);
+    } else if (isSecureMode && metadata.clientId && id !== metadata.clientId) {
+      console.error('❌ [SERVER] clientId provided but UUID validation failed!');
+      console.error('❌ [SERVER] clientId value:', metadata.clientId);
+      console.error('❌ [SERVER] Generated new ID instead:', id);
     }
 
     // Calculate expiry timestamp

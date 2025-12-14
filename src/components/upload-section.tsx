@@ -499,6 +499,16 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
               }
             : metadata;
           
+          // DEBUG: Log what we're sending
+          console.log('📤 [UPLOAD] Sending createMetadata:', {
+            hasClientId: !!createMetadata.clientId,
+            clientIdValue: createMetadata.clientId,
+            secureMode: secureMode,
+            hasTextContentCiphertext: !!createMetadata.textContentCiphertext,
+            hasUrlContentCiphertext: !!createMetadata.urlContentCiphertext,
+            metadataKeys: Object.keys(createMetadata).slice(0, 15)
+          });
+          
           response = await createQrDrop(createMetadata);
           console.log('✅ Create response:', response);
           

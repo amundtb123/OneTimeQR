@@ -78,9 +78,41 @@ export async function splitKey(): Promise<{ k1: string; k2: string; master: Uint
  * Combine k1 and k2 to get master key
  */
 export function combineKeys(k1Base64Url: string, k2Base64Url: string): Uint8Array {
-  const k1 = fromB64u(k1Base64Url);
-  const k2 = fromB64u(k2Base64Url);
-  return xor(k1, k2);
+  console.log('🔑 [COMBINE] Combining keys:', {
+    k1Length: k1Base64Url?.length,
+    k2Length: k2Base64Url?.length,
+    k1Preview: k1Base64Url?.substring(0, 20) + '...',
+    k2Preview: k2Base64Url?.substring(0, 20) + '...'
+  });
+  
+  try {
+    const k1 = fromB64u(k1Base64Url);
+    const k2 = fromB64u(k2Base64Url);
+    
+    console.log('✅ [COMBINE] Keys decoded:', {
+      k1Bytes: k1.length,
+      k2Bytes: k2.length,
+      expectedBytes: 32,
+      k1Valid: k1.length === 32,
+      k2Valid: k2.length === 32
+    });
+    
+    if (k1.length !== 32 || k2.length !== 32) {
+      throw new Error(`Invalid key length: k1=${k1.length} bytes, k2=${k2.length} bytes (expected 32 bytes each)`);
+    }
+    
+    const master = xor(k1, k2);
+    console.log('✅ [COMBINE] Master key generated:', {
+      masterBytes: master.length,
+      expectedBytes: 32,
+      isValid: master.length === 32
+    });
+    
+    return master;
+  } catch (error) {
+    console.error('❌ [COMBINE] Failed to combine keys:', error);
+    throw new Error(`Failed to combine keys: ${error.message}`);
+  }
 }
 
 /**

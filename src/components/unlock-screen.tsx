@@ -218,14 +218,24 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
     console.log('📱 [UNLOCK SCREEN] QR code scanned, raw data:', data);
     console.log('📱 [UNLOCK SCREEN] Current qrDropId:', qrDropId);
     
+    // CRITICAL FIX: Some QR scanners convert # to @ in URLs
+    // Fix this before parsing
+    let fixedData = data;
+    if (data.includes('@k1=') || data.includes('@k2=')) {
+      console.warn('⚠️ [UNLOCK SCREEN] QR scanner converted # to @ - fixing...');
+      fixedData = data.replace(/@k1=/g, '#k1=').replace(/@k2=/g, '#k2=');
+      console.log('✅ [UNLOCK SCREEN] Fixed URL:', fixedData.substring(0, 100) + '...');
+    }
+    
     // Parse URL to extract key, unlock parameter, or k2 fragment
     try {
-      const url = new URL(data);
+      const url = new URL(fixedData);
       console.log('📱 [UNLOCK SCREEN] Parsed URL:', {
         origin: url.origin,
         pathname: url.pathname,
         hash: url.hash,
-        search: url.search
+        search: url.search,
+        hadAtSymbol: data.includes('@k1=') || data.includes('@k2=')
       });
       
       const key = url.searchParams.get('key');

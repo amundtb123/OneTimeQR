@@ -458,9 +458,16 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       }
     }
 
-    // Generate unique ID
-    const id = crypto.randomUUID();
+    // Generate unique ID (use client-provided ID if available for Secure Mode)
+    // This ensures encryption/decryption use the same ID
+    const id = metadata.clientId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(metadata.clientId)
+      ? metadata.clientId
+      : crypto.randomUUID();
     const timestamp = Date.now();
+    
+    if (metadata.clientId && id === metadata.clientId) {
+      console.log('✅ Using client-provided ID for Secure Mode (file upload):', id);
+    }
 
     // Upload all files to Supabase Storage
     const uploadedFiles: Array<{name: string; type: string; size: number; path: string}> = [];

@@ -8,6 +8,21 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { markQr1Scanned } from '../utils/api-client';
 import { toast } from 'sonner@2.0.3';
 
+// Safe storage wrapper that handles quota errors
+function safeSetItem(storage: Storage, key: string, value: string): boolean {
+  try {
+    storage.setItem(key, value);
+    return true;
+  } catch (error: any) {
+    if (error.name === 'QuotaExceededError' || error.message?.includes('quota')) {
+      console.warn(`⚠️ [UNLOCK SCREEN] Storage quota exceeded for key: ${key}`);
+      return false;
+    }
+    console.error(`❌ [UNLOCK SCREEN] Storage error for key: ${key}`, error);
+    return false;
+  }
+}
+
 interface UnlockScreenProps {
   onUnlock: (key: string) => Promise<void>;
   isUnlocking: boolean;
@@ -61,11 +76,17 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
       // If k1 is in URL but not in storage, store it now
       if (k1FromUrl && !k1Local && !k1Session) {
         console.log('💾 [UNLOCK SCREEN] Found k1 in URL, storing now...');
-        localStorage.setItem(`k1_${qrDropId}`, k1FromUrl);
-        sessionStorage.setItem(`k1_${qrDropId}`, k1FromUrl);
-        localStorage.setItem(`qr1_timestamp_${qrDropId}`, Date.now().toString());
-        sessionStorage.setItem(`qr1_timestamp_${qrDropId}`, Date.now().toString());
-        setHasK1(true);
+        const timestamp = Date.now().toString();
+        const stored = safeSetItem(localStorage, `k1_${qrDropId}`, k1FromUrl);
+        const storedSession = safeSetItem(sessionStorage, `k1_${qrDropId}`, k1FromUrl);
+        safeSetItem(localStorage, `qr1_timestamp_${qrDropId}`, timestamp);
+        safeSetItem(sessionStorage, `qr1_timestamp_${qrDropId}`, timestamp);
+        if (stored || storedSession) {
+          setHasK1(true);
+        } else {
+          console.error('❌ [UNLOCK SCREEN] Failed to store k1 due to storage quota');
+          toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
+        }
       }
     }
   }, [qrDropId]);
@@ -77,7 +98,7 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   if (!hasMarkedRef.current && qrDropId) {
     // Note: k1 is stored in App.tsx when QR #1 is scanned with k1 in fragment
     // This is just a backup marker - the real k1 storage happens in App.tsx
-    sessionStorage.setItem(`qr1_scanned_${qrDropId}`, Date.now().toString());
+    safeSetItem(sessionStorage, `qr1_scanned_${qrDropId}`, Date.now().toString());
     console.log('🔐 [SYNC] Marked QR #1 as scanned immediately on render for:', qrDropId);
     console.log('🔐 [SYNC] qrDropId full value:', JSON.stringify(qrDropId));
     hasMarkedRef.current = true;
@@ -89,7 +110,7 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
       // Only call once per qrDropId
       const apiCallKey = `qr1_api_called_${qrDropId}`;
       if (!sessionStorage.getItem(apiCallKey)) {
-        sessionStorage.setItem(apiCallKey, 'true');
+        safeSetItem(sessionStorage, apiCallKey, 'true');
         markQr1Scanned(qrDropId)
           .then((result) => {
             console.log('✅ [UNLOCK SCREEN] QR #1 scan recorded on server:', result);
@@ -249,10 +270,16 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             console.log('💾 [UNLOCK SCREEN] Storing k1 for QR1:', fileId);
             
             // Store k1 immediately
-            localStorage.setItem(`k1_${fileId}`, k1Value);
-            sessionStorage.setItem(`k1_${fileId}`, k1Value);
-            localStorage.setItem(`qr1_timestamp_${fileId}`, Date.now().toString());
-            sessionStorage.setItem(`qr1_timestamp_${fileId}`, Date.now().toString());
+            const timestamp = Date.now().toString();
+            const storedK1 = safeSetItem(localStorage, `k1_${fileId}`, k1Value);
+            const storedK1Session = safeSetItem(sessionStorage, `k1_${fileId}`, k1Value);
+            safeSetItem(localStorage, `qr1_timestamp_${fileId}`, timestamp);
+            safeSetItem(sessionStorage, `qr1_timestamp_${fileId}`, timestamp);
+            
+            if (!storedK1 && !storedK1Session) {
+              console.error('❌ [UNLOCK SCREEN] Failed to store k1 due to storage quota');
+              toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
+            }
             
             // Mark QR1 as scanned on server
             markQr1Scanned(fileId)
@@ -264,12 +291,14 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
               });
             
             // Update hasK1 state
-            setHasK1(true);
+            if (storedK1 || storedK1Session) {
+              setHasK1(true);
+            }
             
             // Also update for qrDropId if different
             if (qrDropId && qrDropId !== fileId) {
-              localStorage.setItem(`k1_${qrDropId}`, k1Value);
-              sessionStorage.setItem(`k1_${qrDropId}`, k1Value);
+              safeSetItem(localStorage, `k1_${qrDropId}`, k1Value);
+              safeSetItem(sessionStorage, `k1_${qrDropId}`, k1Value);
             }
             
             // Close scanner and show success message
@@ -312,18 +341,25 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
               console.warn('⚠️ [UNLOCK SCREEN] ID mismatch! QR1 ID (props):', qrDropId, 'vs QR2 ID (scanned):', fileId);
               console.log('💾 [UNLOCK SCREEN] Storing k2 with BOTH keys for safety');
               // Store with QR1's ID as fallback
-              localStorage.setItem(`k2_temp_${qrDropId}`, k2Value);
-              localStorage.setItem(`k2_timestamp_${qrDropId}`, Date.now().toString());
+              const timestamp = Date.now().toString();
+              safeSetItem(localStorage, `k2_temp_${qrDropId}`, k2Value);
+              safeSetItem(localStorage, `k2_timestamp_${qrDropId}`, timestamp);
             }
             
             // Store k2 with QR2's ID (PRIMARY - from scanned URL)
             // Use localStorage so it persists across windows/tabs
-            localStorage.setItem(`k2_temp_${fileId}`, k2Value);
-            localStorage.setItem(`k2_timestamp_${fileId}`, Date.now().toString());
+            const timestamp = Date.now().toString();
+            const storedK2 = safeSetItem(localStorage, `k2_temp_${fileId}`, k2Value);
+            const storedK2Timestamp = safeSetItem(localStorage, `k2_timestamp_${fileId}`, timestamp);
             
             // Also store in sessionStorage as backup (for same-window flow)
-            sessionStorage.setItem(`k2_temp_${fileId}`, k2Value);
-            sessionStorage.setItem(`k2_timestamp_${fileId}`, Date.now().toString());
+            const storedK2Session = safeSetItem(sessionStorage, `k2_temp_${fileId}`, k2Value);
+            const storedK2SessionTimestamp = safeSetItem(sessionStorage, `k2_timestamp_${fileId}`, timestamp);
+            
+            if (!storedK2 && !storedK2Session) {
+              console.error('❌ [UNLOCK SCREEN] Failed to store k2 due to storage quota');
+              toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
+            }
             
             // Verify it was stored
             const verifyK2 = localStorage.getItem(`k2_temp_${fileId}`);
@@ -374,8 +410,9 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             const finalK2Check = localStorage.getItem(`k2_temp_${fileId}`);
             if (!finalK2Check) {
               console.warn('⚠️ [UNLOCK SCREEN] k2 missing before navigation - storing again');
-              localStorage.setItem(`k2_temp_${fileId}`, k2Value);
-              localStorage.setItem(`k2_timestamp_${fileId}`, Date.now().toString());
+              const timestamp = Date.now().toString();
+              safeSetItem(localStorage, `k2_temp_${fileId}`, k2Value);
+              safeSetItem(localStorage, `k2_timestamp_${fileId}`, timestamp);
             }
             
             try {
@@ -417,10 +454,11 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             // Fallback: try using qrDropId from props
             if (qrDropId && k2Value) {
               console.log('💾 [UNLOCK SCREEN] Fallback: storing k2 with qrDropId from props:', qrDropId);
-              localStorage.setItem(`k2_temp_${qrDropId}`, k2Value);
-              localStorage.setItem(`k2_timestamp_${qrDropId}`, Date.now().toString());
-              sessionStorage.setItem(`k2_temp_${qrDropId}`, k2Value);
-              sessionStorage.setItem(`k2_timestamp_${qrDropId}`, Date.now().toString());
+              const timestamp = Date.now().toString();
+              safeSetItem(localStorage, `k2_temp_${qrDropId}`, k2Value);
+              safeSetItem(localStorage, `k2_timestamp_${qrDropId}`, timestamp);
+              safeSetItem(sessionStorage, `k2_temp_${qrDropId}`, k2Value);
+              safeSetItem(sessionStorage, `k2_timestamp_${qrDropId}`, timestamp);
             }
             window.location.href = data;
           }

@@ -1183,7 +1183,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                               <Button
                                 onClick={async () => {
                                   await incrementScanCount(currentQrDropId);
-                                  urls.forEach(url => window.open(url, '_blank'));
+                                  validUrls.forEach(url => window.open(url, '_blank'));
                                 }}
                                 size="lg"
                               >

@@ -278,7 +278,27 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             }
             
             try {
+              // MOBILE FIX: On mobile, hash fragments can be lost with pushState
+              // Store k2 in a way that survives navigation, then use pushState
+              // If pushState fails or hash is lost, App.tsx will recover k2 from storage
               window.history.pushState({}, '', targetUrl);
+              
+              // MOBILE FIX: Verify hash is still there after pushState (mobile browsers sometimes lose it)
+              setTimeout(() => {
+                const hashAfterNav = window.location.hash;
+                const k2InHash = hashAfterNav && hashAfterNav.includes('k2=');
+                console.log('🔍 [UNLOCK SCREEN] Hash verification after pushState:', {
+                  hashPresent: !!hashAfterNav,
+                  hasK2: k2InHash,
+                  hash: hashAfterNav ? hashAfterNav.substring(0, 50) + '...' : 'EMPTY',
+                  k2InStorage: !!localStorage.getItem(`k2_temp_${fileId}`)
+                });
+                
+                // If hash was lost but k2 is in storage, that's OK - App.tsx will recover it
+                if (!k2InHash && localStorage.getItem(`k2_temp_${fileId}`)) {
+                  console.log('✅ [UNLOCK SCREEN] Hash lost but k2 is in storage - App.tsx will recover it');
+                }
+              }, 100);
               
               // Trigger popstate event to make App.tsx re-evaluate the route
               window.dispatchEvent(new PopStateEvent('popstate'));
@@ -287,6 +307,7 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             } catch (error) {
               console.error('❌ [UNLOCK SCREEN] pushState failed, falling back to window.location:', error);
               // Fallback for browsers that don't support pushState properly
+              // Use full URL with hash - this should work even if pushState doesn't
               window.location.href = targetUrl;
             }
             }, 100);

@@ -357,22 +357,50 @@ function AppContent() {
               console.log('✅ [APP] k1 recovered from URL fragment - continuing with unlock');
               // Continue to combine k1+k2 below instead of returning
             } else {
-              console.warn('⚠️ [APP] Solution: User must scan QR1 again on THIS device to get k1');
-              console.log('🔴 [APP] Setting showQr2Error to TRUE (server verified but no k1)');
-              setShowQr2Error(true);
-              setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
-              setCurrentView('scan'); // Show scan view with error, not redirect to upload
-              console.log('🔴 [APP] showQr2Error set, scanId:', unlockId, 'currentView: scan');
-              // Don't show error toast - the error screen will explain it better
-              // Clean up k2 if stored (we'll need to scan QR2 again after scanning QR1)
-              if (k2FromStorage) {
-                console.log('🧹 [APP] Cleaning up k2 since k1 is missing - user needs to scan QR1 first');
-                localStorage.removeItem(`k2_temp_${unlockId}`);
-                localStorage.removeItem(`k2_timestamp_${unlockId}`);
-                sessionStorage.removeItem(`k2_temp_${unlockId}`);
-                sessionStorage.removeItem(`k2_timestamp_${unlockId}`);
+              // MOBILE FIX: If server verified QR1 but k1 is missing, check if we can recover k1 from URL
+              // This handles the case where QR1 was opened as URL (not scanned) and k1 is in the original URL
+              // but got lost during navigation on mobile
+              console.warn('⚠️ [APP] Server verified QR1 was scanned, but k1 not found locally');
+              console.warn('⚠️ [APP] Attempting to recover k1 from any available source...');
+              
+              // Try to find k1 from any k1_* key (might be stored with different ID)
+              const allK1KeysLocal = Object.keys(localStorage).filter(k => k.startsWith('k1_'));
+              const allK1KeysSession = Object.keys(sessionStorage).filter(k => k.startsWith('k1_'));
+              const allK1Keys = [...allK1KeysLocal, ...allK1KeysSession];
+              
+              if (allK1Keys.length > 0) {
+                const firstK1Key = allK1Keys[0];
+                const recoveredK1 = localStorage.getItem(firstK1Key) || sessionStorage.getItem(firstK1Key);
+                if (recoveredK1) {
+                  console.log('✅ [APP] Recovered k1 from storage using key:', firstK1Key);
+                  // Store it with unlockId for future use
+                  localStorage.setItem(`k1_${unlockId}`, recoveredK1);
+                  sessionStorage.setItem(`k1_${unlockId}`, recoveredK1);
+                  storedK1 = recoveredK1;
+                  console.log('✅ [APP] k1 recovered - continuing with unlock');
+                  // Continue to combine k1+k2 below instead of returning
+                } else {
+                  console.warn('⚠️ [APP] Solution: User must scan QR1 again on THIS device to get k1');
+                  console.log('🔴 [APP] Setting showQr2Error to TRUE (server verified but no k1)');
+                  setShowQr2Error(true);
+                  setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
+                  setCurrentView('scan'); // Show scan view with error, not redirect to upload
+                  console.log('🔴 [APP] showQr2Error set, scanId:', unlockId, 'currentView: scan');
+                  // Don't show error toast - the error screen will explain it better
+                  // DON'T clean up k2 - user might scan QR1 and we'll need k2 again
+                  return;
+                }
+              } else {
+                console.warn('⚠️ [APP] Solution: User must scan QR1 again on THIS device to get k1');
+                console.log('🔴 [APP] Setting showQr2Error to TRUE (server verified but no k1)');
+                setShowQr2Error(true);
+                setScanId(unlockId); // Keep scanId so error shows on unlock page, not redirect to home
+                setCurrentView('scan'); // Show scan view with error, not redirect to upload
+                console.log('🔴 [APP] showQr2Error set, scanId:', unlockId, 'currentView: scan');
+                // Don't show error toast - the error screen will explain it better
+                // DON'T clean up k2 - user might scan QR1 and we'll need k2 again
+                return;
               }
-              return;
             }
           }
           
@@ -476,11 +504,14 @@ function AppContent() {
             }
           }
         } else {
-          // k2 not found - show error
+          // k2 not found - show error BUT keep unlockId so we don't redirect to /scan without ID
           console.warn('⚠️ [APP] On /unlock/:id route but k2 not found');
+          console.warn('⚠️ [APP] unlockId:', unlockId);
+          console.warn('⚠️ [APP] This might be a mobile browser issue where hash was lost');
           setShowQr2Error(true);
-          setScanId(unlockId);
-          setCurrentView('scan');
+          setScanId(unlockId); // CRITICAL: Keep unlockId so error shows on unlock page, not redirect to /scan
+          setCurrentView('scan'); // Show scan view with error, but with correct ID
+          console.log('🔴 [APP] showQr2Error set, scanId:', unlockId, 'currentView: scan');
           toast.error('QR2 nøkkel ikke funnet. Prøv å skanne QR2 på nytt.');
         }
       } else if (scanMatch) {

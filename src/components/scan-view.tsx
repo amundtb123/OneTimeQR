@@ -1135,7 +1135,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                   <LinkIcon className="size-5 text-[#4A6FA5]" />
                   <h3 className="text-gray-900">{(() => {
                     try {
-                      const urls = isEncrypted ? decryptedContent.urls : JSON.parse(qrDrop.urlContent);
+                      const urls = isEncrypted ? decryptedContent.urls : (qrDrop?.urlContent ? JSON.parse(qrDrop.urlContent) : []);
                       return Array.isArray(urls) && urls.length > 1 ? t('scanView.urlsPlural') : t('scanView.urls');
                     } catch {
                       return t('scanView.urls');
@@ -1144,11 +1144,17 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                 </div>
                 {(() => {
                   try {
-                    const urls = isEncrypted ? decryptedContent.urls : JSON.parse(qrDrop.urlContent);
-                    if (Array.isArray(urls)) {
+                    const urls = isEncrypted ? decryptedContent.urls : (qrDrop?.urlContent ? JSON.parse(qrDrop.urlContent) : []);
+                    if (Array.isArray(urls) && urls.length > 0) {
+                      // Filter out null/undefined URLs
+                      const validUrls = urls.filter(url => url && typeof url === 'string');
+                      if (validUrls.length === 0) {
+                        console.warn('⚠️ [SCAN VIEW] No valid URLs found in decrypted content');
+                        return <p className="text-gray-600">Ingen gyldige lenker funnet.</p>;
+                      }
                       return (
                         <div className="space-y-2">
-                          {urls.map((url, index) => (
+                          {validUrls.map((url, index) => (
                             <div key={index} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                               <a 
                                 href={url}
@@ -1161,11 +1167,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                               </a>
                             </div>
                           ))}
-                          {urls.length > 0 && (
+                          {validUrls.length > 0 && (
                             <div className="grid grid-cols-2 gap-3 mt-4">
                               <Button
                                 onClick={() => {
-                                  navigator.clipboard.writeText(urls.join('\n'));
+                                  navigator.clipboard.writeText(validUrls.join('\n'));
                                   toast.success(t('scanView.linksCopied'));
                                 }}
                                 variant="outline"

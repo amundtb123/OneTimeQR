@@ -94,6 +94,7 @@ export interface QrDropMetadata {
   // For secureMode: ciphertext sent separately (not in metadata to avoid size limit)
   textContentCiphertext?: string; // JSON string of {iv, salt, ciphertext}
   urlContentCiphertext?: string; // JSON string of {iv, salt, ciphertext}
+  clientId?: string; // Client-generated ID for Secure Mode (ensures encryption/decryption use same ID)
 }
 
 export interface QrDropData {

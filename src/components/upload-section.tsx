@@ -340,20 +340,32 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       // This ensures files are never stored unencrypted in Supabase Storage
       const encryptionKeyForFiles = await generateEncryptionKey();
       
+      // CRITICAL FIX: Generate QR drop ID on client side FIRST for Secure Mode
+      // This ensures we can encrypt with the actual ID that will be used for decryption
+      // The server will use this ID if provided, or generate a new one if not
+      const clientGeneratedId = secureMode ? crypto.randomUUID() : undefined;
+      
       if (secureMode) {
         // Generate split keys for zero-knowledge encryption
         splitKeys = await splitKey();
-        const tempFileId = crypto.randomUUID(); // Temporary ID, will use actual response.id later
         
-        // Encrypt text content with split-key master
-        if (textContent.trim()) {
-          encryptedTextContent = await encryptTextWithSplitKey(textContent.trim(), splitKeys.master, tempFileId);
+        if (!clientGeneratedId) {
+          throw new Error('Failed to generate QR drop ID for Secure Mode encryption');
         }
         
-        // Encrypt URL content with split-key master
+        console.log('🔐 [UPLOAD] Using client-generated ID for encryption:', clientGeneratedId);
+        
+        // Encrypt text content with split-key master (using actual ID)
+        if (textContent.trim()) {
+          encryptedTextContent = await encryptTextWithSplitKey(textContent.trim(), splitKeys.master, clientGeneratedId);
+          console.log('✅ [UPLOAD] Encrypted textContent with ID:', clientGeneratedId);
+        }
+        
+        // Encrypt URL content with split-key master (using actual ID)
         if (urls.length > 0) {
           const urlJson = JSON.stringify(urls);
-          encryptedUrlContent = await encryptTextWithSplitKey(urlJson, splitKeys.master, tempFileId);
+          encryptedUrlContent = await encryptTextWithSplitKey(urlJson, splitKeys.master, clientGeneratedId);
+          console.log('✅ [UPLOAD] Encrypted urlContent with ID:', clientGeneratedId);
         }
       }
       
@@ -408,6 +420,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       const secureModeCiphertext = secureMode ? {
         textContentCiphertext: encryptedTextContent ? JSON.stringify(encryptedTextContent) : undefined,
         urlContentCiphertext: encryptedUrlContent ? JSON.stringify(encryptedUrlContent) : undefined,
+        // CRITICAL: Send client-generated ID so server uses it
+        clientId: clientGeneratedId,
       } : undefined;
       
       // Log metadata size for debugging
@@ -482,6 +496,17 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           
           response = await createQrDrop(createMetadata);
           console.log('✅ Create response:', response);
+          
+          // Verify that server used our client-generated ID
+          if (secureMode && clientGeneratedId && response.id !== clientGeneratedId) {
+            console.error('❌ [UPLOAD] CRITICAL: Server ID mismatch!');
+            console.error('❌ [UPLOAD] Client ID:', clientGeneratedId);
+            console.error('❌ [UPLOAD] Server ID:', response.id);
+            console.error('❌ [UPLOAD] This will cause decryption to fail!');
+            toast.error('Kritisk feil: ID mismatch. Dekryptering vil feile.');
+          } else if (secureMode && clientGeneratedId && response.id === clientGeneratedId) {
+            console.log('✅ [UPLOAD] Server used client-generated ID - encryption/decryption will match!');
+          }
         } catch (createError: any) {
           console.error('❌ createQrDrop failed:', createError);
           console.error('❌ Error details:', {

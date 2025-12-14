@@ -6,6 +6,7 @@ import { NordicButton } from './nordic-button';
 import { QrScanner } from './qr-scanner-html5';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { markQr1Scanned } from '../utils/api-client';
+import { toast } from 'sonner@2.0.3';
 
 interface UnlockScreenProps {
   onUnlock: (key: string) => Promise<void>;
@@ -15,6 +16,8 @@ interface UnlockScreenProps {
 
 export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenProps) {
   const { t } = useTranslation();
+  const [hasK1, setHasK1] = useState(false);
+  const [checkingK1, setCheckingK1] = useState(true);
   
   // DEBUG: Log qrDropId to check for truncation
   useEffect(() => {
@@ -25,6 +28,44 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
       // Check if it looks like a truncated UUID (should be 36 chars for full UUID)
       if (qrDropId.length < 36) {
         console.warn('⚠️ [UNLOCK SCREEN] qrDropId appears truncated! Expected 36 chars, got:', qrDropId.length);
+      }
+    }
+  }, [qrDropId]);
+  
+  // CRITICAL: Check if k1 is already stored (QR1 was scanned)
+  useEffect(() => {
+    if (qrDropId) {
+      setCheckingK1(true);
+      // Check both localStorage and sessionStorage for k1
+      const k1Local = localStorage.getItem(`k1_${qrDropId}`);
+      const k1Session = sessionStorage.getItem(`k1_${qrDropId}`);
+      const k1FromUrl = (() => {
+        const hash = window.location.hash;
+        const match = hash.match(/k1=([^&]+)/);
+        return match ? match[1] : null;
+      })();
+      
+      const hasK1Value = !!(k1Local || k1Session || k1FromUrl);
+      
+      console.log('🔍 [UNLOCK SCREEN] k1 check:', {
+        qrDropId,
+        k1Local: !!k1Local,
+        k1Session: !!k1Session,
+        k1FromUrl: !!k1FromUrl,
+        hasK1: hasK1Value
+      });
+      
+      setHasK1(hasK1Value);
+      setCheckingK1(false);
+      
+      // If k1 is in URL but not in storage, store it now
+      if (k1FromUrl && !k1Local && !k1Session) {
+        console.log('💾 [UNLOCK SCREEN] Found k1 in URL, storing now...');
+        localStorage.setItem(`k1_${qrDropId}`, k1FromUrl);
+        sessionStorage.setItem(`k1_${qrDropId}`, k1FromUrl);
+        localStorage.setItem(`qr1_timestamp_${qrDropId}`, Date.now().toString());
+        sessionStorage.setItem(`qr1_timestamp_${qrDropId}`, Date.now().toString());
+        setHasK1(true);
       }
     }
   }, [qrDropId]);
@@ -135,12 +176,22 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
     return t('qrList.expiresInDaysPlural', { days });
   };
 
-  const handleScanClick = () => {
-    console.log('🔘 [UNLOCK SCREEN] Scan button clicked, setting showScanner to true');
+  const handleScanQr1Click = () => {
+    console.log('🔘 [UNLOCK SCREEN] Scan QR1 button clicked');
     console.log('🔘 [UNLOCK SCREEN] Current qrDropId:', qrDropId);
     setShowScanner(true);
-    console.log('🔘 [UNLOCK SCREEN] showScanner state updated');
+    console.log('🔘 [UNLOCK SCREEN] showScanner state updated (QR1 mode)');
   };
+  
+  const handleScanQr2Click = () => {
+    console.log('🔘 [UNLOCK SCREEN] Scan QR2 button clicked');
+    console.log('🔘 [UNLOCK SCREEN] Current qrDropId:', qrDropId);
+    setShowScanner(true);
+    console.log('🔘 [UNLOCK SCREEN] showScanner state updated (QR2 mode)');
+  };
+  
+  // Legacy handler for backwards compatibility
+  const handleScanClick = handleScanQr2Click;
 
   const handleQrScanned = (data: string) => {
     console.log('📱 [UNLOCK SCREEN] QR code scanned, raw data:', data);
@@ -179,6 +230,56 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
           console.log('🔑 [UNLOCK SCREEN] Extracted k2 from scanned QR:', k2Value.substring(0, 20) + '...');
         } else {
           console.warn('⚠️ [UNLOCK SCREEN] Hash contains k2= but regex match failed');
+        }
+      }
+      
+      // Check if this is QR #1 (has k1 in fragment)
+      const hasK1InScanned = hash && hash.includes('k1=');
+      if (hasK1InScanned) {
+        console.log('✅ [UNLOCK SCREEN] Valid QR #1 detected, processing...');
+        const k1Match = hash.match(/k1=([^&]+)/);
+        if (k1Match && qrDropId) {
+          const k1Value = k1Match[1];
+          console.log('🔑 [UNLOCK SCREEN] Extracted k1 from scanned QR:', k1Value.substring(0, 20) + '...');
+          
+          // Extract ID from pathname
+          let pathMatch = url.pathname.match(/\/scan\/([^/]+)/);
+          if (pathMatch) {
+            const fileId = pathMatch[1];
+            console.log('💾 [UNLOCK SCREEN] Storing k1 for QR1:', fileId);
+            
+            // Store k1 immediately
+            localStorage.setItem(`k1_${fileId}`, k1Value);
+            sessionStorage.setItem(`k1_${fileId}`, k1Value);
+            localStorage.setItem(`qr1_timestamp_${fileId}`, Date.now().toString());
+            sessionStorage.setItem(`qr1_timestamp_${fileId}`, Date.now().toString());
+            
+            // Mark QR1 as scanned on server
+            markQr1Scanned(fileId)
+              .then((result) => {
+                console.log('✅ [UNLOCK SCREEN] QR #1 scan recorded on server:', result);
+              })
+              .catch((error) => {
+                console.error('⚠️ [UNLOCK SCREEN] Failed to record QR1 scan on server:', error);
+              });
+            
+            // Update hasK1 state
+            setHasK1(true);
+            
+            // Also update for qrDropId if different
+            if (qrDropId && qrDropId !== fileId) {
+              localStorage.setItem(`k1_${qrDropId}`, k1Value);
+              sessionStorage.setItem(`k1_${qrDropId}`, k1Value);
+            }
+            
+            // Close scanner and show success message
+            setShowScanner(false);
+            console.log('✅ [UNLOCK SCREEN] QR1 scanned successfully, k1 stored. Ready for QR2.');
+            
+            // Show toast notification
+            toast.success(t('unlockScreen.qr1Scanned', { defaultValue: 'QR #1 scanned! Now scan QR #2.' }));
+            return;
+          }
         }
       }
       
@@ -382,9 +483,20 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
 
           {/* Heading */}
           <h1 className="text-[#3F3F3F] mb-3">{t('unlockScreen.unlockFile')}</h1>
-          <p className="text-[#5B5B5B] mb-8">
-            {t('unlockScreen.scanQr2')}
-          </p>
+          {checkingK1 ? (
+            <p className="text-[#5B5B5B] mb-8">
+              <Loader2 className="size-4 inline animate-spin mr-2" />
+              {t('unlockScreen.checkingQr1', { defaultValue: 'Checking QR1 status...' })}
+            </p>
+          ) : hasK1 ? (
+            <p className="text-[#5B5B5B] mb-8">
+              {t('unlockScreen.scanQr2')}
+            </p>
+          ) : (
+            <p className="text-[#5B5B5B] mb-8">
+              {t('unlockScreen.scanQr1First', { defaultValue: 'First, scan the access code (QR #1)' })}
+            </p>
+          )}
 
           {/* Scanner Placeholder */}
           {showScanner && (
@@ -440,17 +552,40 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             </div>
           )}
 
-          {/* Scan Button */}
-          <NordicButton
-            variant="coral"
-            size="lg"
-            onClick={handleScanClick}
-            disabled={isUnlocking}
-            className="w-full shadow-lg"
-          >
-            <Scan className="size-5 mr-2" />
-            {isUnlocking ? t('unlockScreen.unlocking') : t('unlockScreen.scanQr2Button')}
-          </NordicButton>
+          {/* Scan Buttons - Show QR1 or QR2 based on k1 status */}
+          {checkingK1 ? (
+            <NordicButton
+              variant="coral"
+              size="lg"
+              disabled={true}
+              className="w-full shadow-lg"
+            >
+              <Loader2 className="size-5 mr-2 animate-spin" />
+              {t('unlockScreen.checking', { defaultValue: 'Checking...' })}
+            </NordicButton>
+          ) : hasK1 ? (
+            <NordicButton
+              variant="coral"
+              size="lg"
+              onClick={handleScanQr2Click}
+              disabled={isUnlocking}
+              className="w-full shadow-lg"
+            >
+              <Scan className="size-5 mr-2" />
+              {isUnlocking ? t('unlockScreen.unlocking') : t('unlockScreen.scanQr2Button')}
+            </NordicButton>
+          ) : (
+            <NordicButton
+              variant="coral"
+              size="lg"
+              onClick={handleScanQr1Click}
+              disabled={isUnlocking}
+              className="w-full shadow-lg"
+            >
+              <Scan className="size-5 mr-2" />
+              {t('unlockScreen.scanQr1Button', { defaultValue: 'Scan QR #1 (Access Code)' })}
+            </NordicButton>
+          )}
 
           <p className="text-[#5B5B5B] text-xs mt-4">
             {t('unlockScreen.neverStoredUnencrypted')}

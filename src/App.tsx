@@ -1058,6 +1058,10 @@ function AppContent() {
               <p className="text-[#5B5B5B] mb-6 leading-relaxed">
                 {t('app.qr2WithoutQr1')}
                 <br /><br />
+                <strong className="text-[#3F3F3F]">{t('app.importantNotice', { defaultValue: 'Important:' })}</strong>
+                <br />
+                {t('app.qr1MustBeScanned', { defaultValue: 'QR #1 must be SCANNED with a QR code scanner, not opened as a URL link. If you received QR1 as a URL, you need to scan the QR code image instead.' })}
+                <br /><br />
                 {t('app.secureModeUsesTwoQrs')}
                 <br />
                 {t('app.qr1AccessCode')}

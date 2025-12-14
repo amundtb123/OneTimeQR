@@ -455,7 +455,54 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                     hasCiphertext: !!ciphertextObj.ciphertext,
                     ivLength: ciphertextObj.iv?.length,
                     saltLength: ciphertextObj.salt?.length,
-                    ciphertextLength: ciphertextObj.ciphertext?.length
+                    ciphertextLength: ciphertextObj.ciphertext?.length,
+                    ivPreview: ciphertextObj.iv?.substring(0, 50),
+                    saltPreview: ciphertextObj.salt?.substring(0, 50),
+                    ivType: typeof ciphertextObj.iv,
+                    saltType: typeof ciphertextObj.salt
+                  });
+                  
+                  // CRITICAL DEBUG: Check if IV/Salt are already JSON strings (double-encoded)
+                  let ivToDecode = ciphertextObj.iv;
+                  let saltToDecode = ciphertextObj.salt;
+                  
+                  // Check if IV is a JSON string that needs parsing
+                  if (typeof ciphertextObj.iv === 'string' && ciphertextObj.iv.startsWith('{')) {
+                    console.warn('⚠️ [SCAN VIEW] IV appears to be a JSON string! Attempting to parse...');
+                    try {
+                      const parsedIv = JSON.parse(ciphertextObj.iv);
+                      console.warn('⚠️ [SCAN VIEW] Parsed IV JSON:', parsedIv);
+                      // If it's an object with a 'key' or 'iv' property, use that
+                      ivToDecode = parsedIv.iv || parsedIv.key || ciphertextObj.iv;
+                    } catch (e) {
+                      console.warn('⚠️ [SCAN VIEW] Failed to parse IV as JSON, using as-is');
+                    }
+                  }
+                  
+                  // Check if Salt is a JSON string that needs parsing
+                  if (typeof ciphertextObj.salt === 'string' && ciphertextObj.salt.startsWith('{')) {
+                    console.warn('⚠️ [SCAN VIEW] Salt appears to be a JSON string! Attempting to parse...');
+                    try {
+                      const parsedSalt = JSON.parse(ciphertextObj.salt);
+                      console.warn('⚠️ [SCAN VIEW] Parsed Salt JSON:', parsedSalt);
+                      // If it's an object with a 'key' or 'salt' property, use that
+                      saltToDecode = parsedSalt.salt || parsedSalt.key || ciphertextObj.salt;
+                    } catch (e) {
+                      console.warn('⚠️ [SCAN VIEW] Failed to parse Salt as JSON, using as-is');
+                    }
+                  }
+                  
+                  // Use corrected values
+                  const correctedCiphertextObj = {
+                    iv: ivToDecode,
+                    salt: saltToDecode,
+                    ciphertext: ciphertextObj.ciphertext
+                  };
+                  
+                  console.log('🔧 [SCAN VIEW] Corrected ciphertext object:', {
+                    ivLength: correctedCiphertextObj.iv?.length,
+                    saltLength: correctedCiphertextObj.salt?.length,
+                    wasCorrected: ivToDecode !== ciphertextObj.iv || saltToDecode !== ciphertextObj.salt
                   });
                   
                   decrypted.text = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
@@ -487,10 +534,36 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                   console.log('✅ [SCAN VIEW] Parsed urlContent ciphertext object:', {
                     hasIv: !!ciphertextObj.iv,
                     hasSalt: !!ciphertextObj.salt,
-                    hasCiphertext: !!ciphertextObj.ciphertext
+                    hasCiphertext: !!ciphertextObj.ciphertext,
+                    ivLength: ciphertextObj.iv?.length,
+                    saltLength: ciphertextObj.salt?.length
                   });
                   
-                  const decryptedUrlJson = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
+                  // CRITICAL DEBUG: Check if IV/Salt are already JSON strings (double-encoded)
+                  let ivToDecode = ciphertextObj.iv;
+                  let saltToDecode = ciphertextObj.salt;
+                  
+                  if (typeof ciphertextObj.iv === 'string' && ciphertextObj.iv.startsWith('{')) {
+                    try {
+                      const parsedIv = JSON.parse(ciphertextObj.iv);
+                      ivToDecode = parsedIv.iv || parsedIv.key || ciphertextObj.iv;
+                    } catch (e) {}
+                  }
+                  
+                  if (typeof ciphertextObj.salt === 'string' && ciphertextObj.salt.startsWith('{')) {
+                    try {
+                      const parsedSalt = JSON.parse(ciphertextObj.salt);
+                      saltToDecode = parsedSalt.salt || parsedSalt.key || ciphertextObj.salt;
+                    } catch (e) {}
+                  }
+                  
+                  const correctedCiphertextObj = {
+                    iv: ivToDecode,
+                    salt: saltToDecode,
+                    ciphertext: ciphertextObj.ciphertext
+                  };
+                  
+                  const decryptedUrlJson = await decryptTextWithSplitKey(correctedCiphertextObj, masterKeyBytes, currentQrDropId);
                   decrypted.urls = JSON.parse(decryptedUrlJson);
                   console.log('✅ [SCAN VIEW] Successfully decrypted urlContent');
                 } catch (parseError) {

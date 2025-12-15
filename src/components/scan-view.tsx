@@ -52,12 +52,36 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       // Check sessionStorage for master key (App.tsx stores it as master_${id})
       const storedMasterKey = sessionStorage.getItem(`master_${qrDropId}`);
       if (storedMasterKey) {
-        console.log('🔑 [SCAN VIEW] Found master key in storage, using it:', storedMasterKey.substring(0, 20) + '...');
-        setEffectiveUnlockKey(storedMasterKey);
+        console.log('🔑 [SCAN VIEW] Found master key in storage, using it:', {
+          keyLength: storedMasterKey.length,
+          expectedLength: 64,
+          isValidLength: storedMasterKey.length === 64,
+          keyPreview: storedMasterKey.substring(0, 20) + '...',
+          keyEnd: '...' + storedMasterKey.substring(storedMasterKey.length - 10)
+        });
+        // Validate it's hex before using
+        if (storedMasterKey.length === 64 && /^[0-9a-fA-F]+$/.test(storedMasterKey)) {
+          setEffectiveUnlockKey(storedMasterKey);
+        } else {
+          console.error('❌ [SCAN VIEW] Invalid master key format in storage!', {
+            length: storedMasterKey.length,
+            isHex: /^[0-9a-fA-F]+$/.test(storedMasterKey)
+          });
+          setEffectiveUnlockKey(null);
+        }
       } else {
+        console.warn('⚠️ [SCAN VIEW] No master key found in storage for:', qrDropId);
         setEffectiveUnlockKey(null);
       }
     } else {
+      if (unlockKey) {
+        console.log('🔑 [SCAN VIEW] Using unlockKey from prop:', {
+          keyLength: unlockKey.length,
+          expectedLength: 64,
+          isValidLength: unlockKey.length === 64,
+          keyPreview: unlockKey.substring(0, 20) + '...'
+        });
+      }
       setEffectiveUnlockKey(unlockKey);
     }
   }, [unlockKey, qrDropId]);
@@ -467,29 +491,43 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                   let saltToDecode = ciphertextObj.salt;
                   
                   // Check if IV is a JSON string that needs parsing
-                  if (typeof ciphertextObj.iv === 'string' && ciphertextObj.iv.startsWith('{')) {
-                    console.warn('⚠️ [SCAN VIEW] IV appears to be a JSON string! Attempting to parse...');
+                  if (typeof ciphertextObj.iv === 'string' && ciphertextObj.iv.trim().startsWith('{')) {
+                    console.warn('⚠️ [SCAN VIEW] IV appears to be a JSON string! Attempting to parse...', {
+                      ivPreview: ciphertextObj.iv.substring(0, 100)
+                    });
                     try {
                       const parsedIv = JSON.parse(ciphertextObj.iv);
                       console.warn('⚠️ [SCAN VIEW] Parsed IV JSON:', parsedIv);
                       // If it's an object with a 'key' or 'iv' property, use that
                       ivToDecode = parsedIv.iv || parsedIv.key || ciphertextObj.iv;
+                      console.log('✅ [SCAN VIEW] Using extracted IV:', ivToDecode?.substring(0, 50) + '...');
                     } catch (e) {
-                      console.warn('⚠️ [SCAN VIEW] Failed to parse IV as JSON, using as-is');
+                      console.warn('⚠️ [SCAN VIEW] Failed to parse IV as JSON, using as-is:', e);
                     }
                   }
                   
                   // Check if Salt is a JSON string that needs parsing
-                  if (typeof ciphertextObj.salt === 'string' && ciphertextObj.salt.startsWith('{')) {
-                    console.warn('⚠️ [SCAN VIEW] Salt appears to be a JSON string! Attempting to parse...');
+                  if (typeof ciphertextObj.salt === 'string' && ciphertextObj.salt.trim().startsWith('{')) {
+                    console.warn('⚠️ [SCAN VIEW] Salt appears to be a JSON string! Attempting to parse...', {
+                      saltPreview: ciphertextObj.salt.substring(0, 100)
+                    });
                     try {
                       const parsedSalt = JSON.parse(ciphertextObj.salt);
                       console.warn('⚠️ [SCAN VIEW] Parsed Salt JSON:', parsedSalt);
                       // If it's an object with a 'key' or 'salt' property, use that
                       saltToDecode = parsedSalt.salt || parsedSalt.key || ciphertextObj.salt;
+                      console.log('✅ [SCAN VIEW] Using extracted Salt:', saltToDecode?.substring(0, 50) + '...');
                     } catch (e) {
-                      console.warn('⚠️ [SCAN VIEW] Failed to parse Salt as JSON, using as-is');
+                      console.warn('⚠️ [SCAN VIEW] Failed to parse Salt as JSON, using as-is:', e);
                     }
+                  }
+                  
+                  // Validate IV and Salt are strings before using
+                  if (typeof ivToDecode !== 'string' || !ivToDecode) {
+                    throw new Error(`Invalid IV: expected string, got ${typeof ivToDecode}`);
+                  }
+                  if (typeof saltToDecode !== 'string' || !saltToDecode) {
+                    throw new Error(`Invalid Salt: expected string, got ${typeof saltToDecode}`);
                   }
                   
                   // Use corrected values

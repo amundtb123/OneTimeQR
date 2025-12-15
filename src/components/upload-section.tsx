@@ -478,10 +478,27 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         }
         
         // Upload all files (now encrypted)
-        // For secureMode: Include clientId in metadata so server uses same ID
-        const uploadMetadata = secureMode && clientGeneratedId
+        // For secureMode: Include clientId AND ciphertext fields in metadata so server uses same ID and stores ciphertext
+        const uploadMetadata = secureMode && secureModeCiphertext && clientGeneratedId
+          ? {
+              ...metadata,
+              textContentCiphertext: secureModeCiphertext.textContentCiphertext,
+              urlContentCiphertext: secureModeCiphertext.urlContentCiphertext,
+              clientId: clientGeneratedId,
+            }
+          : secureMode && clientGeneratedId
           ? { ...metadata, clientId: clientGeneratedId }
           : metadata;
+        
+        console.log('📤 [UPLOAD] Sending uploadMetadata with files:', {
+          hasClientId: !!uploadMetadata.clientId,
+          clientIdValue: uploadMetadata.clientId,
+          secureMode: secureMode,
+          hasTextContentCiphertext: !!uploadMetadata.textContentCiphertext,
+          hasUrlContentCiphertext: !!uploadMetadata.urlContentCiphertext,
+          fileCount: filesToUpload.length
+        });
+        
         console.log(`📁 Uploading ${filesToUpload.length} encrypted file(s):`, files.map(f => f.name).join(', '));
         response = await uploadFile(filesToUpload, uploadMetadata);
         console.log('✅ Upload response:', response);

@@ -589,6 +589,14 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               }
             }
             
+            console.log('✅ [SCAN VIEW] Setting decryptedContent:', {
+              hasText: !!decrypted.text,
+              textLength: decrypted.text?.length,
+              textPreview: decrypted.text?.substring(0, 50) + '...',
+              hasUrls: !!decrypted.urls,
+              urlsLength: decrypted.urls?.length,
+              urlsPreview: decrypted.urls?.slice(0, 2)
+            });
             setDecryptedContent(decrypted);
             toast.success(t('scanView.secureModeDecrypted'));
           } catch (error) {
@@ -655,8 +663,26 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         // Secure Mode: use unlock key from QR #2
         // Check if this is split-key (no encryptionKey on server) or legacy
         isSplitKeyMode = !qrDrop.encryptionKey;
+        console.log('🔍 [LOAD FILE] Secure Mode file decryption check:', {
+          hasEffectiveUnlockKey: !!effectiveUnlockKey,
+          effectiveUnlockKeyLength: effectiveUnlockKey?.length,
+          effectiveUnlockKeyPreview: effectiveUnlockKey?.substring(0, 20) + '...',
+          isSplitKeyMode,
+          qrDropId: currentQrDropId
+        });
         if (effectiveUnlockKey) {
           decryptionKey = effectiveUnlockKey;
+          console.log('✅ [LOAD FILE] Using effectiveUnlockKey for file decryption');
+        } else {
+          console.error('❌ [LOAD FILE] No effectiveUnlockKey available for Secure Mode file decryption!');
+          // Try to get from storage as fallback
+          const storedMasterKey = sessionStorage.getItem(`master_${currentQrDropId}`);
+          if (storedMasterKey) {
+            console.log('🔑 [LOAD FILE] Found master key in storage, using it:', storedMasterKey.substring(0, 20) + '...');
+            decryptionKey = storedMasterKey;
+          } else {
+            console.error('❌ [LOAD FILE] No master key found in storage either!');
+          }
         }
       } else {
         // Standard encrypted files (ALL files are encrypted): fetch key from server

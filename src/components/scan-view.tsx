@@ -285,7 +285,15 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                       hasCiphertext: !!ciphertextObj.ciphertext
                     });
                     
-                    decrypted.text = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
+                    // CRITICAL: Use newResponse.qrDrop.id (which should be clientId) instead of currentQrDropId
+                    const fileIdForDecryption = newResponse.qrDrop.id || currentQrDropId;
+                    console.log('🔑 [SCAN VIEW] Using fileId for textContent decryption (retry):', {
+                      fileIdForDecryption,
+                      currentQrDropId,
+                      responseId: newResponse.qrDrop.id,
+                      usingResponseId: fileIdForDecryption === newResponse.qrDrop.id
+                    });
+                    decrypted.text = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, fileIdForDecryption);
                     console.log('✅ [SCAN VIEW] Successfully decrypted textContent (retry)');
                   } catch (parseError) {
                     console.error('❌ [SCAN VIEW] Failed to parse/decrypt textContent ciphertext (retry):', parseError);
@@ -309,7 +317,15 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                       hasCiphertext: !!ciphertextObj.ciphertext
                     });
                     
-                    const decryptedUrlJson = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, currentQrDropId);
+                    // CRITICAL: Use newResponse.qrDrop.id (which should be clientId) instead of currentQrDropId
+                    const fileIdForDecryption = newResponse.qrDrop.id || currentQrDropId;
+                    console.log('🔑 [SCAN VIEW] Using fileId for urlContent decryption (retry):', {
+                      fileIdForDecryption,
+                      currentQrDropId,
+                      responseId: newResponse.qrDrop.id,
+                      usingResponseId: fileIdForDecryption === newResponse.qrDrop.id
+                    });
+                    const decryptedUrlJson = await decryptTextWithSplitKey(ciphertextObj, masterKeyBytes, fileIdForDecryption);
                     decrypted.urls = JSON.parse(decryptedUrlJson);
                     console.log('✅ [SCAN VIEW] Successfully decrypted urlContent (retry)');
                   } catch (parseError) {
@@ -593,18 +609,32 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                   let ivToDecode = ciphertextObj.iv;
                   let saltToDecode = ciphertextObj.salt;
                   
-                  if (typeof ciphertextObj.iv === 'string' && ciphertextObj.iv.startsWith('{')) {
+                  if (typeof ciphertextObj.iv === 'string' && ciphertextObj.iv.trim().startsWith('{')) {
                     try {
                       const parsedIv = JSON.parse(ciphertextObj.iv);
                       ivToDecode = parsedIv.iv || parsedIv.key || ciphertextObj.iv;
-                    } catch (e) {}
+                      console.log('✅ [SCAN VIEW] Using extracted IV for URL:', ivToDecode?.substring(0, 50) + '...');
+                    } catch (e) {
+                      console.warn('⚠️ [SCAN VIEW] Failed to parse IV as JSON for URL, using as-is:', e);
+                    }
                   }
                   
-                  if (typeof ciphertextObj.salt === 'string' && ciphertextObj.salt.startsWith('{')) {
+                  if (typeof ciphertextObj.salt === 'string' && ciphertextObj.salt.trim().startsWith('{')) {
                     try {
                       const parsedSalt = JSON.parse(ciphertextObj.salt);
                       saltToDecode = parsedSalt.salt || parsedSalt.key || ciphertextObj.salt;
-                    } catch (e) {}
+                      console.log('✅ [SCAN VIEW] Using extracted Salt for URL:', saltToDecode?.substring(0, 50) + '...');
+                    } catch (e) {
+                      console.warn('⚠️ [SCAN VIEW] Failed to parse Salt as JSON for URL, using as-is:', e);
+                    }
+                  }
+                  
+                  // Validate IV and Salt are strings before using
+                  if (typeof ivToDecode !== 'string' || !ivToDecode) {
+                    throw new Error(`Invalid IV: expected string, got ${typeof ivToDecode}`);
+                  }
+                  if (typeof saltToDecode !== 'string' || !saltToDecode) {
+                    throw new Error(`Invalid Salt: expected string, got ${typeof saltToDecode}`);
                   }
                   
                   const correctedCiphertextObj = {

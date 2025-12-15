@@ -1225,7 +1225,24 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             )}
 
             {/* Text Content */}
-            {(qrDrop?.contentType === 'text' || qrDrop?.contentType === 'bundle') && (isEncrypted ? decryptedContent.text : qrDrop?.textContent) && (
+            {(() => {
+              // Check if text content should be displayed
+              const hasTextContent = (qrDrop?.contentType === 'text' || qrDrop?.contentType === 'bundle');
+              if (!hasTextContent) return null;
+              
+              // For Secure Mode: check if decryptedContent.text exists
+              if (isEncrypted) {
+                if (!decryptedContent.text) {
+                  return null;
+                }
+              } else {
+                // For standard mode: check if textContent exists
+                if (!qrDrop?.textContent) {
+                  return null;
+                }
+              }
+              
+              return (
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-3">
                   <FileText className="size-5 text-[#4A6FA5]" />
@@ -1250,10 +1267,28 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                   {t('scanView.copyText')}
                 </Button>
               </div>
-            )}
+              );
+            })()}
 
             {/* URL Content */}
-            {(qrDrop?.contentType === 'url' || qrDrop?.contentType === 'bundle') && (isEncrypted ? decryptedContent.urls : qrDrop?.urlContent) && (
+            {(() => {
+              // Check if URL content should be displayed
+              const hasUrlContent = (qrDrop?.contentType === 'url' || qrDrop?.contentType === 'bundle');
+              if (!hasUrlContent) return null;
+              
+              // For Secure Mode: check if decryptedContent.urls exists and has items
+              if (isEncrypted) {
+                if (!decryptedContent.urls || !Array.isArray(decryptedContent.urls) || decryptedContent.urls.length === 0) {
+                  return null;
+                }
+              } else {
+                // For standard mode: check if urlContent exists
+                if (!qrDrop?.urlContent) {
+                  return null;
+                }
+              }
+              
+              return (
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-3">
                   <LinkIcon className="size-5 text-[#4A6FA5]" />
@@ -1362,7 +1397,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                   }
                 })()}
               </div>
-            )}
+              );
+            })()}
 
             {/* File Content - Show all files */}
             {(qrDrop?.contentType === 'file' || qrDrop?.contentType === 'bundle') && (fileUrls.length > 0 || fileUrl || (qrDrop?.files && qrDrop.files.length > 0)) && !qrDrop?.noPreview && (

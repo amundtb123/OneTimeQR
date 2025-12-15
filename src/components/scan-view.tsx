@@ -469,7 +469,10 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                     textContentLength: response.qrDrop.textContent.length,
                     textContentPreview: response.qrDrop.textContent.substring(0, 100) + '...',
                     masterKeyLength: masterKeyBytes.length,
-                    qrDropId: currentQrDropId
+                    qrDropId: currentQrDropId,
+                    qrDropIdFromResponse: response.qrDrop.id,
+                    idsMatch: currentQrDropId === response.qrDrop.id,
+                    warning: currentQrDropId !== response.qrDrop.id ? '⚠️ ID MISMATCH - this will cause decryption to fail!' : '✅ IDs match'
                   });
                   
                   const ciphertextObj = JSON.parse(response.qrDrop.textContent);
@@ -543,7 +546,16 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                     wasCorrected: ivToDecode !== ciphertextObj.iv || saltToDecode !== ciphertextObj.salt
                   });
                   
-                  decrypted.text = await decryptTextWithSplitKey(correctedCiphertextObj, masterKeyBytes, currentQrDropId);
+                  // CRITICAL: Use response.qrDrop.id (which should be clientId) instead of currentQrDropId
+                  // This ensures we use the same ID that was used for encryption
+                  const fileIdForDecryption = response.qrDrop.id || currentQrDropId;
+                  console.log('🔑 [SCAN VIEW] Using fileId for decryption:', {
+                    fileIdForDecryption,
+                    currentQrDropId,
+                    responseId: response.qrDrop.id,
+                    usingResponseId: fileIdForDecryption === response.qrDrop.id
+                  });
+                  decrypted.text = await decryptTextWithSplitKey(correctedCiphertextObj, masterKeyBytes, fileIdForDecryption);
                   console.log('✅ [SCAN VIEW] Successfully decrypted textContent');
                 } catch (parseError) {
                   console.error('❌ [SCAN VIEW] Failed to parse/decrypt textContent ciphertext:', parseError);
@@ -601,7 +613,16 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                     ciphertext: ciphertextObj.ciphertext
                   };
                   
-                  const decryptedUrlJson = await decryptTextWithSplitKey(correctedCiphertextObj, masterKeyBytes, currentQrDropId);
+                  // CRITICAL: Use response.qrDrop.id (which should be clientId) instead of currentQrDropId
+                  // This ensures we use the same ID that was used for encryption
+                  const fileIdForDecryption = response.qrDrop.id || currentQrDropId;
+                  console.log('🔑 [SCAN VIEW] Using fileId for URL decryption:', {
+                    fileIdForDecryption,
+                    currentQrDropId,
+                    responseId: response.qrDrop.id,
+                    usingResponseId: fileIdForDecryption === response.qrDrop.id
+                  });
+                  const decryptedUrlJson = await decryptTextWithSplitKey(correctedCiphertextObj, masterKeyBytes, fileIdForDecryption);
                   decrypted.urls = JSON.parse(decryptedUrlJson);
                   console.log('✅ [SCAN VIEW] Successfully decrypted urlContent');
                 } catch (parseError) {

@@ -543,6 +543,24 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     // Store metadata in KV
     // For backwards compatibility, also store first file info in old fields
     const firstFile = uploadedFiles[0];
+    
+    // CRITICAL FIX: Handle Secure Mode ciphertext fields (same as create endpoint)
+    const isSecureMode = metadata.secureMode || false;
+    const textContentToStore = isSecureMode 
+      ? (metadata.textContentCiphertext || null)
+      : (metadata.textContent || null);
+    const urlContentToStore = isSecureMode
+      ? (metadata.urlContentCiphertext || null)
+      : (metadata.urlContent || null);
+    
+    console.log('🔍 [SERVER] Upload endpoint - storing content:', {
+      isSecureMode,
+      hasTextContentCiphertext: !!metadata.textContentCiphertext,
+      hasUrlContentCiphertext: !!metadata.urlContentCiphertext,
+      textContentToStoreLength: textContentToStore?.length,
+      urlContentToStoreLength: urlContentToStore?.length
+    });
+    
     const qrDropData = {
       id,
       userId,
@@ -556,8 +574,8 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       // New fields for multiple files
       files: uploadedFiles,
       fileCount: uploadedFiles.length,
-      textContent: metadata.textContent || null,
-      urlContent: metadata.urlContent || null,
+      textContent: textContentToStore,
+      urlContent: urlContentToStore,
       expiryType: metadata.expiryType,
       expiresAt,
       maxScans: metadata.maxScans || null,

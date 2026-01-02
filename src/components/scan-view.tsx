@@ -58,7 +58,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           expectedLength: 64,
           isValidLength: storedMasterKey.length === 64,
           keyPreview: storedMasterKey.substring(0, 20) + '...',
-          keyEnd: '...' + storedMasterKey.substring(storedMasterKey.length - 10)
+          keyEnd: '...' + storedMasterKey.substring(storedMasterKey.length - 10),
+          isHex: /^[0-9a-fA-F]+$/.test(storedMasterKey)
         });
         // Validate it's hex before using
         if (storedMasterKey.length === 64 && /^[0-9a-fA-F]+$/.test(storedMasterKey)) {
@@ -80,7 +81,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           keyLength: unlockKey.length,
           expectedLength: 64,
           isValidLength: unlockKey.length === 64,
-          keyPreview: unlockKey.substring(0, 20) + '...'
+          keyPreview: unlockKey.substring(0, 20) + '...',
+          isHex: /^[0-9a-fA-F]+$/.test(unlockKey)
         });
       }
       setEffectiveUnlockKey(unlockKey);
@@ -88,8 +90,10 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   }, [unlockKey, qrDropId]);
   
   // For Single QR Mode: Periodically check if master key was set by App.tsx
+  // This is critical because App.tsx may set the key asynchronously after URL processing
   useEffect(() => {
     if (!effectiveUnlockKey && qrDropId) {
+      console.log('🔍 [SCAN VIEW] No effectiveUnlockKey yet, starting periodic check for master key...');
       const checkInterval = setInterval(() => {
         const masterKey = sessionStorage.getItem(`master_${qrDropId}`);
         if (masterKey && masterKey.length === 64 && /^[0-9a-fA-F]+$/.test(masterKey)) {
@@ -97,10 +101,15 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           setEffectiveUnlockKey(masterKey);
           clearInterval(checkInterval);
         }
-      }, 200); // Check every 200ms
+      }, 100); // Check every 100ms for faster response
       
       // Stop checking after 5 seconds
-      setTimeout(() => clearInterval(checkInterval), 5000);
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        if (!effectiveUnlockKey) {
+          console.warn('⚠️ [SCAN VIEW] Periodic check timed out - no master key found after 5 seconds');
+        }
+      }, 5000);
       
       return () => clearInterval(checkInterval);
     }
@@ -773,24 +782,42 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       if (qrDrop?.secureMode || qrDrop?.singleQrMode) {
         // Secure Mode or Single QR Mode: use unlock key
         // Check if this is split-key (no encryptionKey on server) or legacy
+        // NOTE: For Single QR Mode, we use hex key format (same as Secure Mode with encryptFile/decryptFile)
         isSplitKeyMode = !qrDrop.encryptionKey;
-        console.log('🔍 [LOAD FILE] Secure Mode file decryption check:', {
+        console.log('🔍 [LOAD FILE] Secure/Single QR Mode file decryption check:', {
           hasEffectiveUnlockKey: !!effectiveUnlockKey,
           effectiveUnlockKeyLength: effectiveUnlockKey?.length,
           effectiveUnlockKeyPreview: effectiveUnlockKey?.substring(0, 20) + '...',
           isSplitKeyMode,
+          secureMode: qrDrop?.secureMode,
+          singleQrMode: qrDrop?.singleQrMode,
           qrDropId: currentQrDropId
         });
         if (effectiveUnlockKey) {
           decryptionKey = effectiveUnlockKey;
           console.log('✅ [LOAD FILE] Using effectiveUnlockKey for file decryption');
+          // Validate key format (should be 64 hex chars = 32 bytes)
+          if (decryptionKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(decryptionKey)) {
+            console.error('❌ [LOAD FILE] Invalid key format! Expected 64 hex chars, got:', {
+              length: decryptionKey.length,
+              isHex: /^[0-9a-fA-F]+$/.test(decryptionKey),
+              preview: decryptionKey.substring(0, 20) + '...'
+            });
+          }
         } else {
-          console.error('❌ [LOAD FILE] No effectiveUnlockKey available for Secure Mode file decryption!');
+          console.error('❌ [LOAD FILE] No effectiveUnlockKey available for Secure/Single QR Mode file decryption!');
           // Try to get from storage as fallback
           const storedMasterKey = sessionStorage.getItem(`master_${currentQrDropId}`);
           if (storedMasterKey) {
             console.log('🔑 [LOAD FILE] Found master key in storage, using it:', storedMasterKey.substring(0, 20) + '...');
             decryptionKey = storedMasterKey;
+            // Validate key format
+            if (decryptionKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(decryptionKey)) {
+              console.error('❌ [LOAD FILE] Invalid stored key format! Expected 64 hex chars, got:', {
+                length: decryptionKey.length,
+                isHex: /^[0-9a-fA-F]+$/.test(decryptionKey)
+              });
+            }
           } else {
             console.error('❌ [LOAD FILE] No master key found in storage either!');
           }
@@ -836,7 +863,22 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               if (!fileResponse.ok) continue;
               
               const encryptedBlob = await fileResponse.blob();
+              console.log('🔐 [DECRYPT FILE] Starting decryption:', {
+                fileIndex: file.fileIndex || response.files.indexOf(file),
+                fileName: file.fileName,
+                encryptedBlobSize: encryptedBlob.size,
+                keyLength: decryptionKey!.length,
+                keyPreview: decryptionKey!.substring(0, 20) + '...',
+                keyEnd: '...' + decryptionKey!.substring(decryptionKey!.length - 10),
+                isHex: /^[0-9a-fA-F]+$/.test(decryptionKey!),
+                mode: qrDrop?.singleQrMode ? 'Single QR' : qrDrop?.secureMode ? 'Secure' : 'Standard',
+                isSplitKeyMode
+              });
               const decryptedBlob = await decryptFile(encryptedBlob, decryptionKey!);
+              console.log('✅ [DECRYPT FILE] Decryption successful:', {
+                fileIndex: file.fileIndex || response.files.indexOf(file),
+                decryptedBlobSize: decryptedBlob.size
+              });
               
               // CRITICAL: Get original file type from qrDrop.files metadata (before encryption)
               // Backend returns application/octet-stream for encrypted files, so we need original type

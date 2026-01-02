@@ -435,8 +435,25 @@ export async function encryptFile(file: File, keyHex: string): Promise<Blob> {
  */
 export async function decryptFile(encryptedBlob: Blob, keyHex: string): Promise<Blob> {
   try {
+    // Validate key format
+    if (!keyHex || keyHex.length !== 64 || !/^[0-9a-fA-F]+$/.test(keyHex)) {
+      console.error('❌ [DECRYPT FILE] Invalid key format:', {
+        keyLength: keyHex?.length,
+        isHex: keyHex ? /^[0-9a-fA-F]+$/.test(keyHex) : false,
+        keyPreview: keyHex?.substring(0, 20) + '...'
+      });
+      throw new Error(`Invalid key format: expected 64 hex characters, got ${keyHex?.length || 0}`);
+    }
+    
     // Convert hex key to CryptoKey
     const keyBytes = new Uint8Array(keyHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+    console.log('🔑 [DECRYPT FILE] Key conversion:', {
+      keyHexLength: keyHex.length,
+      keyBytesLength: keyBytes.length,
+      expectedBytes: 32,
+      isValid: keyBytes.length === 32
+    });
+    
     const key = await crypto.subtle.importKey(
       'raw',
       keyBytes,
@@ -447,10 +464,25 @@ export async function decryptFile(encryptedBlob: Blob, keyHex: string): Promise<
 
     // Read encrypted blob as ArrayBuffer
     const combined = new Uint8Array(await encryptedBlob.arrayBuffer());
+    console.log('📦 [DECRYPT FILE] Encrypted blob info:', {
+      blobSize: encryptedBlob.size,
+      combinedLength: combined.length,
+      minRequiredSize: 12 + 16 // IV (12) + minimum tag (16)
+    });
+    
+    if (combined.length < 28) {
+      throw new Error(`Encrypted blob too small: ${combined.length} bytes (minimum 28 bytes required)`);
+    }
     
     // Extract IV and encrypted data
     const iv = combined.slice(0, 12);
     const encrypted = combined.slice(12);
+    
+    console.log('🔍 [DECRYPT FILE] Decryption parameters:', {
+      ivLength: iv.length,
+      encryptedLength: encrypted.length,
+      totalLength: combined.length
+    });
 
     // Decrypt
     const decrypted = await crypto.subtle.decrypt(
@@ -459,10 +491,21 @@ export async function decryptFile(encryptedBlob: Blob, keyHex: string): Promise<
       encrypted
     );
 
+    console.log('✅ [DECRYPT FILE] Decryption successful:', {
+      decryptedLength: decrypted.byteLength
+    });
+
     // Return as Blob
     return new Blob([decrypted]);
   } catch (error) {
-    console.error('File decryption failed:', error);
+    console.error('❌ [DECRYPT FILE] File decryption failed:', error);
+    if (error instanceof Error) {
+      console.error('❌ [DECRYPT FILE] Error details:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack?.substring(0, 200)
+      });
+    }
     throw new Error('Failed to decrypt file. Invalid key or corrupted data.');
   }
 }

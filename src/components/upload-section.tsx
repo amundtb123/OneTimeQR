@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, X, Plus, Image, FileText, LinkIcon, Clock, Shield, Eye, Lock, Info, ChevronDown, Crown, EyeOff, Key } from 'lucide-react';
+import { Upload, X, Plus, Image, FileText, LinkIcon, Clock, Shield, Eye, Lock, Info, ChevronDown, Crown, EyeOff, Key, Smartphone } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useTranslation } from 'react-i18next';
 import type { QrDrop } from '../App';
@@ -1414,7 +1414,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       {/* Info Cards - Why OneTimeQR? (shown for everyone as upsale) - Hide when QR is shown or when Generate button is visible */}
       {!showDualQr && !hasContent() && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
-        {/* Card 1: Ingen delbar lenke */}
+        {/* Card 1: Del uten tillit */}
         <div 
           className="rounded-2xl p-6 border shadow-sm"
           style={{ 
@@ -1429,15 +1429,15 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
               borderColor: '#D5C5BD'
             }}
           >
-            <EyeOff className="size-6 text-[#3F3F3F]" />
+            <Shield className="size-6 text-[#3F3F3F]" />
           </div>
-          <h4 className="text-[#3F3F3F] mb-2">{t('upload.noShareableLink')}</h4>
+          <h4 className="text-[#3F3F3F] mb-2">{t('upload.trustlessSharing')}</h4>
           <p className="text-[#5B5B5B] text-sm leading-relaxed">
-            {t('upload.noShareableLinkDesc')}
+            {t('upload.trustlessSharingDesc')}
           </p>
         </div>
 
-        {/* Card 2: Automatisk opprydding */}
+        {/* Card 2: Bygget for én gang */}
         <div 
           className="rounded-2xl p-6 border shadow-sm"
           style={{ 
@@ -1454,13 +1454,13 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           >
             <Clock className="size-6 text-[#E8927E]" />
           </div>
-          <h4 className="text-[#3F3F3F] mb-2">{t('upload.autoCleanup')}</h4>
+          <h4 className="text-[#3F3F3F] mb-2">{t('upload.builtForOnce')}</h4>
           <p className="text-[#5B5B5B] text-sm leading-relaxed">
-            {t('upload.autoCleanupDesc')}
+            {t('upload.builtForOnceDesc')}
           </p>
         </div>
 
-        {/* Card 3: Digitalt avtrykk: 0 */}
+        {/* Card 3: QR gir kontroll */}
         <div 
           className="rounded-2xl p-6 border shadow-sm"
           style={{ 
@@ -1475,11 +1475,11 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
               borderColor: '#D5C5BD'
             }}
           >
-            <Lock className="size-6 text-[#4A6FA5]" />
+            <Smartphone className="size-6 text-[#4A6FA5]" />
           </div>
-          <h4 className="text-[#3F3F3F] mb-2">{t('upload.securityFirst')}</h4>
+          <h4 className="text-[#3F3F3F] mb-2">{t('upload.qrGivesControl')}</h4>
           <p className="text-[#5B5B5B] text-sm leading-relaxed">
-            {t('upload.securityFirstDesc')}
+            {t('upload.qrGivesControlDesc')}
           </p>
         </div>
       </div>

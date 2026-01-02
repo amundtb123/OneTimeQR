@@ -1091,7 +1091,7 @@ app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
   }
 });
 
-// Mark QR1 as scanned (for secureMode split-key)
+// Mark QR1 as scanned (for secureMode split-key or singleQrMode)
 // Server stores that QR1 was scanned WITHOUT seeing k1 (zero-knowledge)
 app.post('/make-server-c3c9181e/qrdrop/:id/qr1-scanned', async (c) => {
   try {
@@ -1108,9 +1108,9 @@ app.post('/make-server-c3c9181e/qrdrop/:id/qr1-scanned', async (c) => {
       return c.json({ error: 'QR drop not found' }, 404);
     }
     
-    // Only for secureMode
-    if (!qrDrop.secureMode) {
-      return c.json({ error: 'Not a secure mode QR drop' }, 400);
+    // Only for secureMode or singleQrMode
+    if (!qrDrop.secureMode && !qrDrop.singleQrMode) {
+      return c.json({ error: 'Not a secure mode or single QR mode QR drop' }, 400);
     }
     
     // Store that QR1 was scanned (with timestamp for expiry)
@@ -1178,9 +1178,9 @@ app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
       return c.json({ error: 'QR drop not found' }, 404);
     }
     
-    // Only for secureMode
-    if (!qrDrop.secureMode) {
-      return c.json({ error: 'Not a secure mode QR drop' }, 400);
+    // Only for secureMode or singleQrMode
+    if (!qrDrop.secureMode && !qrDrop.singleQrMode) {
+      return c.json({ error: 'Not a secure mode or single QR mode QR drop' }, 400);
     }
     
     // Check if QR1 was scanned

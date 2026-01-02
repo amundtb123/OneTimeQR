@@ -33,6 +33,8 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   const { t } = useTranslation();
   const [hasK1, setHasK1] = useState(false);
   const [checkingK1, setCheckingK1] = useState(true);
+  const [isSingleQrMode, setIsSingleQrMode] = useState(false);
+  const [hasMasterKey, setHasMasterKey] = useState(false);
   
   // DEBUG: Log qrDropId to check for truncation
   useEffect(() => {
@@ -48,10 +50,53 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   }, [qrDropId]);
   
   // CRITICAL: Check if k1 is already stored (QR1 was scanned)
+  // For Single QR Mode: Check for master key instead
   useEffect(() => {
     if (qrDropId) {
       setCheckingK1(true);
-      // Check both localStorage and sessionStorage for k1
+      
+      // For Single QR Mode: Check for master key
+      if (isSingleQrMode) {
+        const masterKey = sessionStorage.getItem(`master_${qrDropId}`);
+        const k1FromUrl = (() => {
+          const hash = window.location.hash;
+          const match = hash.match(/k1=([^&]+)/);
+          return match ? match[1] : null;
+        })();
+        
+        console.log('🔍 [UNLOCK SCREEN] Single QR Mode check:', {
+          qrDropId,
+          hasMasterKey: !!masterKey,
+          k1FromUrl: !!k1FromUrl
+        });
+        
+        // If master key exists, we're done - App.tsx should handle unlock
+        if (masterKey) {
+          setHasMasterKey(true);
+          setCheckingK1(false);
+          return;
+        }
+        
+        // If K1 is in URL but no master key, App.tsx should handle it
+        // But we can check if it's being processed
+        if (k1FromUrl) {
+          console.log('🔍 [UNLOCK SCREEN] Single QR Mode: K1 in URL, waiting for App.tsx to process...');
+          // Give App.tsx a moment to process K1
+          setTimeout(() => {
+            const masterKeyAfterDelay = sessionStorage.getItem(`master_${qrDropId}`);
+            if (masterKeyAfterDelay) {
+              setHasMasterKey(true);
+            }
+            setCheckingK1(false);
+          }, 500);
+          return;
+        }
+        
+        setCheckingK1(false);
+        return;
+      }
+      
+      // For Secure Mode: Check for K1
       const k1Local = localStorage.getItem(`k1_${qrDropId}`);
       const k1Session = sessionStorage.getItem(`k1_${qrDropId}`);
       const k1FromUrl = (() => {
@@ -62,7 +107,7 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
       
       const hasK1Value = !!(k1Local || k1Session || k1FromUrl);
       
-      console.log('🔍 [UNLOCK SCREEN] k1 check:', {
+      console.log('🔍 [UNLOCK SCREEN] Secure Mode k1 check:', {
         qrDropId,
         k1Local: !!k1Local,
         k1Session: !!k1Session,
@@ -89,7 +134,7 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
         }
       }
     }
-  }, [qrDropId]);
+  }, [qrDropId, isSingleQrMode]);
   
   // SECURITY: Mark QR #1 as scanned IMMEDIATELY when this screen renders
   // This must happen synchronously so QR #2 can check it instantly
@@ -129,6 +174,7 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   const [currentTime, setCurrentTime] = useState(new Date());
 
   // Load QR drop expiry info using lightweight check (doesn't increment scan count)
+  // Also check if it's Single QR Mode
   useEffect(() => {
     if (qrDropId) {
       // Use lightweight /check endpoint instead of full getQrDrop
@@ -146,6 +192,16 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
           }
           if (data.expiryType) {
             setExpiryType(data.expiryType);
+          }
+          // Check if Single QR Mode
+          if (data.singleQrMode) {
+            setIsSingleQrMode(true);
+            // For Single QR Mode, check for master key instead of K1
+            const masterKey = sessionStorage.getItem(`master_${qrDropId}`);
+            if (masterKey) {
+              setHasMasterKey(true);
+              console.log('✅ [UNLOCK SCREEN] Single QR Mode: Master key found, should unlock automatically');
+            }
           }
         })
         .catch(err => {
@@ -311,12 +367,45 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
               safeSetItem(sessionStorage, `k1_${qrDropId}`, k1Value);
             }
             
-            // Close scanner and show success message
+            // Close scanner
             setShowScanner(false);
-            console.log('✅ [UNLOCK SCREEN] QR1 scanned successfully, k1 stored. Ready for QR2.');
             
-            // Show toast notification
-            toast.success(t('unlockScreen.qr1Scanned', { defaultValue: 'QR #1 scanned! Now scan QR #2.' }));
+            // CRITICAL: Check mode immediately to decide what to do
+            // For Single QR Mode: Navigate directly (App.tsx will convert K1 to master key)
+            // For Secure Mode: Store K1 and wait for QR2
+            const checkModeAndHandle = async () => {
+              try {
+                const { projectId, publicAnonKey } = await import('../utils/supabase/info');
+                const checkResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${fileId}/check`, {
+                  headers: {
+                    'Authorization': `Bearer ${publicAnonKey}`
+                  }
+                });
+                
+                if (checkResponse.ok) {
+                  const checkData = await checkResponse.json();
+                  const isSingleQr = checkData.singleQrMode || false;
+                  
+                  if (isSingleQr) {
+                    // SINGLE QR MODE: Navigate directly - App.tsx will convert K1 to master key
+                    console.log('✅ [UNLOCK SCREEN] Single QR Mode detected - navigating directly to unlock');
+                    window.location.href = `${url.origin}/scan/${fileId}${url.hash}`;
+                    return;
+                  }
+                }
+                
+                // SECURE MODE (or fallback): Store K1 and wait for QR2
+                console.log('✅ [UNLOCK SCREEN] Secure Mode: QR1 scanned successfully, k1 stored. Ready for QR2.');
+                toast.success(t('unlockScreen.qr1Scanned', { defaultValue: 'QR #1 scanned! Now scan QR #2.' }));
+              } catch (error) {
+                console.error('❌ [UNLOCK SCREEN] Error checking mode:', error);
+                // Fallback: Assume Secure Mode
+                console.log('✅ [UNLOCK SCREEN] Fallback: QR1 scanned, k1 stored. Ready for QR2.');
+                toast.success(t('unlockScreen.qr1Scanned', { defaultValue: 'QR #1 scanned! Now scan QR #2.' }));
+              }
+            };
+            
+            checkModeAndHandle();
             return;
           }
         }
@@ -536,13 +625,24 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
               <Loader2 className="size-4 inline animate-spin mr-2" />
               {t('unlockScreen.checkingQr1', { defaultValue: 'Checking QR1 status...' })}
             </p>
-          ) : hasK1 ? (
+          ) : isSingleQrMode && hasMasterKey ? (
+            // Single QR Mode: Master key found, should unlock automatically
+            <p className="text-[#5B5B5B] mb-8">
+              <Loader2 className="size-4 inline animate-spin mr-2" />
+              {t('unlockScreen.unlocking', { defaultValue: 'Unlocking...' })}
+            </p>
+          ) : hasK1 && !isSingleQrMode ? (
+            // Secure Mode: K1 found, need QR2
             <p className="text-[#5B5B5B] mb-8">
               {t('unlockScreen.scanQr2')}
             </p>
           ) : (
+            // Need to scan QR1
             <p className="text-[#5B5B5B] mb-8">
-              {t('unlockScreen.scanQr1First', { defaultValue: 'First, scan the access code (QR #1)' })}
+              {isSingleQrMode 
+                ? t('unlockScreen.scanQr1First', { defaultValue: 'Scan the QR code to unlock' })
+                : t('unlockScreen.scanQr1First', { defaultValue: 'First, scan the access code (QR #1)' })
+              }
             </p>
           )}
 
@@ -600,7 +700,7 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             </div>
           )}
 
-          {/* Scan Buttons - Show QR1 or QR2 based on k1 status */}
+          {/* Scan Buttons - Show QR1 or QR2 based on mode and k1 status */}
           {checkingK1 ? (
             <NordicButton
               variant="coral"
@@ -611,7 +711,20 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
               <Loader2 className="size-5 mr-2 animate-spin" />
               {t('unlockScreen.checking', { defaultValue: 'Checking...' })}
             </NordicButton>
-          ) : hasK1 ? (
+          ) : isSingleQrMode && hasMasterKey ? (
+            // Single QR Mode: Master key found, should unlock automatically (App.tsx handles this)
+            // This button shouldn't really be shown, but just in case
+            <NordicButton
+              variant="coral"
+              size="lg"
+              disabled={true}
+              className="w-full shadow-lg"
+            >
+              <Loader2 className="size-5 mr-2 animate-spin" />
+              {t('unlockScreen.unlocking', { defaultValue: 'Unlocking...' })}
+            </NordicButton>
+          ) : hasK1 && !isSingleQrMode ? (
+            // Secure Mode: K1 found, need QR2
             <NordicButton
               variant="coral"
               size="lg"
@@ -623,6 +736,7 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
               {isUnlocking ? t('unlockScreen.unlocking') : t('unlockScreen.scanQr2Button')}
             </NordicButton>
           ) : (
+            // Need to scan QR1 (both modes)
             <NordicButton
               variant="coral"
               size="lg"
@@ -631,7 +745,10 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
               className="w-full shadow-lg"
             >
               <Scan className="size-5 mr-2" />
-              {t('unlockScreen.scanQr1Button', { defaultValue: 'Scan QR #1 (Access Code)' })}
+              {isSingleQrMode 
+                ? t('unlockScreen.scanQr1Button', { defaultValue: 'Scan QR Code to Unlock' })
+                : t('unlockScreen.scanQr1Button', { defaultValue: 'Scan QR #1 (Access Code)' })
+              }
             </NordicButton>
           )}
 

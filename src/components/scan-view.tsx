@@ -47,6 +47,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   // CRITICAL FIX: Check storage for unlockKey if prop is not set
   // This handles the case where App.tsx has combined k1+k2 and stored masterKey in sessionStorage
   // but the prop hasn't been passed yet (React batching/timing issue)
+  // Also handles Single QR Mode where K1 is converted to master key
   useEffect(() => {
     if (!unlockKey && qrDropId) {
       // Check sessionStorage for master key (App.tsx stores it as master_${id})
@@ -85,6 +86,25 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       setEffectiveUnlockKey(unlockKey);
     }
   }, [unlockKey, qrDropId]);
+  
+  // For Single QR Mode: Periodically check if master key was set by App.tsx
+  useEffect(() => {
+    if (!effectiveUnlockKey && qrDropId) {
+      const checkInterval = setInterval(() => {
+        const masterKey = sessionStorage.getItem(`master_${qrDropId}`);
+        if (masterKey && masterKey.length === 64 && /^[0-9a-fA-F]+$/.test(masterKey)) {
+          console.log('🔑 [SCAN VIEW] Single QR Mode: Found master key in storage (periodic check), using it');
+          setEffectiveUnlockKey(masterKey);
+          clearInterval(checkInterval);
+        }
+      }, 200); // Check every 200ms
+      
+      // Stop checking after 5 seconds
+      setTimeout(() => clearInterval(checkInterval), 5000);
+      
+      return () => clearInterval(checkInterval);
+    }
+  }, [effectiveUnlockKey, qrDropId]);
 
   // Cleanup blob URLs on unmount
   useEffect(() => {
@@ -1227,12 +1247,17 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     );
   }
   
-  // Show unlock screen if Secure Mode and no key provided
-  // NOTE: isEncrypted is set based on secureMode, not encrypted flag
+  // Show unlock screen if Secure Mode/Single QR Mode and no key provided
+  // NOTE: isEncrypted is set based on secureMode/singleQrMode, not encrypted flag
   // BUT: If showQr2Error is true, don't show UnlockScreen - let App.tsx show the error screen
   // CRITICAL FIX: Also check isLoading - if we're loading and effectiveUnlockKey is set, don't show UnlockScreen yet
   // This prevents showing UnlockScreen when effectiveUnlockKey was just set and useEffect is reloading data
-  if (isEncrypted && !effectiveUnlockKey && !showQr2Error && !isLoading) {
+  // For Single QR Mode: Also check if master key exists in sessionStorage (App.tsx may have set it)
+  const isSingleQrMode = qrDrop?.singleQrMode;
+  const masterKeyInStorage = isSingleQrMode ? sessionStorage.getItem(`master_${currentQrDropId}`) : null;
+  const shouldShowUnlockScreen = isEncrypted && !effectiveUnlockKey && !masterKeyInStorage && !showQr2Error && !isLoading;
+  
+  if (shouldShowUnlockScreen) {
     return (
       <UnlockScreen 
         onUnlock={async (key: string) => {

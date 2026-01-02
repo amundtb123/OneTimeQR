@@ -77,6 +77,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [qrStyle, setQrStyle] = useState<QrStyle>(defaultQrStyle);
   const [secureMode, setSecureMode] = useState(false);
+  const [singleQrMode, setSingleQrMode] = useState(false);
   const [showDualQr, setShowDualQr] = useState(false);
   const [dualQrData, setDualQrData] = useState<{ qr1: string; qr2: string; qr1Url: string; qr2Url: string; title?: string } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -296,8 +297,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       return;
     }
 
-    // Check if Secure Mode requires login
-    if (secureMode && !user) {
+    // Check if Secure Mode or Single QR Mode requires login
+    if ((secureMode || singleQrMode) && !user) {
       toast.error(t('upload.secureModeRequiresLogin'));
       return;
     }
@@ -340,13 +341,33 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       // This ensures files are never stored unencrypted in Supabase Storage
       const encryptionKeyForFiles = await generateEncryptionKey();
       
-      // CRITICAL FIX: Generate QR drop ID on client side FIRST for Secure Mode
+      // CRITICAL FIX: Generate QR drop ID on client side FIRST for Secure Mode and Single QR Mode
       // This ensures we can encrypt with the actual ID that will be used for decryption
       // The server will use this ID if provided, or generate a new one if not
-      const clientGeneratedId = secureMode ? crypto.randomUUID() : undefined;
+      const clientGeneratedId = (secureMode || singleQrMode) ? crypto.randomUUID() : undefined;
+      
+      // Single QR Mode: Generate K1 directly as master key (no split-key)
+      let singleQrKey: { k1: string; master: Uint8Array } | undefined;
+      if (singleQrMode) {
+        // Generate K1 (32 bytes) and use it directly as master key
+        const k1Bytes = crypto.getRandomValues(new Uint8Array(32));
+        
+        // Convert to base64url for consistency with split-key format (same as encryption.ts)
+        const k1Base64Url = btoa(String.fromCharCode(...k1Bytes))
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/g, '');
+        
+        singleQrKey = {
+          k1: k1Base64Url,
+          master: k1Bytes
+        };
+        
+        console.log('🔐 [UPLOAD] Single QR Mode: Generated K1 as master key');
+      }
       
       if (secureMode) {
-        // Generate split keys for zero-knowledge encryption
+        // Generate split keys for zero-knowledge encryption (dual QR mode)
         splitKeys = await splitKey();
         
         if (!clientGeneratedId) {
@@ -366,6 +387,26 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           const urlJson = JSON.stringify(urls);
           encryptedUrlContent = await encryptTextWithSplitKey(urlJson, splitKeys.master, clientGeneratedId);
           console.log('✅ [UPLOAD] Encrypted urlContent with ID:', clientGeneratedId);
+        }
+      } else if (singleQrMode) {
+        // Single QR Mode: Use K1 directly as master key
+        if (!clientGeneratedId || !singleQrKey) {
+          throw new Error('Failed to generate QR drop ID or key for Single QR Mode encryption');
+        }
+        
+        console.log('🔐 [UPLOAD] Single QR Mode: Using client-generated ID for encryption:', clientGeneratedId);
+        
+        // Encrypt text content with K1 as master key (using actual ID)
+        if (textContent.trim()) {
+          encryptedTextContent = await encryptTextWithSplitKey(textContent.trim(), singleQrKey.master, clientGeneratedId);
+          console.log('✅ [UPLOAD] Single QR Mode: Encrypted textContent with ID:', clientGeneratedId);
+        }
+        
+        // Encrypt URL content with K1 as master key (using actual ID)
+        if (urls.length > 0) {
+          const urlJson = JSON.stringify(urls);
+          encryptedUrlContent = await encryptTextWithSplitKey(urlJson, singleQrKey.master, clientGeneratedId);
+          console.log('✅ [UPLOAD] Single QR Mode: Encrypted urlContent with ID:', clientGeneratedId);
         }
       }
       
@@ -390,13 +431,13 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       const metadata = {
         title: title.trim() || undefined,
         contentType: 'bundle' as const, // New type for mixed content
-        // For secureMode: DON'T include ciphertext in metadata (sent separately)
+        // For secureMode/singleQrMode: DON'T include ciphertext in metadata (sent separately)
         // For standard: send plain text
-        textContent: secureMode 
-          ? undefined // Ciphertext sent separately for secureMode
+        textContent: (secureMode || singleQrMode)
+          ? undefined // Ciphertext sent separately for secureMode/singleQrMode
           : (textContent.trim() || undefined),
-        urlContent: secureMode
-          ? undefined // Ciphertext sent separately for secureMode
+        urlContent: (secureMode || singleQrMode)
+          ? undefined // Ciphertext sent separately for secureMode/singleQrMode
           : (urls.length > 0 ? JSON.stringify(urls) : undefined),
         expiryType,
         expiryDate: expiryDate ? expiryDate.toISOString() : undefined, // Convert Date to ISO string for JSON
@@ -408,16 +449,17 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         qrStyle, // Store QR styling preferences
         // NOTE: qrCodeDataUrl is NOT sent in metadata (too large - 30-50 KB)
         // QR code is generated on-demand when needed
-        secureMode, // Flag to indicate Secure Mode (split-key zero-knowledge)
+        secureMode, // Flag to indicate Secure Mode (split-key zero-knowledge, dual QR)
+        singleQrMode, // Flag to indicate Single QR Mode (K1 as master, single QR)
         encrypted: true, // ALL files are now encrypted
-        // For secureMode: NO encryption key stored (zero-knowledge)
+        // For secureMode/singleQrMode: NO encryption key stored (zero-knowledge)
         // For standard: store encryption key for file decryption
-        encryptionKey: secureMode ? undefined : encryptionKeyForFiles,
+        encryptionKey: (secureMode || singleQrMode) ? undefined : encryptionKeyForFiles,
         originalFileTypes, // Store original file types for proper decryption
       };
       
-      // For secureMode: Prepare ciphertext as separate fields (not in metadata)
-      const secureModeCiphertext = secureMode ? {
+      // For secureMode/singleQrMode: Prepare ciphertext as separate fields (not in metadata)
+      const secureModeCiphertext = (secureMode || singleQrMode) ? {
         textContentCiphertext: encryptedTextContent ? JSON.stringify(encryptedTextContent) : undefined,
         urlContentCiphertext: encryptedUrlContent ? JSON.stringify(encryptedUrlContent) : undefined,
         // CRITICAL: Send client-generated ID so server uses it
@@ -466,6 +508,22 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           );
           
           console.log(`✅ Encrypted ${filesToUpload.length} file(s) with split-key master (zero-knowledge)`);
+        } else if (singleQrMode && singleQrKey) {
+          // SINGLE QR MODE: Encrypt with K1 as master key (zero-knowledge)
+          // Convert K1 to hex string for compatibility with existing encryptFile function
+          const masterKeyHex = Array.from(singleQrKey.master)
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+          
+          // Use existing encryptFile function with K1 as master key
+          filesToUpload = await Promise.all(
+            files.map(async (file) => {
+              const encryptedBlob = await encryptFile(file, masterKeyHex);
+              return new File([encryptedBlob], file.name, { type: 'application/octet-stream' });
+            })
+          );
+          
+          console.log(`✅ Encrypted ${filesToUpload.length} file(s) with Single QR K1 (zero-knowledge)`);
         } else {
           // STANDARD MODE: Encrypt with traditional method (server stores key)
           filesToUpload = await Promise.all(
@@ -478,15 +536,15 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         }
         
         // Upload all files (now encrypted)
-        // For secureMode: Include clientId AND ciphertext fields in metadata so server uses same ID and stores ciphertext
-        const uploadMetadata = secureMode && secureModeCiphertext && clientGeneratedId
+        // For secureMode/singleQrMode: Include clientId AND ciphertext fields in metadata so server uses same ID and stores ciphertext
+        const uploadMetadata = (secureMode || singleQrMode) && secureModeCiphertext && clientGeneratedId
           ? {
               ...metadata,
               textContentCiphertext: secureModeCiphertext.textContentCiphertext,
               urlContentCiphertext: secureModeCiphertext.urlContentCiphertext,
               clientId: clientGeneratedId,
             }
-          : secureMode && clientGeneratedId
+          : (secureMode || singleQrMode) && clientGeneratedId
           ? { ...metadata, clientId: clientGeneratedId }
           : metadata;
         
@@ -506,8 +564,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         // No files, just text/URLs
         console.log('📝 Creating QR drop without file');
         try {
-          // For secureMode: Include ciphertext in metadata object (but not counted in metadata size check)
-          const createMetadata = secureMode && secureModeCiphertext
+          // For secureMode/singleQrMode: Include ciphertext in metadata object (but not counted in metadata size check)
+          const createMetadata = (secureMode || singleQrMode) && secureModeCiphertext
             ? {
                 ...metadata,
                 textContentCiphertext: secureModeCiphertext.textContentCiphertext,
@@ -530,13 +588,13 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           console.log('✅ Create response:', response);
           
           // Verify that server used our client-generated ID
-          if (secureMode && clientGeneratedId && response.id !== clientGeneratedId) {
+          if ((secureMode || singleQrMode) && clientGeneratedId && response.id !== clientGeneratedId) {
             console.error('❌ [UPLOAD] CRITICAL: Server ID mismatch!');
             console.error('❌ [UPLOAD] Client ID:', clientGeneratedId);
             console.error('❌ [UPLOAD] Server ID:', response.id);
             console.error('❌ [UPLOAD] This will cause decryption to fail!');
             toast.error('Kritisk feil: ID mismatch. Dekryptering vil feile.');
-          } else if (secureMode && clientGeneratedId && response.id === clientGeneratedId) {
+          } else if ((secureMode || singleQrMode) && clientGeneratedId && response.id === clientGeneratedId) {
             console.log('✅ [UPLOAD] Server used client-generated ID - encryption/decryption will match!');
           }
         } catch (createError: any) {
@@ -637,6 +695,47 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           secureMode: true, // Mark as Secure Mode
           qrCodeUrl2: qr2Final, // Store QR #2
         };
+
+        onQrCreated(newQrDrop);
+      } else if (singleQrMode && singleQrKey) {
+        // SINGLE QR MODE: Generate ONE QR code with K1 in fragment
+        const qr1Url = createQr1Url(window.location.origin, response.id, singleQrKey.k1);
+        
+        console.log('🔍 [DEBUG] Single QR URL before QR generation:', qr1Url);
+        console.log('🔍 [DEBUG] Single QR URL contains #k1:', qr1Url.includes('#k1='));
+        console.log('🔑 Single QR URL:', qr1Url.replace(/#k1=.*/, '#k1=***'));
+        console.log('✅ Single QR encryption: Server never sees key (zero-knowledge)');
+        
+        const qr1Base = await generateStyledQrCode(qr1Url, qrStyle);
+        const qr1Final = await createBrandedQrCode(qr1Base);
+        
+        // Calculate total size
+        const totalSize = files.reduce((sum, file) => sum + file.size, 0) + 
+                          (textContent?.length || 0) + 
+                          urls.reduce((sum, url) => sum + url.length, 0);
+
+        const newQrDrop: QrDrop = {
+          id: response.id,
+          title: title.trim() || undefined,
+          contentType: 'bundle',
+          fileName: title.trim() || t('upload.sharedContent'),
+          fileType: 'bundle',
+          fileSize: totalSize,
+          textContent: textContent.trim() || undefined,
+          urlContent: urls.length > 0 ? JSON.stringify(urls) : undefined,
+          expiryType,
+          expiryDate,
+          maxScans: maxScans ? parseInt(maxScans) : undefined,
+          maxDownloads: maxDownloads ? parseInt(maxDownloads) : undefined,
+          scanCount: 0,
+          downloadCount: 0,
+          viewOnly,
+          password: usePassword ? password : undefined,
+          createdAt: new Date(),
+          qrCodeUrl: qr1Final,
+          secureMode: false, // Not dual QR mode
+          singleQrMode: true, // Mark as Single QR Mode
+        } as QrDrop;
 
         onQrCreated(newQrDrop);
       } else {
@@ -1035,38 +1134,80 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {/* Standard Mode */}
               <button
-                onClick={() => setSecureMode(false)}
+                onClick={() => {
+                  setSecureMode(false);
+                  setSingleQrMode(false);
+                }}
                 className={`p-5 rounded-xl border-2 transition-all text-left ${
-                  !secureMode
+                  !secureMode && !singleQrMode
                     ? 'bg-[#5D8CC9] text-white border-[#4A6FA5]'
                     : 'bg-[#E8DCD4] text-[#3F3F3F] border-[#D5C5BD] hover:bg-[#E1C7BA]'
                 }`}
                 style={{
-                  boxShadow: !secureMode 
+                  boxShadow: !secureMode && !singleQrMode
                     ? '0 4px 12px rgba(93, 140, 201, 0.25)' 
                     : 'none',
                 }}
               >
                 <div className="flex items-center gap-3 mb-2">
-                  <Eye className={`size-5 ${!secureMode ? 'text-white' : 'text-[#4A6FA5]'}`} />
-                  <h3 className={`${!secureMode ? 'text-white' : 'text-[#3F3F3F]'}`}>
+                  <Eye className={`size-5 ${!secureMode && !singleQrMode ? 'text-white' : 'text-[#4A6FA5]'}`} />
+                  <h3 className={`${!secureMode && !singleQrMode ? 'text-white' : 'text-[#3F3F3F]'}`}>
                     {t('upload.standardMode')}
                   </h3>
                 </div>
-                <p className={`text-sm mb-1 ${!secureMode ? 'text-white/90' : 'text-[#3F3F3F]'}`}>
+                <p className={`text-sm mb-1 ${!secureMode && !singleQrMode ? 'text-white/90' : 'text-[#3F3F3F]'}`}>
                   {t('upload.standardModeDesc')}
                 </p>
-                <p className={`text-xs ${!secureMode ? 'text-white/75' : 'text-[#5B5B5B]'}`}>
+                <p className={`text-xs ${!secureMode && !singleQrMode ? 'text-white/75' : 'text-[#5B5B5B]'}`}>
                   {t('upload.standardModeNote')}
                 </p>
               </button>
 
-              {/* Secure Mode */}
+              {/* Single QR Mode */}
               <button
-                onClick={() => setSecureMode(true)}
+                onClick={() => {
+                  setSecureMode(false);
+                  setSingleQrMode(true);
+                }}
+                className={`p-5 rounded-xl border-2 transition-all text-left relative ${
+                  singleQrMode
+                    ? 'bg-[#5D8CC9] text-white border-[#4A6FA5]'
+                    : 'bg-[#E8DCD4] text-[#3F3F3F] border-[#D5C5BD] hover:bg-[#E1C7BA]'
+                }`}
+                style={{
+                  boxShadow: singleQrMode 
+                    ? '0 4px 12px rgba(93, 140, 201, 0.25)' 
+                    : 'none',
+                }}
+              >
+                {user && (
+                  <div className="absolute top-2 right-2">
+                    <Crown className="size-4 text-[#E8927E]" />
+                  </div>
+                )}
+                <div className="flex items-center gap-3 mb-2">
+                  <Key className={`size-5 ${singleQrMode ? 'text-white' : 'text-[#E8927E]'}`} />
+                  <h3 className={`${singleQrMode ? 'text-white' : 'text-[#3F3F3F]'}`}>
+                    {t('upload.singleQrMode')}
+                  </h3>
+                </div>
+                <p className={`text-sm mb-1 ${singleQrMode ? 'text-white/90' : 'text-[#3F3F3F]'}`}>
+                  {t('upload.singleQrModeDesc')}
+                </p>
+                <p className={`text-xs ${singleQrMode ? 'text-white/75' : 'text-[#5B5B5B]'}`}>
+                  {t('upload.singleQrModeNote')}
+                </p>
+              </button>
+
+              {/* Secure Mode (Dual QR) */}
+              <button
+                onClick={() => {
+                  setSecureMode(true);
+                  setSingleQrMode(false);
+                }}
                 className={`p-5 rounded-xl border-2 transition-all text-left relative ${
                   secureMode
                     ? 'bg-[#5D8CC9] text-white border-[#4A6FA5]'
@@ -1108,7 +1249,17 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
               </div>
             )}
 
-            {!user && secureMode && (
+            {singleQrMode && (
+              <div 
+                className="mt-4 p-3 rounded-xl flex items-start gap-2"
+                style={{ backgroundColor: '#F5E5E1', borderColor: '#D5C5BD' }}
+              >
+                <Key className="size-4 text-[#E8927E] flex-shrink-0 mt-0.5" />
+                <p className="text-[#E8927E] text-sm" dangerouslySetInnerHTML={{ __html: t('upload.singleQrModeInfo') }} />
+              </div>
+            )}
+
+            {!user && (secureMode || singleQrMode) && (
               <div 
                 className="mt-4 p-3 rounded-xl flex items-start gap-2"
                 style={{ backgroundColor: '#E2EFFA', borderColor: '#D5C5BD' }}

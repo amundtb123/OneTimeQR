@@ -87,9 +87,10 @@ export interface QrDropMetadata {
   password?: string;
   qrStyle?: any; // Store QR code styling preferences
   qrCodeDataUrl?: string; // Store the generated QR code image
-  secureMode?: boolean; // Secure Mode flag
+  secureMode?: boolean; // Secure Mode flag (dual QR)
+  singleQrMode?: boolean; // Single QR Mode flag (single QR with K1)
   encrypted?: boolean; // Encryption flag
-  encryptionKey?: string; // Encryption key (not for secureMode)
+  encryptionKey?: string; // Encryption key (not for secureMode/singleQrMode)
   originalFileTypes?: Record<string, string>; // Original file types
   // For secureMode: ciphertext sent separately (not in metadata to avoid size limit)
   textContentCiphertext?: string; // JSON string of {iv, salt, ciphertext}
@@ -116,6 +117,8 @@ export interface QrDropData {
   viewOnly: boolean;
   password: string | null;
   qrStyle?: any; // QR code styling preferences
+  secureMode?: boolean; // Secure Mode flag (dual QR)
+  singleQrMode?: boolean; // Single QR Mode flag (single QR with K1)
   createdAt: number;
   expiredAt?: number; // Timestamp when marked as expired
 }

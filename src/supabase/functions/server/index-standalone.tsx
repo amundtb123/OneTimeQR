@@ -546,10 +546,12 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     
     // CRITICAL FIX: Handle Secure Mode ciphertext fields (same as create endpoint)
     const isSecureMode = metadata.secureMode || false;
-    const textContentToStore = isSecureMode 
+    const isSingleQrMode = metadata.singleQrMode || false;
+    const isEncryptedMode = isSecureMode || isSingleQrMode;
+    const textContentToStore = isEncryptedMode 
       ? (metadata.textContentCiphertext || null)
       : (metadata.textContent || null);
-    const urlContentToStore = isSecureMode
+    const urlContentToStore = isEncryptedMode
       ? (metadata.urlContentCiphertext || null)
       : (metadata.urlContent || null);
     
@@ -589,6 +591,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       // NOTE: qrCodeDataUrl is not stored (too large - 30-50 KB, generated on-demand)
       encrypted: metadata.encrypted || false,
       secureMode: metadata.secureMode || false,
+      singleQrMode: metadata.singleQrMode || false,
       encryptionKey: metadata.encryptionKey || null,
       createdAt: timestamp,
     };
@@ -623,8 +626,8 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       allKeys: Object.keys(metadata).slice(0, 20) // First 20 keys
     });
 
-    // SECURITY: Validate metadata size (excluding ciphertext for secureMode)
-    // For secureMode, ciphertext is sent as separate fields and not counted in metadata size
+    // SECURITY: Validate metadata size (excluding ciphertext for secureMode/singleQrMode)
+    // For secureMode/singleQrMode, ciphertext is sent as separate fields and not counted in metadata size
     const MAX_METADATA_SIZE = 10 * 1024; // 10 KB
     const metadataForSizeCheck = { ...metadata };
     // Remove ciphertext fields from size check (they're stored separately)
@@ -680,12 +683,14 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     }
 
     // Validate content (at least one type must be present)
-    // For secureMode: check ciphertext fields, for standard: check textContent/urlContent
+    // For secureMode/singleQrMode: check ciphertext fields, for standard: check textContent/urlContent
     const isSecureMode = metadata.secureMode === true;
-    const hasText = isSecureMode
+    const isSingleQrMode = metadata.singleQrMode === true;
+    const isEncryptedMode = isSecureMode || isSingleQrMode;
+    const hasText = isEncryptedMode
       ? (metadata.textContentCiphertext && metadata.textContentCiphertext.length > 0)
       : (metadata.textContent && metadata.textContent.trim().length > 0);
-    const hasUrl = isSecureMode
+    const hasUrl = isEncryptedMode
       ? (metadata.urlContentCiphertext && metadata.urlContentCiphertext.length > 0)
       : (metadata.urlContent && metadata.urlContent.length > 0);
     
@@ -760,6 +765,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       // NOTE: qrCodeDataUrl is not stored (too large - 30-50 KB, generated on-demand)
       encrypted: metadata.encrypted || false,
       secureMode: metadata.secureMode || false,
+      singleQrMode: metadata.singleQrMode || false,
       encryptionKey: metadata.encryptionKey || null,
       createdAt: timestamp,
     };
@@ -1069,10 +1075,11 @@ app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    console.log(`Lightweight check for QR drop ${id} - secureMode: ${qrDrop.secureMode}`);
+    console.log(`Lightweight check for QR drop ${id} - secureMode: ${qrDrop.secureMode}, singleQrMode: ${qrDrop.singleQrMode}`);
     
     return c.json({ 
       secureMode: qrDrop.secureMode || false,
+      singleQrMode: qrDrop.singleQrMode || false,
       hasPassword: !!qrDrop.password,
       contentType: qrDrop.contentType,
       expiresAt: qrDrop.expiresAt,

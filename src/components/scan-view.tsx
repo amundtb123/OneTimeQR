@@ -125,11 +125,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         let accessToken = urlParams.get('access') || undefined;
         const unlockParam = urlParams.get('unlock'); // Preserve unlock flag
         
-        // 🔐 SECURE MODE: If this is a direct scan without unlock key or unlock param,
+        // 🔐 SECURE MODE / SINGLE QR MODE: If this is a direct scan without unlock key or unlock param,
         // this might be QR #1 - just show UnlockScreen without loading data
         // Use effectiveUnlockKey (from prop or storage) instead of just unlockKey prop
         if (isDirectScan && !effectiveUnlockKey && !unlockParam && !accessToken) {
-          // We need to check if this is a Secure Mode QR drop
+          // We need to check if this is a Secure Mode or Single QR Mode QR drop
           // Make a lightweight check without incrementing scan count
           const lightCheck = await fetch(`https://${(await import('../utils/supabase/info')).projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/check`, {
             headers: {
@@ -139,7 +139,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           
           if (lightCheck.ok) {
             const checkData = await lightCheck.json();
-            if (checkData.secureMode) {
+            if (checkData.secureMode || checkData.singleQrMode) {
               setIsEncrypted(true);
               setIsLoading(false);
               return; // Stop here - UnlockScreen will be shown
@@ -215,23 +215,24 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             window.history.replaceState({}, '', `/scan/${currentQrDropId}`);
           }
           
-          // Check if content is in Secure Mode (requires QR2)
-          // NOTE: encrypted flag is for standard encryption (password/server key), not Secure Mode
+          // Check if content is in Secure Mode or Single QR Mode (requires unlock key)
+          // NOTE: encrypted flag is for standard encryption (password/server key), not Secure Mode/Single QR Mode
           const isSecureMode = newResponse.qrDrop.secureMode;
-          setIsEncrypted(isSecureMode);
+          const isSingleQrMode = newResponse.qrDrop.singleQrMode;
+          setIsEncrypted(isSecureMode || isSingleQrMode);
           
           // Set qrDrop first so UnlockScreen can be shown if needed
           setQrDrop(newResponse.qrDrop);
           
-          // If Secure Mode but no unlock key, we'll show UnlockScreen later
+          // If Secure Mode or Single QR Mode but no unlock key, we'll show UnlockScreen later
           // Use effectiveUnlockKey (from prop or storage) instead of just unlockKey prop
-          if (isSecureMode && !effectiveUnlockKey) {
+          if ((isSecureMode || isSingleQrMode) && !effectiveUnlockKey) {
             setIsLoading(false);
             return;
           }
           
-          // Decrypt content if we have the key (Secure Mode)
-          if (isSecureMode && effectiveUnlockKey) {
+          // Decrypt content if we have the key (Secure Mode or Single QR Mode)
+          if ((isSecureMode || isSingleQrMode) && effectiveUnlockKey) {
             try {
               setIsDecrypting(true);
               const decrypted: {text?: string; urls?: string[]} = {};
@@ -420,22 +421,23 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           console.log('✅ fileUrl received in response - skipping separate /file call');
         }
         
-        // Check if content is in Secure Mode (requires QR2)
-        // NOTE: encrypted flag is for standard encryption (password/server key), not Secure Mode
+        // Check if content is in Secure Mode or Single QR Mode (requires unlock key)
+        // NOTE: encrypted flag is for standard encryption (password/server key), not Secure Mode/Single QR Mode
         const isSecureMode = response.qrDrop.secureMode;
-        setIsEncrypted(isSecureMode);
+        const isSingleQrMode = response.qrDrop.singleQrMode;
+        setIsEncrypted(isSecureMode || isSingleQrMode);
         
         // Set qrDrop first so UnlockScreen can be shown if needed
         setQrDrop(response.qrDrop);
         
-        // If Secure Mode but no unlock key, we'll show UnlockScreen later
-        if (isSecureMode && !effectiveUnlockKey) {
+        // If Secure Mode or Single QR Mode but no unlock key, we'll show UnlockScreen later
+        if ((isSecureMode || isSingleQrMode) && !effectiveUnlockKey) {
           setIsLoading(false);
           return;
         }
         
-        // Decrypt content if we have the key (Secure Mode)
-        if (isSecureMode && effectiveUnlockKey) {
+        // Decrypt content if we have the key (Secure Mode or Single QR Mode)
+        if ((isSecureMode || isSingleQrMode) && effectiveUnlockKey) {
           try {
             setIsDecrypting(true);
             const decrypted: {text?: string; urls?: string[]} = {};
@@ -705,8 +707,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Always load files (they need to be decrypted since ALL files are encrypted)
           if ((response.qrDrop.contentType === 'file' || response.qrDrop.contentType === 'bundle') && (response.qrDrop.filePath || (response.qrDrop.files && response.qrDrop.files.length > 0))) {
             const needsLoad = fileUrls.length === 0 && !fileUrl;
-            // For secureMode, we need effectiveUnlockKey. For standard encrypted files, we always need to load/decrypt
-            const needsDecrypt = response.qrDrop.secureMode ? (response.qrDrop.secureMode && effectiveUnlockKey) : true;
+            // For secureMode/singleQrMode, we need effectiveUnlockKey. For standard encrypted files, we always need to load/decrypt
+            const needsDecrypt = (response.qrDrop.secureMode || response.qrDrop.singleQrMode) ? ((response.qrDrop.secureMode || response.qrDrop.singleQrMode) && effectiveUnlockKey) : true;
             if (needsLoad || needsDecrypt) {
               await loadFile();
             }
@@ -748,8 +750,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       // ALL files are now encrypted, so we always need to decrypt
       let decryptionKey: string | null = null;
       let isSplitKeyMode = false;
-      if (qrDrop?.secureMode) {
-        // Secure Mode: use unlock key from QR #2
+      if (qrDrop?.secureMode || qrDrop?.singleQrMode) {
+        // Secure Mode or Single QR Mode: use unlock key
         // Check if this is split-key (no encryptionKey on server) or legacy
         isSplitKeyMode = !qrDrop.encryptionKey;
         console.log('🔍 [LOAD FILE] Secure Mode file decryption check:', {
@@ -934,14 +936,15 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   useEffect(() => {
     if (!qrDrop) return;
     
-    // Only reload for Secure Mode (not standard encryption)
+    // Only reload for Secure Mode or Single QR Mode (not standard encryption)
     const isSecureMode = qrDrop.secureMode;
+    const isSingleQrMode = qrDrop.singleQrMode;
     const hasFiles = qrDrop.filePath || (qrDrop.files && qrDrop.files.length > 0);
     
-    if (!isSecureMode || !hasFiles) return;
+    if ((!isSecureMode && !isSingleQrMode) || !hasFiles) return;
     
-    // Check if we have decryption key (effectiveUnlockKey for secureMode)
-    const hasDecryptionKey = isSecureMode && effectiveUnlockKey;
+    // Check if we have decryption key (effectiveUnlockKey for secureMode/singleQrMode)
+    const hasDecryptionKey = (isSecureMode || isSingleQrMode) && effectiveUnlockKey;
     
     if (hasDecryptionKey) {
       console.log('🔑 Decryption key available, loading/decrypting files...', {
@@ -993,8 +996,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         // Get decryption key if file is encrypted
         // ALL files are now encrypted, so we always need to decrypt
         let decryptionKey: string | null = null;
-        if (qrDrop?.secureMode) {
-          // Secure Mode: use unlock key from QR #2
+        if (qrDrop?.secureMode || qrDrop?.singleQrMode) {
+          // Secure Mode or Single QR Mode: use unlock key
           if (unlockKey) {
             decryptionKey = unlockKey;
           }
@@ -1017,11 +1020,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         }
         
         // If file is encrypted but no key available, show error
-        // For secureMode, we need effectiveUnlockKey. For standard encrypted files, we need key from server
-        if (qrDrop?.secureMode && !decryptionKey) {
+        // For secureMode/singleQrMode, we need effectiveUnlockKey. For standard encrypted files, we need key from server
+        if ((qrDrop?.secureMode || qrDrop?.singleQrMode) && !decryptionKey) {
           toast.error('Cannot decrypt file. Encryption key not available.');
           return;
-        } else if (!qrDrop?.secureMode && !decryptionKey) {
+        } else if (!qrDrop?.secureMode && !qrDrop?.singleQrMode && !decryptionKey) {
           // For standard encrypted files, if we couldn't fetch the key, show error
           toast.error('Cannot decrypt file. Encryption key not available.');
           return;

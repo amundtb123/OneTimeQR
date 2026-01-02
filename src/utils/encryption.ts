@@ -15,7 +15,7 @@ function b64u(bytes: Uint8Array): string {
 /**
  * Base64URL decoding
  */
-function fromB64u(s: string): Uint8Array {
+export function fromB64u(s: string): Uint8Array {
   if (!s || typeof s !== 'string') {
     throw new Error(`Invalid base64url string: ${s}`);
   }

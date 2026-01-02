@@ -37,7 +37,8 @@ export interface QrDrop {
   createdAt: Date;
   expiredAt?: Date; // Timestamp when it was marked as expired
   qrCodeUrl: string;
-  secureMode?: boolean; // Secure Mode flag
+  secureMode?: boolean; // Secure Mode flag (dual QR)
+  singleQrMode?: boolean; // Single QR Mode flag (single QR with K1)
   qrCodeUrl2?: string; // QR #2 for Secure Mode (unlock code)
 }
 
@@ -702,100 +703,172 @@ function AppContent() {
         }
         
         if (k1) {
-          // This is QR #1 scanned - store k1 and show scan view
-          // Use localStorage so it works across windows/tabs (when user opens in new window)
+          // This is QR #1 scanned - check if it's Single QR Mode or Secure Mode
+          // For Single QR Mode: K1 is the master key (convert to hex and use directly)
+          // For Secure Mode: Store K1 and wait for K2
           console.log('💾 [APP] Storing k1 for QR1:', id, 'k1 length:', k1.length);
           
-          // CRITICAL FIX: Store k1 IMMEDIATELY and verify BEFORE any async operations
-          // This ensures k1 is persisted even if there are timing issues
-          console.log('💾 [APP] Storing k1 - BEFORE storage:', {
-            id,
-            k1Length: k1.length,
-            k1Preview: k1.substring(0, 20) + '...',
-            localStorageAvailable: typeof localStorage !== 'undefined',
-            sessionStorageAvailable: typeof sessionStorage !== 'undefined'
-          });
-          
+          // Check if this is Single QR Mode or Secure Mode
           try {
-            const timestamp = Date.now().toString();
-            const storedLocal = safeSetItem(localStorage, `k1_${id}`, k1);
-            const storedTimestamp = safeSetItem(localStorage, `qr1_timestamp_${id}`, timestamp);
-            // Also store in sessionStorage as backup (for same-window flow)
-            const storedSession = safeSetItem(sessionStorage, `k1_${id}`, k1);
-            const storedSessionTimestamp = safeSetItem(sessionStorage, `qr1_timestamp_${id}`, timestamp);
-            
-            if (!storedLocal || !storedSession) {
-              console.error('❌ [APP] Failed to store k1 due to storage quota');
-              toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
-            }
-            
-            // Verify it was stored IMMEDIATELY (synchronous check)
-            const verifyK1Local = localStorage.getItem(`k1_${id}`);
-            const verifyK1Session = sessionStorage.getItem(`k1_${id}`);
-            console.log('✅ [APP] k1 storage verification (immediate):', {
-              localStorage: verifyK1Local ? 'SUCCESS' : 'FAILED',
-              sessionStorage: verifyK1Session ? 'SUCCESS' : 'FAILED',
-              k1Length: k1.length,
-              storedLength: verifyK1Local?.length || 0,
-              storedPreview: verifyK1Local ? verifyK1Local.substring(0, 20) + '...' : 'MISSING',
-              keysMatch: verifyK1Local === k1
+            const { projectId, publicAnonKey } = await import('./utils/supabase/info');
+            const checkResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${id}/check`, {
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`
+              }
             });
             
-            // CRITICAL: If storage failed, try again with a small delay (mobile browser quirk)
-            if (!verifyK1Local || !verifyK1Session || verifyK1Local !== k1) {
-              console.warn('⚠️ [APP] k1 storage verification failed or mismatch, retrying...');
-              setTimeout(() => {
-                safeSetItem(localStorage, `k1_${id}`, k1);
-                safeSetItem(sessionStorage, `k1_${id}`, k1);
-                const retryVerify = localStorage.getItem(`k1_${id}`);
-                const retryMatch = retryVerify === k1;
-                console.log('✅ [APP] k1 retry storage verification:', {
-                  success: retryVerify ? 'YES' : 'NO',
-                  match: retryMatch ? 'YES' : 'NO',
-                  storedLength: retryVerify?.length || 0
-                });
-              }, 50);
+            let isSingleQrMode = false;
+            if (checkResponse.ok) {
+              const checkData = await checkResponse.json();
+              isSingleQrMode = checkData.singleQrMode || false;
+              console.log('🔍 [APP] QR drop mode check:', { singleQrMode: isSingleQrMode, secureMode: checkData.secureMode });
             }
-          } catch (storageError) {
-            console.error('❌ [APP] Failed to store k1:', storageError);
-            // Try one more time
-            try {
-              const stored = safeSetItem(localStorage, `k1_${id}`, k1);
-              const storedSession = safeSetItem(sessionStorage, `k1_${id}`, k1);
-              if (stored && storedSession) {
-                console.log('✅ [APP] k1 storage retry after error: SUCCESS');
-              } else {
-                console.error('❌ [APP] k1 storage retry also failed: quota exceeded');
+            
+            if (isSingleQrMode) {
+              // SINGLE QR MODE: K1 is the master key - convert from base64url to hex
+              console.log('🔑 [APP] Single QR Mode detected - converting K1 to master key');
+              try {
+                const { fromB64u } = await import('./utils/encryption');
+                const k1Bytes = fromB64u(k1);
+                const masterKeyHex = Array.from(k1Bytes)
+                  .map(b => b.toString(16).padStart(2, '0'))
+                  .join('');
+                
+                // Store master key directly
+                const storedMaster = safeSetItem(sessionStorage, `master_${id}`, masterKeyHex);
+                if (!storedMaster) {
+                  console.error('❌ [APP] Failed to store master key due to storage quota');
+                  toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
+                }
+                
+                console.log('✅ [APP] Single QR Mode: K1 converted to master key');
+                setScanId(id);
+                setUnlockKey(masterKeyHex);
+                setCurrentView('scan');
+                
+                // Clean up URL fragment
+                setTimeout(() => {
+                  window.history.replaceState({}, '', `/scan/${id}`);
+                  console.log('🧹 [APP] URL fragment cleaned after Single QR unlock');
+                }, 100);
+                
+                console.log('✅ Single QR scanned - master key ready, content unlocked');
+                return;
+              } catch (error) {
+                console.error('❌ [APP] Failed to convert K1 to master key:', error);
+                toast.error('Kunne ikke dekryptere. Ugyldig nøkkel.');
+                return;
               }
-            } catch (retryError) {
-              console.error('❌ [APP] k1 storage retry also failed:', retryError);
+            } else {
+              // SECURE MODE: Store K1 and wait for K2
+              console.log('🔐 [APP] Secure Mode detected - storing K1, waiting for K2');
+              
+              // CRITICAL FIX: Store k1 IMMEDIATELY and verify BEFORE any async operations
+              // This ensures k1 is persisted even if there are timing issues
+              console.log('💾 [APP] Storing k1 - BEFORE storage:', {
+                id,
+                k1Length: k1.length,
+                k1Preview: k1.substring(0, 20) + '...',
+                localStorageAvailable: typeof localStorage !== 'undefined',
+                sessionStorageAvailable: typeof sessionStorage !== 'undefined'
+              });
+              
+              try {
+                const timestamp = Date.now().toString();
+                const storedLocal = safeSetItem(localStorage, `k1_${id}`, k1);
+                const storedTimestamp = safeSetItem(localStorage, `qr1_timestamp_${id}`, timestamp);
+                // Also store in sessionStorage as backup (for same-window flow)
+                const storedSession = safeSetItem(sessionStorage, `k1_${id}`, k1);
+                const storedSessionTimestamp = safeSetItem(sessionStorage, `qr1_timestamp_${id}`, timestamp);
+                
+                if (!storedLocal || !storedSession) {
+                  console.error('❌ [APP] Failed to store k1 due to storage quota');
+                  toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
+                }
+                
+                // Verify it was stored IMMEDIATELY (synchronous check)
+                const verifyK1Local = localStorage.getItem(`k1_${id}`);
+                const verifyK1Session = sessionStorage.getItem(`k1_${id}`);
+                console.log('✅ [APP] k1 storage verification (immediate):', {
+                  localStorage: verifyK1Local ? 'SUCCESS' : 'FAILED',
+                  sessionStorage: verifyK1Session ? 'SUCCESS' : 'FAILED',
+                  k1Length: k1.length,
+                  storedLength: verifyK1Local?.length || 0,
+                  storedPreview: verifyK1Local ? verifyK1Local.substring(0, 20) + '...' : 'MISSING',
+                  keysMatch: verifyK1Local === k1
+                });
+                
+                // CRITICAL: If storage failed, try again with a small delay (mobile browser quirk)
+                if (!verifyK1Local || !verifyK1Session || verifyK1Local !== k1) {
+                  console.warn('⚠️ [APP] k1 storage verification failed or mismatch, retrying...');
+                  setTimeout(() => {
+                    safeSetItem(localStorage, `k1_${id}`, k1);
+                    safeSetItem(sessionStorage, `k1_${id}`, k1);
+                    const retryVerify = localStorage.getItem(`k1_${id}`);
+                    const retryMatch = retryVerify === k1;
+                    console.log('✅ [APP] k1 retry storage verification:', {
+                      success: retryVerify ? 'YES' : 'NO',
+                      match: retryMatch ? 'YES' : 'NO',
+                      storedLength: retryVerify?.length || 0
+                    });
+                  }, 50);
+                }
+              } catch (storageError) {
+                console.error('❌ [APP] Failed to store k1:', storageError);
+                // Try one more time
+                try {
+                  const stored = safeSetItem(localStorage, `k1_${id}`, k1);
+                  const storedSession = safeSetItem(sessionStorage, `k1_${id}`, k1);
+                  if (stored && storedSession) {
+                    console.log('✅ [APP] k1 storage retry after error: SUCCESS');
+                  } else {
+                    console.error('❌ [APP] k1 storage retry also failed: quota exceeded');
+                  }
+                } catch (retryError) {
+                  console.error('❌ [APP] k1 storage retry also failed:', retryError);
+                }
+              }
+              
+              // CRITICAL: Mark QR1 as scanned on server (zero-knowledge - server never sees k1)
+              // This allows QR2 to be scanned on a different device and still work
+              try {
+                const { markQr1Scanned } = await import('./utils/api-client');
+                console.log('📤 [APP] Calling markQr1Scanned with ID:', id);
+                const result = await markQr1Scanned(id);
+                console.log('✅ [APP] QR #1 scan recorded on server (zero-knowledge):', result);
+                console.log('✅ [APP] ID used for QR1 scan:', id);
+              } catch (error) {
+                console.error('⚠️ [APP] Failed to record QR1 scan on server:', error);
+                // Continue anyway - local storage is backup
+              }
+              
+              setScanId(id);
+              setCurrentView('scan');
+              
+              // CRITICAL FIX: Clean up URL fragment AFTER k1 is stored and verified
+              // Use setTimeout to ensure storage operations complete first (especially on mobile)
+              setTimeout(() => {
+                window.history.replaceState({}, '', `/scan/${id}`);
+                console.log('🧹 [APP] URL fragment cleaned after k1 storage');
+              }, 100);
+              
+              console.log('✅ QR #1 scanned - k1 stored, waiting for QR #2');
             }
-          }
-          
-          // CRITICAL: Mark QR1 as scanned on server (zero-knowledge - server never sees k1)
-          // This allows QR2 to be scanned on a different device and still work
-          try {
-            const { markQr1Scanned } = await import('./utils/api-client');
-            console.log('📤 [APP] Calling markQr1Scanned with ID:', id);
-            const result = await markQr1Scanned(id);
-            console.log('✅ [APP] QR #1 scan recorded on server (zero-knowledge):', result);
-            console.log('✅ [APP] ID used for QR1 scan:', id);
           } catch (error) {
-            console.error('⚠️ [APP] Failed to record QR1 scan on server:', error);
-            // Continue anyway - local storage is backup
+            console.error('⚠️ [APP] Failed to check QR mode, assuming Secure Mode:', error);
+            // Fallback: assume Secure Mode if check fails
+            // Store k1 and continue
+            const timestamp = Date.now().toString();
+            safeSetItem(localStorage, `k1_${id}`, k1);
+            safeSetItem(sessionStorage, `k1_${id}`, k1);
+            safeSetItem(localStorage, `qr1_timestamp_${id}`, timestamp);
+            safeSetItem(sessionStorage, `qr1_timestamp_${id}`, timestamp);
+            setScanId(id);
+            setCurrentView('scan');
+            setTimeout(() => {
+              window.history.replaceState({}, '', `/scan/${id}`);
+            }, 100);
           }
-          
-          setScanId(id);
-          setCurrentView('scan');
-          
-          // CRITICAL FIX: Clean up URL fragment AFTER k1 is stored and verified
-          // Use setTimeout to ensure storage operations complete first (especially on mobile)
-          setTimeout(() => {
-            window.history.replaceState({}, '', `/scan/${id}`);
-            console.log('🧹 [APP] URL fragment cleaned after k1 storage');
-          }, 100);
-          
-          console.log('✅ QR #1 scanned - k1 stored, waiting for QR #2');
         } else if (unlock === '1') {
           // Legacy: QR #2 with unlock flag (old method - fetch from server)
           // This should not happen with new split-key system, but keep for backwards compatibility

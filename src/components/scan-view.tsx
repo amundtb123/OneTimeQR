@@ -456,17 +456,35 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         const isSingleQrMode = response.qrDrop.singleQrMode;
         setIsEncrypted(isSecureMode || isSingleQrMode);
         
+        console.log('🔍 [SCAN VIEW] Mode check:', {
+          isSecureMode,
+          isSingleQrMode,
+          isEncrypted: isSecureMode || isSingleQrMode,
+          hasEffectiveUnlockKey: !!effectiveUnlockKey,
+          contentType: response.qrDrop.contentType,
+          hasTextContent: !!response.qrDrop.textContent,
+          hasUrlContent: !!response.qrDrop.urlContent
+        });
+        
         // Set qrDrop first so UnlockScreen can be shown if needed
         setQrDrop(response.qrDrop);
         
         // If Secure Mode or Single QR Mode but no unlock key, we'll show UnlockScreen later
         if ((isSecureMode || isSingleQrMode) && !effectiveUnlockKey) {
+          console.log('⚠️ [SCAN VIEW] Secure/Single QR Mode but no unlock key - showing UnlockScreen');
           setIsLoading(false);
           return;
         }
         
         // Decrypt content if we have the key (Secure Mode or Single QR Mode)
         if ((isSecureMode || isSingleQrMode) && effectiveUnlockKey) {
+          console.log('🔐 [SCAN VIEW] Starting decryption for Secure/Single QR Mode:', {
+            isSecureMode,
+            isSingleQrMode,
+            hasTextContent: !!response.qrDrop.textContent,
+            hasUrlContent: !!response.qrDrop.urlContent,
+            contentType: response.qrDrop.contentType
+          });
           try {
             setIsDecrypting(true);
             const decrypted: {text?: string; urls?: string[]} = {};
@@ -715,9 +733,13 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               textPreview: decrypted.text?.substring(0, 50) + '...',
               hasUrls: !!decrypted.urls,
               urlsLength: decrypted.urls?.length,
-              urlsPreview: decrypted.urls?.slice(0, 2)
+              urlsPreview: decrypted.urls?.slice(0, 2),
+              contentType: response.qrDrop.contentType,
+              isSecureMode,
+              isSingleQrMode
             });
             setDecryptedContent(decrypted);
+            console.log('✅ [SCAN VIEW] decryptedContent state updated');
             toast.success(t('scanView.secureModeDecrypted'));
           } catch (error) {
             console.error('Decryption failed:', error);
@@ -732,6 +754,11 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         // If no password is required, automatically unlock and load file
         if (!response.qrDrop.password) {
           setIsUnlocked(true);
+          
+          // CRITICAL: For text/URL content in Secure/Single QR Mode, decryption happens above
+          // But we need to ensure it's triggered even if there are no files
+          // The decryption logic above (lines 468-729) handles text/URL content
+          
           // Load file URL(s) if there is actually a file (not just text/URL)
           // Always load files (they need to be decrypted since ALL files are encrypted)
           if ((response.qrDrop.contentType === 'file' || response.qrDrop.contentType === 'bundle') && (response.qrDrop.filePath || (response.qrDrop.files && response.qrDrop.files.length > 0))) {
@@ -1413,16 +1440,27 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
             {(() => {
               // Check if text content should be displayed
               const hasTextContent = (qrDrop?.contentType === 'text' || qrDrop?.contentType === 'bundle');
-              if (!hasTextContent) return null;
+              if (!hasTextContent) {
+                console.log('🔍 [RENDER] No text content - contentType:', qrDrop?.contentType);
+                return null;
+              }
               
-              // For Secure Mode: check if decryptedContent.text exists
+              // For Secure Mode/Single QR Mode: check if decryptedContent.text exists
               if (isEncrypted) {
+                console.log('🔍 [RENDER] Encrypted mode - checking decryptedContent:', {
+                  hasDecryptedText: !!decryptedContent.text,
+                  textLength: decryptedContent.text?.length,
+                  isSecureMode: qrDrop?.secureMode,
+                  isSingleQrMode: qrDrop?.singleQrMode
+                });
                 if (!decryptedContent.text) {
+                  console.warn('⚠️ [RENDER] Encrypted mode but no decrypted text - returning null');
                   return null;
                 }
               } else {
                 // For standard mode: check if textContent exists
                 if (!qrDrop?.textContent) {
+                  console.log('🔍 [RENDER] Standard mode but no textContent');
                   return null;
                 }
               }

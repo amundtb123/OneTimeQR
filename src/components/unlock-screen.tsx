@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, Key, Scan, Loader2, Clock } from 'lucide-react';
+import { Shield, Key, Scan, Loader2, Clock, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
@@ -7,6 +7,7 @@ import { QrScanner } from './qr-scanner-html5';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { markQr1Scanned } from '../utils/api-client';
 import { toast } from 'sonner@2.0.3';
+import jsQR from 'jsqr';
 
 // Safe storage wrapper that handles quota errors
 function safeSetItem(storage: Storage, key: string, value: string): boolean {
@@ -169,9 +170,11 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   }, [qrDropId]);
 
   const [showScanner, setShowScanner] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [expiryDate, setExpiryDate] = useState<Date | null>(null);
   const [expiryType, setExpiryType] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load QR drop expiry info using lightweight check (doesn't increment scan count)
   // Also check if it's Single QR Mode
@@ -269,6 +272,104 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   
   // Legacy handler for backwards compatibility
   const handleScanClick = handleScanQr2Click;
+
+  // Decode QR code from image file
+  const decodeQrFromImage = async (file: File): Promise<string | null> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          // Create canvas to draw image
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            reject(new Error('Could not get canvas context'));
+            return;
+          }
+          
+          // Set canvas size to image size
+          canvas.width = img.width;
+          canvas.height = img.height;
+          
+          // Draw image to canvas
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          
+          // Get image data
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          
+          // Try to decode QR code
+          try {
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: 'attemptBoth',
+            });
+            
+            if (code && code.data) {
+              console.log('✅ QR code decoded from image:', code.data);
+              resolve(code.data);
+            } else {
+              reject(new Error('No QR code found in image'));
+            }
+          } catch (error) {
+            reject(error);
+          }
+        };
+        
+        img.onerror = () => {
+          reject(new Error('Failed to load image'));
+        };
+        
+        if (e.target?.result) {
+          img.src = e.target.result as string;
+        } else {
+          reject(new Error('Failed to read file'));
+        }
+      };
+      
+      reader.onerror = () => {
+        reject(new Error('Failed to read file'));
+      };
+      
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Handle file upload for QR code image
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Kun bilder er støttet');
+      return;
+    }
+    
+    setIsUploading(true);
+    
+    try {
+      const qrData = await decodeQrFromImage(file);
+      if (qrData) {
+        // Process the decoded QR code the same way as a scanned QR
+        handleQrScanned(qrData);
+      }
+    } catch (error: any) {
+      console.error('Failed to decode QR from image:', error);
+      toast.error(error.message || 'Kunne ikke dekode QR-kode fra bildet. Prøv et annet bilde.');
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
 
   const handleQrScanned = (data: string) => {
     console.log('📱 [UNLOCK SCREEN] QR code scanned, raw data:', data);
@@ -700,6 +801,15 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             </div>
           )}
 
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+
           {/* Scan Buttons - Show QR1 or QR2 based on mode and k1 status */}
           {checkingK1 ? (
             <NordicButton
@@ -725,31 +835,79 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             </NordicButton>
           ) : hasK1 && !isSingleQrMode ? (
             // Secure Mode: K1 found, need QR2
-            <NordicButton
-              variant="coral"
-              size="lg"
-              onClick={handleScanQr2Click}
-              disabled={isUnlocking}
-              className="w-full shadow-lg"
-            >
-              <Scan className="size-5 mr-2" />
-              {isUnlocking ? t('unlockScreen.unlocking') : t('unlockScreen.scanQr2Button')}
-            </NordicButton>
+            <div className="space-y-3">
+              <NordicButton
+                variant="coral"
+                size="lg"
+                onClick={handleScanQr2Click}
+                disabled={isUnlocking || isUploading}
+                className="w-full shadow-lg"
+              >
+                <Scan className="size-5 mr-2" />
+                {isUnlocking ? t('unlockScreen.unlocking') : t('unlockScreen.scanQr2Button')}
+              </NordicButton>
+              <NordicButton
+                variant="blue"
+                size="lg"
+                onClick={handleUploadClick}
+                disabled={isUnlocking || isUploading}
+                className="w-full shadow-lg"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="size-5 mr-2 animate-spin" />
+                    Dekoder...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="size-5 mr-2" />
+                    Last opp QR-bilde
+                  </>
+                )}
+              </NordicButton>
+              <p className="text-[#5B5B5B] text-xs text-center mt-2">
+                På samme mobil? Last opp et skjermbilde av QR-koden i stedet.
+              </p>
+            </div>
           ) : (
             // Need to scan QR1 (both modes)
-            <NordicButton
-              variant="coral"
-              size="lg"
-              onClick={handleScanQr1Click}
-              disabled={isUnlocking}
-              className="w-full shadow-lg"
-            >
-              <Scan className="size-5 mr-2" />
-              {isSingleQrMode 
-                ? t('unlockScreen.scanQr1Button', { defaultValue: 'Scan QR Code to Unlock' })
-                : t('unlockScreen.scanQr1Button', { defaultValue: 'Scan QR #1 (Access Code)' })
-              }
-            </NordicButton>
+            <div className="space-y-3">
+              <NordicButton
+                variant="coral"
+                size="lg"
+                onClick={handleScanQr1Click}
+                disabled={isUnlocking || isUploading}
+                className="w-full shadow-lg"
+              >
+                <Scan className="size-5 mr-2" />
+                {isSingleQrMode 
+                  ? t('unlockScreen.scanQr1Button', { defaultValue: 'Scan QR Code to Unlock' })
+                  : t('unlockScreen.scanQr1Button', { defaultValue: 'Scan QR #1 (Access Code)' })
+                }
+              </NordicButton>
+              <NordicButton
+                variant="blue"
+                size="lg"
+                onClick={handleUploadClick}
+                disabled={isUnlocking || isUploading}
+                className="w-full shadow-lg"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="size-5 mr-2 animate-spin" />
+                    Dekoder...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="size-5 mr-2" />
+                    Last opp QR-bilde
+                  </>
+                )}
+              </NordicButton>
+              <p className="text-[#5B5B5B] text-xs text-center mt-2">
+                På samme mobil? Last opp et skjermbilde av QR-koden i stedet.
+              </p>
+            </div>
           )}
 
           <p className="text-[#5B5B5B] text-xs mt-4">

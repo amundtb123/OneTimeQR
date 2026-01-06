@@ -22,7 +22,7 @@ export function updateCachedToken(accessToken: string | null, expiresAt?: number
 async function getAuthToken(): Promise<string> {
   // Check if cached token is still valid
   if (cachedAccessToken && Date.now() < tokenExpiryTime) {
-    console.log('🔑 Using cached access token');
+    // SECURITY: Don't log token usage
     return cachedAccessToken;
   }
 
@@ -43,7 +43,7 @@ async function getAuthToken(): Promise<string> {
       const token = session.access_token;
       const expiresAt = session.expires_at ? session.expires_at * 1000 : Date.now() + 3600000;
       updateCachedToken(token, expiresAt);
-      console.log('🔑 Retrieved fresh access token');
+      // SECURITY: Don't log token retrieval
       return token;
     }
     
@@ -59,7 +59,7 @@ async function getAuthToken(): Promise<string> {
         const token = session.access_token;
         const expiresAt = session.expires_at ? session.expires_at * 1000 : Date.now() + 3600000;
         updateCachedToken(token, expiresAt);
-        console.log('🔑 Retrieved access token on retry');
+        // SECURITY: Don't log token retrieval
         return token;
       }
     } catch (retryError) {
@@ -124,7 +124,10 @@ export interface QrDropData {
 }
 
 async function fetchApi(endpoint: string, options: RequestInit = {}, requireAuth: boolean = false) {
-  console.log('🌐 fetchApi called:', endpoint, options.method || 'GET', requireAuth ? '(auth required)' : '');
+  // SECURITY: Minimal logging - no tokens or sensitive data
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🌐 fetchApi:', endpoint, options.method || 'GET');
+  }
   
   try {
     const authToken = await getAuthToken();
@@ -135,16 +138,7 @@ async function fetchApi(endpoint: string, options: RequestInit = {}, requireAuth
       throw new Error('Authentication required');
     }
     
-    console.log('🔑 Auth token prepared:', authToken ? `${authToken.substring(0, 20)}...` : 'MISSING');
-    
     const url = `${API_BASE}${endpoint}`;
-    console.log('🔗 Fetching URL:', url);
-    console.log('📦 Request options:', {
-      method: options.method || 'GET',
-      headers: { ...options.headers, 'Authorization': 'Bearer ***' },
-      hasBody: !!options.body,
-      bodyLength: options.body ? (typeof options.body === 'string' ? options.body.length : 'FormData') : 0
-    });
     
     const fetchPromise = fetch(url, {
       ...options,
@@ -154,9 +148,7 @@ async function fetchApi(endpoint: string, options: RequestInit = {}, requireAuth
       },
     });
     
-    console.log('⏳ Fetch promise created, waiting for response...');
     const response = await fetchPromise;
-    console.log('📡 Response received:', response.status, response.statusText, response.headers.get('content-type'));
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -178,13 +170,11 @@ async function fetchApi(endpoint: string, options: RequestInit = {}, requireAuth
     }
 
     const json = await response.json();
-    console.log('✅ Response JSON:', json);
+    // SECURITY: Don't log full response - may contain sensitive data
     return json;
   } catch (error: any) {
-    console.error('❌ fetchApi error:', error);
-    console.error('❌ Error type:', error?.constructor?.name);
-    console.error('❌ Error message:', error?.message);
-    console.error('❌ Error stack:', error?.stack);
+    // SECURITY: Only log error message, not full error object
+    console.error('❌ fetchApi error:', error?.message || 'Unknown error');
     throw error;
   }
 }
@@ -214,15 +204,7 @@ export async function uploadFile(fileOrFiles: File | File[], metadata: QrDropMet
 }
 
 export async function createQrDrop(metadata: QrDropMetadata) {
-  console.log('📤 createQrDrop called with metadata:', metadata);
-  console.log('🔍 [API] Metadata clientId check:', {
-    hasClientId: !!metadata.clientId,
-    clientIdValue: metadata.clientId,
-    clientIdType: typeof metadata.clientId,
-    secureMode: metadata.secureMode,
-    allKeys: Object.keys(metadata)
-  });
-  
+  // SECURITY: Don't log metadata - may contain sensitive data
   try {
     // For secureMode: Send ciphertext as separate fields in same request body
     // This keeps metadata small while allowing large ciphertext
@@ -232,11 +214,6 @@ export async function createQrDrop(metadata: QrDropMetadata) {
     };
     
     const jsonBody = JSON.stringify(requestBody);
-    console.log('📦 JSON body prepared, length:', jsonBody.length);
-    console.log('🔍 [API] Request body clientId check:', {
-      hasClientId: !!requestBody.clientId,
-      clientIdValue: requestBody.clientId
-    });
     const result = await fetchApi('/create', {
       method: 'POST',
       headers: {
@@ -244,10 +221,9 @@ export async function createQrDrop(metadata: QrDropMetadata) {
       },
       body: jsonBody,
     });
-    console.log('✅ createQrDrop success:', result);
     return result;
   } catch (error) {
-    console.error('❌ createQrDrop error:', error);
+    console.error('❌ createQrDrop error:', error instanceof Error ? error.message : 'Unknown error');
     throw error;
   }
 }

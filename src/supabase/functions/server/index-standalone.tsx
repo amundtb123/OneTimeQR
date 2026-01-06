@@ -258,7 +258,7 @@ async function cleanupExpired() {
 
       // Delete immediately if expired
       if (isExpired) {
-        console.log(`Cleanup: Deleting expired QR drop ${qrDrop.id}`);
+        // SECURITY: Don't log QR drop IDs during cleanup
         await deleteQrDrop(qrDrop.id);
         deletedCount++;
       }
@@ -273,12 +273,15 @@ async function cleanupExpired() {
         if (tokenId) {
           await kv.del(`access:${tokenId}`);
           expiredTokens++;
-          console.log(`Cleanup: Deleted expired access token`);
+          // SECURITY: Don't log token cleanup
         }
       }
     }
 
-    console.log(`Cleanup complete: deleted ${deletedCount} expired QR drops and ${expiredTokens} expired tokens`);
+    // SECURITY: Minimal logging - only count, no details
+    if (deletedCount > 0 || expiredTokens > 0) {
+      console.log(`Cleanup: ${deletedCount} QR drops, ${expiredTokens} tokens`);
+    }
     return deletedCount;
   } catch (error) {
     console.error('Error during cleanup:', error);
@@ -349,7 +352,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     const formData = await c.req.formData();
     const metadata = JSON.parse(formData.get('metadata') as string);
 
-    console.log('Upload endpoint - received metadata:', JSON.stringify(metadata, null, 2));
+    // SECURITY: Don't log full metadata - may contain sensitive data
 
     // Get all files from formData (can be multiple)
     const files: File[] = [];
@@ -379,7 +382,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     let userId: string | null = null;
     const authHeader = c.req.header('Authorization');
     const accessToken = authHeader?.split(' ')[1];
-    console.log('📤 POST /upload - Auth header present:', !!authHeader, 'Token present:', !!accessToken);
+    // SECURITY: Don't log token presence
     
     if (accessToken && accessToken !== Deno.env.get('SUPABASE_ANON_KEY')) {
       try {
@@ -388,16 +391,11 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
           console.error('❌ Error getting user from token during upload:', error.message);
         } else if (user?.id) {
           userId = user.id;
-          console.log('✅ Authenticated upload from user:', userId);
-        } else {
-          console.log('⚠️ No user ID in response during upload');
+          // SECURITY: Don't log user ID in production
         }
       } catch (error) {
-        console.error('❌ Exception getting user during upload:', error);
-        console.log('Authentication failed during upload, allowing anonymous upload');
+        console.error('❌ Exception getting user during upload:', error instanceof Error ? error.message : 'Unknown error');
       }
-    } else {
-      console.log('⚠️ Anonymous upload (no auth token or token is anon key)');
     }
 
     // SECURITY: Validate metadata size
@@ -460,23 +458,15 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
 
     // Generate unique ID (use client-provided ID if available for Secure Mode)
     // This ensures encryption/decryption use the same ID
-    console.log('🔍 [SERVER] Checking for clientId in metadata (file upload):', {
-      hasClientId: !!metadata.clientId,
-      clientIdValue: metadata.clientId,
-      clientIdType: typeof metadata.clientId,
-      metadataKeys: Object.keys(metadata).slice(0, 10) // First 10 keys for debugging
-    });
+    // SECURITY: Don't log clientId or IDs
     
     const id = metadata.clientId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(metadata.clientId)
       ? metadata.clientId
       : crypto.randomUUID();
     const timestamp = Date.now();
     
-    if (metadata.clientId && id === metadata.clientId) {
-      console.log('✅ [SERVER] Using client-provided ID for Secure Mode (file upload):', id);
-    } else if (metadata.secureMode && !metadata.clientId) {
+    if (metadata.secureMode && !metadata.clientId && id !== metadata.clientId) {
       console.warn('⚠️ [SERVER] Secure Mode file upload WITHOUT clientId! This will cause decryption to fail!');
-      console.warn('⚠️ [SERVER] Generated new ID:', id);
     }
 
     // Upload all files to Supabase Storage
@@ -555,13 +545,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       ? (metadata.urlContentCiphertext || null)
       : (metadata.urlContent || null);
     
-    console.log('🔍 [SERVER] Upload endpoint - storing content:', {
-      isSecureMode,
-      hasTextContentCiphertext: !!metadata.textContentCiphertext,
-      hasUrlContentCiphertext: !!metadata.urlContentCiphertext,
-      textContentToStoreLength: textContentToStore?.length,
-      urlContentToStoreLength: urlContentToStore?.length
-    });
+    // SECURITY: Don't log content details
     
     const qrDropData = {
       id,
@@ -599,7 +583,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     await kv.set(`qrdrop:${id}`, qrDropData);
     await kv.set(`qrdrop:index:${id}`, { id, createdAt: timestamp, userId });
 
-    console.log(`✅ QR drop created with ${uploadedFiles.length} file(s), userId: ${userId || 'null'}`);
+    // SECURITY: Don't log user IDs or file counts
 
     return c.json({ 
       success: true, 
@@ -617,14 +601,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
   try {
     const metadata = await c.req.json();
     
-    // DEBUG: Log raw metadata to see what we receive
-    console.log('🔍 [SERVER] Raw metadata received:', {
-      hasClientId: !!metadata.clientId,
-      clientIdValue: metadata.clientId,
-      clientIdType: typeof metadata.clientId,
-      secureMode: metadata.secureMode,
-      allKeys: Object.keys(metadata).slice(0, 20) // First 20 keys
-    });
+    // SECURITY: Don't log metadata - may contain sensitive data
 
     // SECURITY: Validate metadata size (excluding ciphertext for secureMode/singleQrMode)
     // For secureMode/singleQrMode, ciphertext is sent as separate fields and not counted in metadata size
@@ -639,16 +616,9 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     const metadataString = JSON.stringify(metadataForSizeCheck);
     const metadataSize = metadataString.length;
     
-    // Log metadata size for debugging
-    console.log(`📊 Metadata size check: ${metadataSize} bytes (max: ${MAX_METADATA_SIZE} bytes)`);
+    // SECURITY: Don't log metadata size details
     if (metadataSize > MAX_METADATA_SIZE) {
-      // Log what's taking up space
-      const keys = Object.keys(metadataForSizeCheck);
-      const sizes = keys.map(key => ({
-        key,
-        size: JSON.stringify(metadataForSizeCheck[key]).length
-      })).sort((a, b) => b.size - a.size);
-      console.error(`❌ Metadata too large. Top fields:`, sizes.slice(0, 5));
+      console.error(`❌ Metadata too large (${metadataSize} bytes, max: ${MAX_METADATA_SIZE} bytes)`);
       return c.json({ error: 'Metadata too large. Maximum size is 10 KB.' }, 400);
     }
 
@@ -656,7 +626,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     let userId: string | null = null;
     const authHeader = c.req.header('Authorization');
     const accessToken = authHeader?.split(' ')[1];
-    console.log('📝 POST /create - Auth header present:', !!authHeader, 'Token present:', !!accessToken);
+    // SECURITY: Don't log token presence
     
     if (accessToken && accessToken !== Deno.env.get('SUPABASE_ANON_KEY')) {
       try {
@@ -665,16 +635,11 @@ app.post('/make-server-c3c9181e/create', async (c) => {
           console.error('❌ Error getting user from token during create:', error.message);
         } else if (user?.id) {
           userId = user.id;
-          console.log('✅ Authenticated creation from user:', userId);
-        } else {
-          console.log('⚠️ No user ID in response during create');
+          // SECURITY: Don't log user ID in production
         }
       } catch (error) {
-        console.error('❌ Exception getting user during create:', error);
-        console.log('Authentication failed during create, allowing anonymous creation');
+        console.error('❌ Exception getting user during create:', error instanceof Error ? error.message : 'Unknown error');
       }
-    } else {
-      console.log('⚠️ Anonymous creation (no auth token or token is anon key)');
     }
 
     // Validate content type
@@ -700,28 +665,17 @@ app.post('/make-server-c3c9181e/create', async (c) => {
 
     // Generate unique ID (use client-provided ID if available for Secure Mode)
     // This ensures encryption/decryption use the same ID
-    console.log('🔍 [SERVER] Checking for clientId in metadata:', {
-      hasClientId: !!metadata.clientId,
-      clientIdValue: metadata.clientId,
-      clientIdType: typeof metadata.clientId,
-      isSecureMode: isSecureMode,
-      metadataKeys: Object.keys(metadata).slice(0, 10) // First 10 keys for debugging
-    });
+    // SECURITY: Don't log clientId or IDs
     
     const id = metadata.clientId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(metadata.clientId)
       ? metadata.clientId
       : crypto.randomUUID();
     const timestamp = Date.now();
     
-    if (metadata.clientId && id === metadata.clientId) {
-      console.log('✅ [SERVER] Using client-provided ID for Secure Mode:', id);
-    } else if (isSecureMode && !metadata.clientId) {
+    if (isSecureMode && !metadata.clientId) {
       console.warn('⚠️ [SERVER] Secure Mode QR drop created WITHOUT clientId! This will cause decryption to fail!');
-      console.warn('⚠️ [SERVER] Generated new ID:', id);
     } else if (isSecureMode && metadata.clientId && id !== metadata.clientId) {
       console.error('❌ [SERVER] clientId provided but UUID validation failed!');
-      console.error('❌ [SERVER] clientId value:', metadata.clientId);
-      console.error('❌ [SERVER] Generated new ID instead:', id);
     }
 
     // Calculate expiry timestamp
@@ -773,8 +727,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     await kv.set(`qrdrop:${id}`, qrDropData);
     await kv.set(`qrdrop:index:${id}`, { id, createdAt: timestamp, userId });
 
-    console.log(`✅ QR drop created, id: ${id}, userId: ${userId || 'null'}`);
-    console.log(`📝 Stored qrDropData.userId: ${qrDropData.userId || 'null'}`);
+    // SECURITY: Don't log IDs or user IDs
 
     return c.json({ 
       success: true, 
@@ -802,7 +755,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
     
     // If NO access token is provided, generate one and return it in JSON
     if (!accessToken) {
-      console.log(`No token provided for QR ${id} - generating fresh token`);
+      // SECURITY: Don't log token generation
       
       // Generate fresh access token
       const token = crypto.randomUUID();
@@ -841,28 +794,11 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
     
     // Token is valid - delete it immediately (one-time use)
     await kv.del(`access:${accessToken}`);
-    console.log(`Access token used and deleted: ${accessToken}`);
+    // SECURITY: Don't log access tokens
     
     const qrDrop = await kv.get(`qrdrop:${id}`);
 
-    console.log('Getting QR drop:', id);
-    // Null-logging: Don't log sensitive data (password, encryptionKey, file content)
-    const safeQrDrop = { ...qrDrop };
-    if (safeQrDrop.password) safeQrDrop.password = '[REDACTED]';
-    if (safeQrDrop.encryptionKey) safeQrDrop.encryptionKey = '[REDACTED]';
-    console.log('QR drop metadata (sanitized):', JSON.stringify({
-      id: safeQrDrop.id,
-      contentType: safeQrDrop.contentType,
-      fileName: safeQrDrop.fileName,
-      fileSize: safeQrDrop.fileSize,
-      fileCount: safeQrDrop.fileCount,
-      hasPassword: !!qrDrop.password,
-      secureMode: safeQrDrop.secureMode,
-      encrypted: safeQrDrop.encrypted,
-      expiresAt: safeQrDrop.expiresAt,
-      scanCount: safeQrDrop.scanCount,
-      downloadCount: safeQrDrop.downloadCount,
-    }, null, 2));
+    // SECURITY: Minimal logging - don't log QR drop data
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
@@ -899,7 +835,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
 
     // If expired, delete it immediately and return 410 Gone
     if (isExpired) {
-      console.log(`QR drop ${id} is expired (${expiredReason}) - deleting immediately`);
+      // SECURITY: Don't log QR drop IDs
       await deleteQrDrop(id);
       return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
     }
@@ -935,7 +871,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
         if (validFiles.length > 0) {
           files = validFiles;
           fileUrl = validFiles[0].fileUrl; // Backwards compatibility
-          console.log(`✅ Included ${validFiles.length} file URL(s) in response`);
+          // SECURITY: Don't log file URLs or counts
         }
       } catch (error) {
         console.error('Error getting signed URLs for files (non-critical):', error);
@@ -949,7 +885,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
 
         if (!signedUrlError && signedUrlData) {
           fileUrl = signedUrlData.signedUrl;
-          console.log(`✅ Included file URL in response for faster loading`);
+          // SECURITY: Don't log file URLs
         }
       } catch (error) {
         console.error('Error getting signed URL (non-critical):', error);
@@ -1039,17 +975,11 @@ app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
     // For Secure Mode (QR #2), this endpoint is accessed after QR #1 is scanned
     // For standard encrypted files, this endpoint is used for file decryption
     if (!qrDrop.encryptionKey) {
-      console.error(`❌ No encryption key found for QR drop ${id} (secureMode: ${qrDrop.secureMode || false}) - this should not happen for encrypted files`);
+      console.error(`❌ No encryption key found for QR drop (secureMode: ${qrDrop.secureMode || false}) - this should not happen for encrypted files`);
       return c.json({ error: 'Encryption key not found' }, 404);
     }
 
-    // SECURITY: For Secure Mode, verify that QR #1 was scanned first
-    // This is enforced client-side, but we log it here for security monitoring
-    if (qrDrop.secureMode) {
-      console.log(`✅ Returning encryption key for Secure Mode QR drop ${id} (QR #2)`);
-    } else {
-      console.log(`✅ Returning encryption key for standard encrypted QR drop ${id}`);
-    }
+    // SECURITY: Don't log QR drop IDs or encryption key operations
     
     return c.json({ encryptionKey: qrDrop.encryptionKey });
   } catch (error) {
@@ -1075,7 +1005,7 @@ app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    console.log(`Lightweight check for QR drop ${id} - secureMode: ${qrDrop.secureMode}, singleQrMode: ${qrDrop.singleQrMode}`);
+    // SECURITY: Don't log QR drop IDs or mode details
     
     return c.json({ 
       secureMode: qrDrop.secureMode || false,
@@ -1149,7 +1079,7 @@ app.post('/make-server-c3c9181e/qrdrop/:id/qr1-scanned', async (c) => {
       }
     }
     
-    console.log(`✅ QR1 scanned for secureMode QR drop ${id} (zero-knowledge - server never saw k1)`);
+    // SECURITY: Don't log QR drop IDs
     
     return c.json({ 
       success: true,
@@ -1228,7 +1158,7 @@ app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
       expiresAt: unlockNow + unlockExpiryMs // 2 minutes to use
     }); // Note: expireIn parameter not supported by current kv.set implementation
     
-    console.log(`✅ QR1 verified for QR2 unlock - QR drop ${id} (zero-knowledge - server never saw k1 or k2)`);
+    // SECURITY: Don't log QR drop IDs
     
     return c.json({ 
       success: true,
@@ -1421,42 +1351,17 @@ app.get('/make-server-c3c9181e/qrdrops', async (c) => {
 
     const indexes = await kv.getByPrefix('qrdrop:index:');
     const ids = indexes.map((idx: any) => idx.id);
-    console.log(`📦 Found ${ids.length} QR drop indexes`);
-    
-    // Log sample index userIds for debugging
-    if (indexes.length > 0) {
-      const sampleIndexUserIds = indexes.slice(0, 5).map((idx: any) => idx.userId);
-      console.log(`📋 Sample userIds from indexes:`, sampleIndexUserIds);
-    }
     
     const qrDrops = await kv.mget(ids.map((id: string) => `qrdrop:${id}`));
     
     let validQrDrops = qrDrops.filter((qr: any) => qr !== null);
-    console.log(`📦 Found ${validQrDrops.length} valid QR drops`);
     
     if (!userId) {
-      console.log('⚠️ No userId - returning empty list');
       return c.json({ qrDrops: [] });
     }
     
-    const beforeFilter = validQrDrops.length;
-    
-    // Log sample userIds from QR drops before filtering
-    if (validQrDrops.length > 0) {
-      const sampleQrDropUserIds = validQrDrops.slice(0, 5).map((qr: any) => qr.userId);
-      console.log(`📋 Sample userIds from QR drops:`, sampleQrDropUserIds);
-    }
-    
+    // SECURITY: Don't log user IDs or QR drop counts
     validQrDrops = validQrDrops.filter((qr: any) => qr.userId === userId);
-    console.log(`🔍 Filtered to ${validQrDrops.length} QR drops for user ${userId} (from ${beforeFilter} total)`);
-    
-    // Log sample userIds for debugging if no matches
-    if (beforeFilter > 0 && validQrDrops.length === 0) {
-      const sampleUserIds = validQrDrops.slice(0, 5).map((qr: any) => qr?.userId || 'null');
-      const allUserIds = qrDrops.filter((qr: any) => qr !== null).slice(0, 5).map((qr: any) => qr?.userId || 'null');
-      console.log('⚠️ No matches - sample userIds in QR drops:', allUserIds);
-      console.log(`⚠️ Looking for userId: ${userId}`);
-    }
     
     validQrDrops = validQrDrops.sort((a: any, b: any) => b.createdAt - a.createdAt);
 
@@ -1626,7 +1531,7 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
     console.error('❌ SUPABASE_SERVICE_ROLE_KEY not set!');
     return c.json({ error: 'Service role key not configured' }, 500);
   }
-  console.log('✅ Service role key found');
+  // SECURITY: Don't log that service role key exists
   
   try {
     const signature = c.req.header('stripe-signature');
@@ -1650,9 +1555,7 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       console.error('❌ STRIPE_WEBHOOK_SECRET not set');
       return c.json({ error: 'Webhook secret not configured' }, 500);
     }
-    console.log('✅ Webhook secret found');
-    console.log('🔑 Webhook secret preview:', webhookSecret.substring(0, 10) + '...' + webhookSecret.substring(webhookSecret.length - 5));
-    console.log('🔑 Signature preview:', signature.substring(0, 20) + '...');
+    // SECURITY: Never log webhook secrets or signatures - even partial logging is dangerous
 
     let event;
     try {
@@ -1692,7 +1595,7 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
 
       if (!userId) {
         console.error('❌ No userId in session metadata');
-        console.error('Session metadata:', session.metadata);
+        // SECURITY: Don't log session metadata - may contain sensitive data
         return c.json({ error: 'Missing userId in session metadata' }, 400);
       }
 

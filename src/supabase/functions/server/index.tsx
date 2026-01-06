@@ -69,7 +69,7 @@ async function cleanupExpired() {
 
       // Delete immediately if expired
       if (isExpired) {
-        console.log(`Cleanup: Deleting expired QR drop ${qrDrop.id}`);
+        // SECURITY: Don't log QR drop IDs during cleanup
         await deleteQrDrop(qrDrop.id);
         deletedCount++;
       }
@@ -115,7 +115,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     const formData = await c.req.formData();
     const metadata = JSON.parse(formData.get('metadata') as string);
 
-    console.log('Upload endpoint - received metadata:', JSON.stringify(metadata, null, 2));
+    // SECURITY: Don't log metadata - may contain sensitive data
 
     // Get all files from formData (can be multiple)
     const files: File[] = [];
@@ -397,12 +397,11 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
     
     // Token is valid - delete it immediately (one-time use)
     await kv.del(`access:${accessToken}`);
-    console.log(`Access token used and deleted: ${accessToken}`);
+    // SECURITY: Don't log access tokens
     
     const qrDrop = await kv.get(`qrdrop:${id}`);
 
-    console.log('Getting QR drop:', id);
-    console.log('QR drop data:', JSON.stringify(qrDrop, null, 2));
+    // SECURITY: Don't log QR drop IDs or data
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
@@ -439,7 +438,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
 
     // If expired, delete it immediately and return 410 Gone
     if (isExpired) {
-      console.log(`QR drop ${id} is expired (${expiredReason}) - deleting immediately`);
+      // SECURITY: Don't log QR drop IDs
       await deleteQrDrop(id);
       return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
     }
@@ -575,7 +574,7 @@ app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
       return c.json({ error: 'This QR drop is not in Secure Mode' }, 400);
     }
 
-    console.log(`Returning encryption key for QR drop ${id}`);
+    // SECURITY: Don't log QR drop IDs
     
     return c.json({ encryptionKey: qrDrop.encryptionKey });
   } catch (error) {
@@ -594,7 +593,7 @@ app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    console.log(`Lightweight check for QR drop ${id} - secureMode: ${qrDrop.secureMode}`);
+    // SECURITY: Don't log QR drop IDs
     
     // Return minimal metadata without incrementing counters
     return c.json({ 
@@ -944,6 +943,7 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
 
       if (!userId) {
         console.error('No userId in session metadata');
+        // SECURITY: Don't log session metadata
         return c.json({ error: 'Missing userId in session metadata' }, 400);
       }
 

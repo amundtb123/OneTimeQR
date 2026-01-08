@@ -854,6 +854,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           </div>
           <div className="flex-1">
             <h2 className="text-[#3F3F3F]">{t('upload.shareContent')}</h2>
+            <p className="text-[#5B5B5B] text-sm mt-1">{t('upload.shareContentSubtitle')}</p>
           </div>
         </div>
 
@@ -951,7 +952,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                 <Upload className={`size-12 text-[#5B5B5B] mx-auto mb-4 ${isDragging ? 'text-[#5D8CC9]' : ''}`} />
                 <p className="text-[#3F3F3F] text-base mb-2 font-medium">{t('upload.addFiles')}</p>
                 <p className="text-[#5B5B5B] text-sm mb-2">{t('upload.fileTypes')}</p>
-                <p className="text-[#5B5B5B] text-xs">{t('upload.dragDropHint') || 'Eller dra og slipp filer her'}</p>
+                <p className="text-[#5B5B5B] text-xs">{t('upload.dragDropHint')}</p>
               </div>
             </label>
           </div>
@@ -982,6 +983,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
               <LinkIcon className="size-4 text-[#4A6FA5]" />
               <span className="text-[#3F3F3F]">{t('upload.urls')}</span>
             </div>
+            <p className="text-[#5B5B5B] text-sm mb-3">{t('upload.urlHelper')}</p>
             
             {/* URL list */}
             {urls.length > 0 && (
@@ -1236,6 +1238,11 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                 <p className={`text-xs ${secureMode ? 'text-white/75' : 'text-[#5B5B5B]'}`}>
                   {t('upload.secureModeNote')}
                 </p>
+                {secureMode && (
+                  <p className={`text-xs mt-1 ${secureMode ? 'text-white/70' : 'text-[#5B5B5B]'}`}>
+                    {t('upload.secureModeNoteOptional')}
+                  </p>
+                )}
               </button>
             </div>
 
@@ -1406,6 +1413,17 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                 onChange={setQrStyle}
                 qrUrl={`${window.location.origin}/scan/preview`}
               />
+
+              {/* Technical Note */}
+              <SoftCard>
+                <div className="flex items-start gap-3">
+                  <Info className="size-4 text-[#5B5B5B] flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-[#5B5B5B] text-xs font-medium mb-1">{t('upload.technicalNoteTitle')}</p>
+                    <p className="text-[#5B5B5B] text-xs leading-relaxed">{t('upload.technicalNoteText')}</p>
+                  </div>
+                </div>
+              </SoftCard>
             </>
           )}
         </>
@@ -1431,13 +1449,13 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           >
             <Shield className="size-6 text-[#3F3F3F]" />
           </div>
-          <h4 className="text-[#3F3F3F] mb-2">{t('upload.trustlessSharing')}</h4>
+          <h4 className="text-[#3F3F3F] mb-2">{t('upload.featureBox1Title')}</h4>
           <p className="text-[#5B5B5B] text-sm leading-relaxed">
-            {t('upload.trustlessSharingDesc')}
+            {t('upload.featureBox1Desc')}
           </p>
         </div>
 
-        {/* Card 2: Bygget for én gang */}
+        {/* Card 2: QR is the key */}
         <div 
           className="rounded-2xl p-6 border shadow-sm"
           style={{ 
@@ -1452,15 +1470,15 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
               borderColor: '#D5C5BD'
             }}
           >
-            <Clock className="size-6 text-[#E8927E]" />
+            <Key className="size-6 text-[#E8927E]" />
           </div>
-          <h4 className="text-[#3F3F3F] mb-2">{t('upload.builtForOnce')}</h4>
+          <h4 className="text-[#3F3F3F] mb-2">{t('upload.featureBox2Title')}</h4>
           <p className="text-[#5B5B5B] text-sm leading-relaxed">
-            {t('upload.builtForOnceDesc')}
+            {t('upload.featureBox2Desc')}
           </p>
         </div>
 
-        {/* Card 3: QR gir kontroll */}
+        {/* Card 3: Less left behind */}
         <div 
           className="rounded-2xl p-6 border shadow-sm"
           style={{ 
@@ -1477,9 +1495,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           >
             <Smartphone className="size-6 text-[#4A6FA5]" />
           </div>
-          <h4 className="text-[#3F3F3F] mb-2">{t('upload.qrGivesControl')}</h4>
+          <h4 className="text-[#3F3F3F] mb-2">{t('upload.featureBox3Title')}</h4>
           <p className="text-[#5B5B5B] text-sm leading-relaxed">
-            {t('upload.qrGivesControlDesc')}
+            {t('upload.featureBox3Desc')}
           </p>
         </div>
       </div>

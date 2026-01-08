@@ -150,3 +150,5 @@ Gå gjennom hver punkt:
 
 
 
+
+

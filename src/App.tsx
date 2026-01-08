@@ -11,6 +11,7 @@ import { UnlockScreen } from './components/unlock-screen';
 import { QrDetailView } from './components/qr-detail-view';
 import { SuccessPage } from './components/success-page';
 import { LegalPage } from './components/legal-page';
+import { HowItWorksPage } from './components/how-it-works-page';
 import { getAllQrDrops, deleteQrDrop, type QrDropData } from './utils/api-client';
 import { projectId, publicAnonKey } from './utils/supabase/info';
 import { toast, Toaster } from 'sonner@2.0.3';
@@ -262,6 +263,7 @@ function AppContent() {
       const scanOnlyMatch = path === '/scan'; // Just /scan without ID
       const successMatch = path === '/success';
       const termsMatch = path === '/terms';
+      const howItWorksMatch = path === '/how-it-works';
       
       // CRITICAL FIX: Handle /scan without ID (mobile issue where ID is lost)
       if (scanOnlyMatch) {
@@ -313,6 +315,8 @@ function AppContent() {
       
       if (termsMatch) {
         setCurrentView('legal');
+      } else if (howItWorksMatch) {
+        setCurrentView('how-it-works');
       } else if (successMatch) {
         setCurrentView('success');
       } else if (unlockMatch) {
@@ -1533,6 +1537,15 @@ function AppContent() {
             
             {currentView === 'legal' && (
               <LegalPage 
+                onBack={() => {
+                  setCurrentView('upload');
+                  window.history.pushState({}, '', '/');
+                }}
+              />
+            )}
+            
+            {currentView === 'how-it-works' && (
+              <HowItWorksPage 
                 onBack={() => {
                   setCurrentView('upload');
                   window.history.pushState({}, '', '/');

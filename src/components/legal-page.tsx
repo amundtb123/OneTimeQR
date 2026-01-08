@@ -43,18 +43,18 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
               </p>
               <p>
                 {isNorwegian
-                  ? 'OneTimeQR er en teknisk tjeneste som lar brukere generere QR-koder og knytte innhold til dem, som filer, tekst, lenker eller annen informasjon.'
-                  : 'OneTimeQR is a technical service that allows users to generate QR codes and link content to them, such as files, text, links, or other information.'}
+                  ? 'OneTimeQR er en teknisk tjeneste som fasiliterer midlertidig deling via QR-koder. Tjenesten lar brukere generere QR-koder og knytte innhold til dem, som filer, tekst eller lenker.'
+                  : 'OneTimeQR is a technical service that facilitates temporary sharing via QR codes. The service allows users to generate QR codes and link content to them, such as files, text, or links.'}
               </p>
               <p>
                 {isNorwegian
-                  ? 'Brukeren velger selv innstillinger som levetid, sikkerhetsnivå, antall skanninger, passord og visuelle tilpasninger.'
-                  : 'Users choose their own settings such as lifetime, security level, number of scans, password, and visual customizations.'}
+                  ? 'Brukeren kontrollerer selv innstillinger som utløpstid, tilgangsmetode, antall skanninger, passord og visuelle tilpasninger. OneTimeQR er ikke et arkiv eller permanent lagringssystem.'
+                  : 'Users control their own settings such as expiry time, access method, number of scans, password, and visual customizations. OneTimeQR is not an archive or permanent storage system.'}
               </p>
               <p>
                 {isNorwegian
-                  ? 'OneTimeQR gjør ingen vurdering av innholdet som lastes opp og har ingen innsyn i hva som deles.'
-                  : 'OneTimeQR makes no assessment of uploaded content and has no access to what is shared.'}
+                  ? 'OneTimeQR gjør ingen vurdering av innholdet som lastes opp.'
+                  : 'OneTimeQR makes no assessment of uploaded content.'}
               </p>
             </div>
           </section>
@@ -116,7 +116,7 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
               <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
                 <li className="pl-4">{isNorwegian ? 'alt innhold de laster opp' : 'all content they upload'}</li>
                 <li className="pl-4">{isNorwegian ? 'all informasjon de deler' : 'all information they share'}</li>
-                <li className="pl-4">{isNorwegian ? 'alle valg av innstillinger (levetid, sikkerhetsmodus, passord, antall skanninger m.m.)' : 'all choices of settings (lifetime, security mode, password, number of scans, etc.)'}</li>
+                <li className="pl-4">{isNorwegian ? 'alle valg av innstillinger (utløpstid, tilgangsmetode, passord, antall skanninger m.m.)' : 'all choices of settings (expiry time, access method, password, number of scans, etc.)'}</li>
                 <li className="pl-4">{isNorwegian ? 'hvordan QR-koder deles eller brukes' : 'how QR codes are shared or used'}</li>
                 <li className="pl-4">{isNorwegian ? 'eventuelle konsekvenser av delingen' : 'any consequences of sharing'}</li>
               </ul>
@@ -128,40 +128,40 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
             </div>
           </section>
 
-          {/* 4. Safe Harbour */}
+          {/* 4. Content Access and Safe Harbour */}
           <section>
             <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
-              4. {isNorwegian ? 'Ingen innsyn i filer / Safe Harbour' : 'No File Access / Safe Harbour'}
+              4. {isNorwegian ? 'Tilgang til innhold og Safe Harbour' : 'Content Access and Safe Harbour'}
             </h2>
             <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
-                  ? 'OneTimeQR logger ikke IP-adresser og har ingen plikt eller mulighet til å se innhold i filer som lastes opp.'
-                  : 'OneTimeQR does not log IP addresses and has no obligation or ability to view content in uploaded files.'}
+                  ? 'Innhold lagres kryptert som del av normal drift. Dekryptering skjer på mottakerens enhet. Som del av normal drift har OneTimeQR ikke tilgang til innhold i klartekst. Dette er et arkitektonisk designvalg, ikke en garanti.'
+                  : 'Content is stored encrypted as part of normal operation. Decryption happens on the recipient\'s device. As part of normal operation, OneTimeQR does not have access to plaintext content. This is an architectural design choice, not a guarantee.'}
               </p>
               <p>
                 {isNorwegian
-                  ? 'I Secure Mode oppbevares data på en måte som ikke gir OneTimeQR tilgang til innholdet.'
-                  : 'In Secure Mode, data is stored in a way that does not give OneTimeQR access to the content.'}
+                  ? 'I Secure Mode (to QR-koder) deles tilgangsnøkkelen i to deler. Dette gir ekstra kontroll, men er en teknisk mekanisme, ikke en garanti.'
+                  : 'In Secure Mode (two QR codes), the access key is split into two parts. This provides additional control, but is a technical mechanism, not a guarantee.'}
               </p>
               <p>
                 {isNorwegian
-                  ? 'OneTimeQR er en passiv teknisk formidler og omfattes av Safe Harbour-regler. Vi fjerner innhold kun dersom vi mottar gyldig varsel om misbruk.'
-                  : 'OneTimeQR is a passive technical intermediary and is covered by Safe Harbour rules. We only remove content if we receive valid notice of abuse.'}
+                  ? 'OneTimeQR er en passiv teknisk formidler. Innholdet er brukergenerert. Vi fjerner innhold kun dersom vi mottar gyldig varsel om misbruk eller ved rapportering.'
+                  : 'OneTimeQR is a passive technical intermediary. Content is user-generated. We only remove content if we receive valid notice of abuse or through reporting.'}
               </p>
             </div>
           </section>
 
-          {/* 5. Lifetime and Deletion */}
+          {/* 5. Expiry and Deletion */}
           <section>
             <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
-              5. {isNorwegian ? 'Levetid og sletting' : 'Lifetime and Deletion'}
+              5. {isNorwegian ? 'Utløpstid og sletting' : 'Expiry and Deletion'}
             </h2>
             <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
-                  ? 'Brukere kan velge hvor lenge en QR-kode skal være aktiv. Dette inkluderer valg som:'
-                  : 'Users can choose how long a QR code should be active. This includes options such as:'}
+                  ? 'Brukere kan velge utløpstid for QR-koder. Dette inkluderer valg som:'
+                  : 'Users can choose expiry time for QR codes. This includes options such as:'}
               </p>
               <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
                 <li className="pl-4">{isNorwegian ? '10 minutter' : '10 minutes'}</li>
@@ -173,69 +173,69 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
               </ul>
               <p>
                 {isNorwegian
-                  ? 'OneTimeQR forsøker å slette innhold når perioden utløper, men kan ikke garantere slettingstidspunkt eller teknisk perfekt sletting.'
-                  : 'OneTimeQR attempts to delete content when the period expires, but cannot guarantee deletion timing or technically perfect deletion.'}
+                  ? 'OneTimeQR gjør sitt beste for å slette innhold når utløpstiden er ute. Sletting kan påvirkes av nettleser-caching, nettverkslagring, enhetsvariabilitet og andre faktorer utenfor vår direkte kontroll. Vi kan ikke garantere at sletting alltid skjer nøyaktig til avtalt tidspunkt eller at all data fjernes fra alle systemer.'
+                  : 'OneTimeQR makes best-effort attempts to delete content when the expiry time is reached. Deletion may be affected by browser caching, network storage, device variability, and other factors outside our direct control. We cannot guarantee that deletion always occurs at the exact specified time or that all data is removed from all systems.'}
               </p>
             </div>
           </section>
 
-          {/* 6. One-Time Access */}
+          {/* 6. Scan Limits and Access Control */}
           <section>
             <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
-              6. {isNorwegian ? 'Engangsvisning (valgfritt)' : 'One-Time Access (Optional)'}
+              6. {isNorwegian ? 'Skannelimit og tilgangskontroll' : 'Scan Limits and Access Control'}
             </h2>
             <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
-                  ? 'Brukere kan velge innstillinger som begrenser antall skanninger (inkl. én visning). Dette er et funksjonsvalg, ikke en sikkerhetsgaranti.'
-                  : 'Users can choose settings that limit the number of scans (including one view). This is a feature choice, not a security guarantee.'}
+                  ? 'Brukere kan velge begrensninger som setter maksimalt antall skanninger (inkludert én visning). Dette er et teknisk funksjonsvalg som reduserer eksponering, ikke eliminerer risiko.'
+                  : 'Users can choose limitations that set a maximum number of scans (including one view). This is a technical feature choice that reduces exposure, not eliminates risk.'}
               </p>
               <p>
                 {isNorwegian
-                  ? 'OneTimeQR garanterer ikke at engangsvisning alltid håndheves fullt ut i alle nettlesere, nettverk eller enheter.'
-                  : 'OneTimeQR does not guarantee that one-time access is always fully enforced in all browsers, networks, or devices.'}
+                  ? 'OneTimeQR gjør sitt beste for å håndheve disse begrensningene, men kan ikke garantere at de alltid fungerer fullt ut i alle nettlesere, nettverk, enheter eller under alle forhold. Caching, nettverkslagring og enhetsvariabilitet kan påvirke funksjonaliteten.'
+                  : 'OneTimeQR makes best-effort attempts to enforce these limitations, but cannot guarantee they always work fully in all browsers, networks, devices, or under all conditions. Caching, network storage, and device variability may affect functionality.'}
               </p>
             </div>
           </section>
 
-          {/* 7. Security Levels */}
+          {/* 7. Access and Control Features */}
           <section>
             <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
-              7. {isNorwegian ? 'Sikkerhetsnivåer' : 'Security Levels'}
+              7. {isNorwegian ? 'Tilgang og kontrollfunksjoner' : 'Access and Control Features'}
             </h2>
             <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
-                  ? 'Tjenesten tilbyr valg som:'
-                  : 'The service offers options such as:'}
+                  ? 'Tjenesten tilbyr tekniske mekanismer for tilgang og kontroll, inkludert:'
+                  : 'The service offers technical mechanisms for access and control, including:'}
               </p>
               <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
-                <li className="pl-4">{isNorwegian ? 'Standard Mode' : 'Standard Mode'}</li>
-                <li className="pl-4">{isNorwegian ? 'Secure Mode (to QR-koder)' : 'Secure Mode (two QR codes)'}</li>
+                <li className="pl-4">{isNorwegian ? 'Standard tilgang (én QR-kode)' : 'Standard access (one QR code)'}</li>
+                <li className="pl-4">{isNorwegian ? 'Secure Mode (to QR-koder / delt tilgang)' : 'Secure Mode (two QR codes / split access)'}</li>
                 <li className="pl-4">{isNorwegian ? 'Passordbeskyttelse' : 'Password protection'}</li>
-                <li className="pl-4">{isNorwegian ? 'Begrenset antall skanninger' : 'Limited number of scans'}</li>
+                <li className="pl-4">{isNorwegian ? 'Begrensninger på antall skanninger' : 'Limitations on number of scans'}</li>
               </ul>
               <p>
                 {isNorwegian
-                  ? 'Dette er funksjoner som gir ekstra teknisk kontroll for brukeren, men OneTimeQR garanterer ikke at disse mekanismene alltid fungerer under alle forhold.'
-                  : 'These are features that provide additional technical control for the user, but OneTimeQR does not guarantee that these mechanisms always work under all conditions.'}
+                  ? 'Dette er tekniske mekanismer som gir brukeren ekstra kontroll, ikke garantier. OneTimeQR garanterer ikke at disse mekanismene alltid fungerer under alle forhold eller gir absolutt beskyttelse.'
+                  : 'These are technical mechanisms that provide users with additional control, not guarantees. OneTimeQR does not guarantee that these mechanisms always work under all conditions or provide absolute protection.'}
               </p>
             </div>
           </section>
 
-          {/* 8. Advanced Settings */}
+          {/* 8. Optional Controls */}
           <section>
             <h2 className="text-2xl font-bold mb-6 text-[#3F3F3F]">
-              8. {isNorwegian ? 'Avanserte innstillinger' : 'Advanced Settings'}
+              8. {isNorwegian ? 'Valgfrie begrensninger' : 'Optional Controls'}
             </h2>
             <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
-                  ? 'Brukeren kan justere:'
-                  : 'Users can adjust:'}
+                  ? 'Brukeren kan justere valgfrie begrensninger, inkludert:'
+                  : 'Users can adjust optional limitations, including:'}
               </p>
               <ul className="space-y-2 ml-5 pl-0" style={{ listStyleType: 'disc', listStylePosition: 'outside' }}>
-                <li className="pl-4">{isNorwegian ? 'maksimal antall skanninger' : 'maximum number of scans'}</li>
+                <li className="pl-4">{isNorwegian ? 'maksimalt antall skanninger' : 'maximum number of scans'}</li>
                 <li className="pl-4">{isNorwegian ? 'passordkrav' : 'password requirements'}</li>
                 <li className="pl-4">{isNorwegian ? 'farger og design på QR-koden' : 'colors and design of the QR code'}</li>
               </ul>
@@ -361,8 +361,8 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
             <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
               <p>
                 {isNorwegian
-                  ? 'OneTimeQR kan endre funksjoner, priser, grenser, sikkerhetsnivåer og vilkår uten varsel. Videre bruk av tjenesten anses som aksept av nye vilkår.'
-                  : 'OneTimeQR can change features, prices, limits, security levels, and terms without notice. Continued use of the service is considered acceptance of new terms.'}
+                  ? 'OneTimeQR kan endre funksjoner, priser, grenser, tilgangsfunksjoner og vilkår uten varsel. Videre bruk av tjenesten anses som aksept av nye vilkår.'
+                  : 'OneTimeQR can change features, prices, limits, access features, and terms without notice. Continued use of the service is considered acceptance of new terms.'}
               </p>
             </div>
           </section>
@@ -381,12 +381,25 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
             </div>
           </section>
 
-          {/* Last Updated */}
+          {/* Footer Links */}
           <div className="border-t border-[#D5C5BD]/50 pt-4 mt-8">
-            <p className="text-sm text-[#5B5B5B] italic">
+            <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 text-sm">
+              <a
+                href="/how-it-works"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.history.pushState({}, '', '/how-it-works');
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }}
+                className="text-[#5D8CC9] underline hover:text-[#4A6FA5] transition-colors"
+              >
+                {isNorwegian ? 'Hvordan det fungerer' : 'How it works'}
+              </a>
+            </div>
+            <p className="text-sm text-[#5B5B5B] italic mt-4">
               {isNorwegian 
-                ? 'Sist oppdatert: 11. desember 2024'
-                : 'Last updated: December 11, 2024'}
+                ? 'Sist oppdatert: 8. januar 2026'
+                : 'Last updated: January 8, 2026'}
             </p>
           </div>
           </div>
@@ -395,6 +408,8 @@ export function LegalPage({ onBack }: { onBack: () => void }) {
     </div>
   );
 }
+
+
 
 
 

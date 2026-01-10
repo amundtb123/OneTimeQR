@@ -73,6 +73,35 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
     }
   };
 
+  // Share QR code as image (for individual QR sharing)
+  const shareQrAsImage = async (qrCodeUrl: string, qrNumber: string) => {
+    try {
+      const blob = await (await fetch(qrCodeUrl)).blob();
+      const file = new File([blob], `qr-${qrNumber}.png`, { type: 'image/png' });
+      
+      if (navigator.share && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `QR ${qrNumber}`,
+        });
+        toast.success(t('qrDetail.qrImageShared', { qrNumber }));
+      } else {
+        // Fallback: copy to clipboard
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'image/png': blob
+          })
+        ]);
+        toast.success(t('qrDetail.qrImageCopied', { qrNumber }));
+      }
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Share failed:', error);
+        toast.error(t('qrDetail.couldNotShareQr', { qrNumber }));
+      }
+    }
+  };
+
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -147,6 +176,16 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
                   />
                 </div>
                 <p className="text-[#5B5B5B] text-sm mt-3">{t('qrDetail.shareWithRecipient')}</p>
+                <div className="mt-3">
+                  <NordicButton
+                    variant="blue"
+                    size="sm"
+                    onClick={() => shareQrAsImage(qrDrop.qrCodeUrl, '1')}
+                  >
+                    <Share2 className="size-4 mr-2" />
+                    {t('qrDetail.shareQrImage', { qrNumber: '1' })}
+                  </NordicButton>
+                </div>
               </div>
 
               {/* QR #2 - Unlock Code */}
@@ -171,6 +210,16 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
                   />
                 </div>
                 <p className="text-[#5B5B5B] text-sm mt-3">{t('qrDetail.keyToUnlock')}</p>
+                <div className="mt-3">
+                  <NordicButton
+                    variant="coral"
+                    size="sm"
+                    onClick={() => shareQrAsImage(qrDrop.qrCodeUrl2!, '2')}
+                  >
+                    <Share2 className="size-4 mr-2" />
+                    {t('qrDetail.shareQrImage', { qrNumber: '2' })}
+                  </NordicButton>
+                </div>
               </div>
             </div>
 

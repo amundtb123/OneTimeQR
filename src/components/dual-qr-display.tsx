@@ -9,15 +9,70 @@ interface DualQrDisplayProps {
   qr2Url: string; // QR #2 image data URL
   qr1LinkUrl?: string; // QR #1 actual link URL
   qr2LinkUrl?: string; // QR #2 actual link URL
+  qrDropId?: string; // QR drop ID for creating clean sharing links
   title?: string;
   onClose: () => void;
 }
 
-export function DualQrDisplay({ qr1Url, qr2Url, qr1LinkUrl, qr2LinkUrl, title, onClose }: DualQrDisplayProps) {
+export function DualQrDisplay({ qr1Url, qr2Url, qr1LinkUrl, qr2LinkUrl, qrDropId, title, onClose }: DualQrDisplayProps) {
   const [copiedQr1, setCopiedQr1] = useState(false);
   const [copiedQr2, setCopiedQr2] = useState(false);
   const [copiedUrl1, setCopiedUrl1] = useState(false);
   const [copiedUrl2, setCopiedUrl2] = useState(false);
+
+  // Extract QR drop ID from qr1LinkUrl if not provided
+  const getQrDropId = (): string | null => {
+    if (qrDropId) return qrDropId;
+    if (qr1LinkUrl) {
+      try {
+        const url = new URL(qr1LinkUrl);
+        const match = url.pathname.match(/\/scan\/([^/]+)/);
+        if (match) return match[1];
+      } catch (e) {
+        console.error('Failed to parse qr1LinkUrl:', e);
+      }
+    }
+    return null;
+  };
+
+  // Create clean sharing link (without code/key) - same as "mine QR-koder"
+  const getCleanShareLink = (): string | null => {
+    const id = getQrDropId();
+    if (!id) return null;
+    return `${window.location.origin}/scan/${id}`;
+  };
+
+  // Share clean link (for QR #1)
+  const shareQr1Link = async () => {
+    const cleanLink = getCleanShareLink();
+    if (!cleanLink) {
+      toast.error('Kunne ikke generere delingslenke');
+      return;
+    }
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'QR #1 – Tilgangskode',
+          text: 'Skann denne lenken for å se QR #2',
+          url: cleanLink,
+        });
+        toast.success('Lenke delt');
+      } catch (error) {
+        // User cancelled or share failed
+        if ((error as Error).name !== 'AbortError') {
+          console.error('Share failed:', error);
+          // Fallback to copy
+          navigator.clipboard.writeText(cleanLink);
+          toast.success('Lenke kopiert til utklippstavle');
+        }
+      }
+    } else {
+      // Fallback: copy to clipboard
+      navigator.clipboard.writeText(cleanLink);
+      toast.success('Lenke kopiert til utklippstavle');
+    }
+  };
 
   const downloadQr = (dataUrl: string, filename: string) => {
     const link = document.createElement('a');
@@ -265,11 +320,11 @@ export function DualQrDisplay({ qr1Url, qr2Url, qr1LinkUrl, qr2LinkUrl, title, o
             
             <NordicButton
               variant="blue"
-              onClick={() => shareQr(qr1Url, '1')}
+              onClick={shareQr1Link}
               className="flex items-center justify-center gap-2"
             >
               <Share2 className="size-4" />
-              Del QR #1
+              Del lenke
             </NordicButton>
             
             <NordicButton

@@ -79,7 +79,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
   const [secureMode, setSecureMode] = useState(false);
   const [singleQrMode, setSingleQrMode] = useState(false);
   const [showDualQr, setShowDualQr] = useState(false);
-  const [dualQrData, setDualQrData] = useState<{ qr1: string; qr2: string; qr1Url: string; qr2Url: string; title?: string } | null>(null);
+  const [dualQrData, setDualQrData] = useState<{ qr1: string; qr2: string; qr1Url: string; qr2Url: string; qrDropId: string; title?: string } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
 
@@ -664,6 +664,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           qr2: qr2Final,
           qr1Url: qr1Url,
           qr2Url: qr2Url,
+          qrDropId: response.id,
           title: title.trim() || t('upload.sharedContent')
         });
         setShowDualQr(true);
@@ -1581,6 +1582,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           qr2Url={dualQrData.qr2}
           qr1LinkUrl={dualQrData.qr1Url}
           qr2LinkUrl={dualQrData.qr2Url}
+          qrDropId={dualQrData.qrDropId}
           title={dualQrData.title}
           onClose={() => {
             setShowDualQr(false);

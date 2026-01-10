@@ -292,6 +292,18 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
                 {t('qrDetail.share')}
               </NordicButton>
             </div>
+            
+            {/* Share QR code as image button */}
+            <div className="flex justify-center mt-4">
+              <NordicButton
+                variant="ghost"
+                size="lg"
+                onClick={() => shareQrAsImage(qrDrop.qrCodeUrl, '')}
+              >
+                <Share2 className="size-5 mr-2" />
+                {t('qrDetail.shareQrImageSingle')}
+              </NordicButton>
+            </div>
           </div>
         )}
       </SoftCard>

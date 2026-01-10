@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Download, Eye, Clock, Shield, Lock, Trash2, Link2, Calendar, EyeOff, AlertCircle, QrCode as QrCodeIcon, FileText, Timer, Copy, Check } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, Eye, Clock, Shield, Lock, Trash2, Link2, Calendar, EyeOff, AlertCircle, QrCode as QrCodeIcon, FileText, Timer, Copy, Check, Share2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
@@ -175,6 +175,35 @@ export function QrList({ qrDrops, onDelete, onScan, onDetail, isLoading }: QrLis
       link.download = `qrdrop-${qrDrop.fileName}.png`;
       link.click();
       toast(t('qrList.qrDownloaded'));
+    }
+  };
+
+  // Share QR code as image (for individual QR sharing)
+  const shareQrAsImage = async (qrCodeUrl: string, qrNumber: string) => {
+    try {
+      const blob = await (await fetch(qrCodeUrl)).blob();
+      const file = new File([blob], `qr-${qrNumber}.png`, { type: 'image/png' });
+      
+      if (navigator.share && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `QR ${qrNumber}`,
+        });
+        toast.success(t('qrDetail.qrImageShared', { qrNumber }));
+      } else {
+        // Fallback: copy to clipboard
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'image/png': blob
+          })
+        ]);
+        toast.success(t('qrDetail.qrImageCopied', { qrNumber }));
+      }
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Share failed:', error);
+        toast.error(t('qrDetail.couldNotShareQr', { qrNumber }));
+      }
     }
   };
 
@@ -578,6 +607,18 @@ export function QrList({ qrDrops, onDelete, onScan, onDetail, isLoading }: QrLis
                       </button>
                     </div>
                   </div>
+                  
+                  {/* Share QR #1 as image button */}
+                  <div className="mt-3">
+                    <NordicButton
+                      variant="blue"
+                      size="sm"
+                      onClick={() => selectedQrForView && shareQrAsImage(selectedQrForView.qrCodeUrl, '1')}
+                    >
+                      <Share2 className="size-4 mr-2" />
+                      {t('qrDetail.shareQrImage', { qrNumber: '1' })}
+                    </NordicButton>
+                  </div>
                 </div>
 
                 {/* QR #2 - Unlock Code */}
@@ -612,6 +653,18 @@ export function QrList({ qrDrops, onDelete, onScan, onDetail, isLoading }: QrLis
                     <p className="text-[#5B5B5B]">
                       {t('qrList.noUrl')}
                     </p>
+                  </div>
+                  
+                  {/* Share QR #2 as image button */}
+                  <div className="mt-3">
+                    <NordicButton
+                      variant="coral"
+                      size="sm"
+                      onClick={() => selectedQrForView && shareQrAsImage(selectedQrForView.qrCodeUrl2!, '2')}
+                    >
+                      <Share2 className="size-4 mr-2" />
+                      {t('qrDetail.shareQrImage', { qrNumber: '2' })}
+                    </NordicButton>
                   </div>
                 </div>
               </div>

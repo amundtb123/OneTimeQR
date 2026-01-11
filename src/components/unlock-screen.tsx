@@ -488,10 +488,36 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
                   const isSingleQr = checkData.singleQrMode || false;
                   
                   if (isSingleQr) {
-                    // SINGLE QR MODE: Navigate directly - App.tsx will convert K1 to master key
-                    console.log('✅ [UNLOCK SCREEN] Single QR Mode detected - navigating directly to unlock');
-                    window.location.href = `${url.origin}/scan/${fileId}${url.hash}`;
-                    return;
+                    // SINGLE QR MODE: Convert K1 to master key, store it, and navigate
+                    console.log('✅ [UNLOCK SCREEN] Single QR Mode detected - converting K1 to master key');
+                    try {
+                      const { fromB64u } = await import('../utils/encryption');
+                      const k1Bytes = fromB64u(k1Value);
+                      const masterKeyHex = Array.from(k1Bytes)
+                        .map(b => b.toString(16).padStart(2, '0'))
+                        .join('');
+                      
+                      // Store master key in sessionStorage (scan-view will pick it up)
+                      const storedMaster = safeSetItem(sessionStorage, `master_${fileId}`, masterKeyHex);
+                      if (!storedMaster) {
+                        console.error('❌ [UNLOCK SCREEN] Failed to store master key due to storage quota');
+                        toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
+                        // Fallback: Navigate with hash and let App.tsx handle it
+                        window.location.href = `${url.origin}/scan/${fileId}${url.hash}`;
+                        return;
+                      }
+                      
+                      console.log('✅ [UNLOCK SCREEN] Master key stored, navigating to scan view');
+                      // Navigate to scan view (without hash) - scan-view will detect master key in sessionStorage
+                      window.location.href = `${url.origin}/scan/${fileId}`;
+                      return;
+                    } catch (error) {
+                      console.error('❌ [UNLOCK SCREEN] Failed to convert K1 to master key:', error);
+                      toast.error('Kunne ikke dekryptere. Ugyldig nøkkel.');
+                      // Fallback: Navigate with hash and let App.tsx handle it
+                      window.location.href = `${url.origin}/scan/${fileId}${url.hash}`;
+                      return;
+                    }
                   }
                 }
                 

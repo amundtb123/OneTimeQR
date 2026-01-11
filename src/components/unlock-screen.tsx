@@ -691,8 +691,12 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
 
   if (showScanner) {
     console.log('📷 [UNLOCK SCREEN] Rendering QR scanner, qrDropId:', qrDropId);
+    // Determine which QR to scan: if hasK1, we need QR2, otherwise QR1
+    const qrToScan = hasK1 && !isSingleQrMode ? '2' : '1';
+    console.log('📷 [UNLOCK SCREEN] QR to scan:', qrToScan, 'hasK1:', hasK1, 'isSingleQrMode:', isSingleQrMode);
     return (
-      <QrScanner 
+      <QrScanner
+        qrNumber={qrToScan as '1' | '2'}
         onScan={(data) => {
           console.log('📷 [UNLOCK SCREEN] QrScanner onScan called with:', data);
           handleQrScanned(data);

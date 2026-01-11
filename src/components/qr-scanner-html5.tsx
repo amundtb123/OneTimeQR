@@ -5,9 +5,10 @@ import { Html5Qrcode } from 'html5-qrcode';
 interface QrScannerProps {
   onScan: (data: string) => void;
   onClose: () => void;
+  qrNumber?: '1' | '2'; // Which QR code to scan (1 = access code, 2 = unlock code)
 }
 
-export function QrScanner({ onScan, onClose }: QrScannerProps) {
+export function QrScanner({ onScan, onClose, qrNumber = '2' }: QrScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +111,10 @@ export function QrScanner({ onScan, onClose }: QrScannerProps) {
         <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white/90 backdrop-blur-sm">
           <Scan className="size-5 text-[#5D8CC9]" />
           <span className="text-[#3F3F3F] font-medium">
-            Skann QR #2 (opplåsingskode)
+            {qrNumber === '1' 
+              ? 'Skann QR #1 (tilgangskode)'
+              : 'Skann QR #2 (opplåsingskode)'
+            }
           </span>
         </div>
       </div>

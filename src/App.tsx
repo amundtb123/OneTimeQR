@@ -41,6 +41,7 @@ export interface QrDrop {
   secureMode?: boolean; // Secure Mode flag (dual QR)
   singleQrMode?: boolean; // Single QR Mode flag (single QR with K1)
   qrCodeUrl2?: string; // QR #2 for Secure Mode (unlock code)
+  qrCodeUrlShare?: string; // QR for sharing (clean link without code) - used in Secure Mode and Single QR Mode
 }
 
 function convertToQrDrop(data: QrDropData, qrCodeUrl: string): QrDrop {
@@ -1206,6 +1207,28 @@ function AppContent() {
               qrCodeUrl = await createBrandedQrCode(baseQr);
             }
             
+            let qrCodeUrlShare: string | undefined;
+            
+            // Generate share QR (clean link) for Secure Mode and Single QR Mode
+            if (qr.secureMode || qr.singleQrMode) {
+              const shareUrl = `${window.location.origin}/scan/${qr.id}`;
+              
+              if (qr.qrStyle) {
+                const baseShareQr = await generateStyledQrCode(shareUrl, qr.qrStyle);
+                qrCodeUrlShare = await createBrandedQrCode(baseShareQr);
+              } else {
+                const baseShareQr = await QRCode.toDataURL(shareUrl, {
+                  width: 400,
+                  margin: 2,
+                  color: {
+                    dark: '#4F46E5',
+                    light: '#FFFFFF',
+                  },
+                });
+                qrCodeUrlShare = await createBrandedQrCode(baseShareQr);
+              }
+            }
+            
             // If Secure Mode, generate QR #2 (unlock code)
             if (qr.secureMode) {
               const unlockUrl = `${window.location.origin}/scan/${qr.id}?unlock=1`;
@@ -1229,6 +1252,9 @@ function AppContent() {
             const qrDrop = convertToQrDrop(qr, qrCodeUrl);
             if (qrCodeUrl2) {
               qrDrop.qrCodeUrl2 = qrCodeUrl2;
+            }
+            if (qrCodeUrlShare) {
+              qrDrop.qrCodeUrlShare = qrCodeUrlShare;
             }
             return qrDrop;
           } catch (error) {

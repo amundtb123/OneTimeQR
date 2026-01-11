@@ -622,8 +622,13 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         }
       }
       
-      // SECURE MODE: Generate TWO QR codes with split keys
+      // SECURE MODE: Generate THREE QR codes (share link, QR #1, QR #2)
       if (secureMode && splitKeys) {
+        // QR for sharing: Clean link without code
+        const shareUrl = `${window.location.origin}/scan/${response.id}`;
+        const shareQrBase = await generateStyledQrCode(shareUrl, qrStyle);
+        const shareQrFinal = await createBrandedQrCode(shareQrBase);
+        
         // QR #1: Access code with k1 in URL fragment
         const qr1Url = createQr1Url(window.location.origin, response.id, splitKeys.k1);
         
@@ -642,6 +647,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         console.log('🔍 [DEBUG] QR #2 URL before QR generation:', qr2Url);
         console.log('🔍 [DEBUG] QR #2 URL contains #k2:', qr2Url.includes('#k2='));
         
+        console.log('🔑 QR Share URL (clean link):', shareUrl);
         console.log('🔑 QR #1 URL (access):', qr1Url.replace(/#k1=.*/, '#k1=***'));
         console.log('🔑 QR #2 URL (unlock):', qr2Url.replace(/#k2=.*/, '#k2=***'));
         console.log('✅ Split-key encryption: Server never sees keys (zero-knowledge)');
@@ -695,14 +701,22 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           qrCodeUrl: qr1Final, // Store QR #1 as primary
           secureMode: true, // Mark as Secure Mode
           qrCodeUrl2: qr2Final, // Store QR #2
+          qrCodeUrlShare: shareQrFinal, // Store QR for sharing (clean link)
         };
 
         onQrCreated(newQrDrop);
       } else if (singleQrMode && singleQrKey) {
-        // SINGLE QR MODE: Generate ONE QR code with K1 in fragment
+        // SINGLE QR MODE: Generate TWO QR codes (share link, unlock QR)
+        // QR for sharing: Clean link without code
+        const shareUrl = `${window.location.origin}/scan/${response.id}`;
+        const shareQrBase = await generateStyledQrCode(shareUrl, qrStyle);
+        const shareQrFinal = await createBrandedQrCode(shareQrBase);
+        
+        // QR for unlock: With K1 in fragment (can be scanned and go directly in)
         const qr1Url = createQr1Url(window.location.origin, response.id, singleQrKey.k1);
         
-        console.log('🔍 [DEBUG] Single QR URL before QR generation:', qr1Url);
+        console.log('🔍 [DEBUG] Single QR Mode - Share URL:', shareUrl);
+        console.log('🔍 [DEBUG] Single QR Mode - Unlock URL before QR generation:', qr1Url);
         console.log('🔍 [DEBUG] Single QR URL contains #k1:', qr1Url.includes('#k1='));
         console.log('🔑 Single QR URL:', qr1Url.replace(/#k1=.*/, '#k1=***'));
         console.log('✅ Single QR encryption: Server never sees key (zero-knowledge)');
@@ -733,9 +747,10 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           viewOnly,
           password: usePassword ? password : undefined,
           createdAt: new Date(),
-          qrCodeUrl: qr1Final,
+          qrCodeUrl: qr1Final, // Store unlock QR as primary
           secureMode: false, // Not dual QR mode
           singleQrMode: true, // Mark as Single QR Mode
+          qrCodeUrlShare: shareQrFinal, // Store QR for sharing (clean link)
         } as QrDrop;
 
         onQrCreated(newQrDrop);

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { QrDrop } from '../types/qr-drop';
-import { Check, Download, Copy, Share2, Eye, Shield, Clock, Key } from 'lucide-react';
+import { Check, Download, Copy, Share2, Eye, Shield, Clock, Key, Link2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
@@ -29,28 +29,44 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
     }
   };
 
+  const downloadQr = (qrCodeUrl: string, filename: string) => {
+    const link = document.createElement('a');
+    link.href = qrCodeUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success(`${filename} lastet ned`);
+  };
+
   const handleDownloadQr = () => {
     if (qrDrop.secureMode && qrDrop.qrCodeUrl2) {
-      // Download both QR codes
-      const link1 = document.createElement('a');
-      link1.href = qrDrop.qrCodeUrl;
-      link1.download = `qr-1-access-${qrDrop.fileName}.png`;
-      link1.click();
-      
+      // Download all QR codes for Secure Mode
+      if (qrDrop.qrCodeUrlShare) {
+        downloadQr(qrDrop.qrCodeUrlShare, `qr-share-${qrDrop.fileName}.png`);
+        setTimeout(() => {
+          downloadQr(qrDrop.qrCodeUrl, `qr-1-access-${qrDrop.fileName}.png`);
+          setTimeout(() => {
+            downloadQr(qrDrop.qrCodeUrl2!, `qr-2-unlock-${qrDrop.fileName}.png`);
+          }, 100);
+        }, 100);
+      } else {
+        downloadQr(qrDrop.qrCodeUrl, `qr-1-access-${qrDrop.fileName}.png`);
+        setTimeout(() => {
+          downloadQr(qrDrop.qrCodeUrl2!, `qr-2-unlock-${qrDrop.fileName}.png`);
+        }, 100);
+      }
+      toast.success(t('qrDetail.bothQrsDownloaded'));
+    } else if (qrDrop.singleQrMode && qrDrop.qrCodeUrlShare) {
+      // Download both QR codes for Single QR Mode
+      downloadQr(qrDrop.qrCodeUrlShare, `qr-share-${qrDrop.fileName}.png`);
       setTimeout(() => {
-        const link2 = document.createElement('a');
-        link2.href = qrDrop.qrCodeUrl2!;
-        link2.download = `qr-2-unlock-${qrDrop.fileName}.png`;
-        link2.click();
+        downloadQr(qrDrop.qrCodeUrl, `qr-unlock-${qrDrop.fileName}.png`);
       }, 100);
-      
       toast.success(t('qrDetail.bothQrsDownloaded'));
     } else {
       // Download single QR code
-      const link = document.createElement('a');
-      link.href = qrDrop.qrCodeUrl;
-      link.download = `qr-${qrDrop.fileName}.png`;
-      link.click();
+      downloadQr(qrDrop.qrCodeUrl, `qr-${qrDrop.fileName}.png`);
       toast.success(t('qrDetail.qrDownloaded'));
     }
   };
@@ -136,7 +152,7 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
       {/* QR Code Display */}
       <SoftCard>
         {qrDrop.secureMode && qrDrop.qrCodeUrl2 ? (
-          // Secure Mode: Show BOTH QR codes
+          // Secure Mode: Show 3 QR codes (share link, QR #1, QR #2)
           <div>
             <div className="text-center mb-6">
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl mb-4"
@@ -152,8 +168,54 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
               <p className="text-[#5B5B5B]">{t('qrDetail.bothMustBeScanned')}</p>
             </div>
 
-            {/* Two QR Codes Side by Side */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            {/* Three QR Codes */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              {/* QR for Share Link */}
+              {qrDrop.qrCodeUrlShare && (
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-2 mb-4">
+                    <div className="w-8 h-8 rounded-lg bg-[#5D8CC9] flex items-center justify-center">
+                      <Link2 className="size-4 text-white" />
+                    </div>
+                    <h3 className="text-[#3F3F3F]">{t('qrDetail.shareLink', { defaultValue: 'Del lenke' })}</h3>
+                  </div>
+                  <div 
+                    className="inline-block p-3 bg-white rounded-2xl border-4"
+                    style={{ 
+                      borderColor: '#5D8CC9',
+                      boxShadow: '0 8px 24px rgba(93, 140, 201, 0.15)',
+                    }}
+                  >
+                    <img 
+                      src={qrDrop.qrCodeUrlShare} 
+                      alt="Share QR Code" 
+                      className="w-56 h-56 rounded-xl"
+                    />
+                  </div>
+                  <p className="text-[#5B5B5B] text-sm mt-3">{t('qrDetail.shareWithRecipient')}</p>
+                  <div className="mt-3 flex gap-2">
+                    <NordicButton
+                      variant="blue"
+                      size="sm"
+                      onClick={() => downloadQr(qrDrop.qrCodeUrlShare!, 'qr-share.png')}
+                      className="flex-1"
+                    >
+                      <Download className="size-4 mr-2" />
+                      {t('qrDetail.download', { defaultValue: 'Last ned' })}
+                    </NordicButton>
+                    <NordicButton
+                      variant="blue"
+                      size="sm"
+                      onClick={() => shareQrAsImage(qrDrop.qrCodeUrlShare!, 'share')}
+                      className="flex-1"
+                    >
+                      <Share2 className="size-4 mr-2" />
+                      {t('qrDetail.share', { defaultValue: 'Del' })}
+                    </NordicButton>
+                  </div>
+                </div>
+              )}
+
               {/* QR #1 - Access Code */}
               <div className="text-center">
                 <div className="flex items-center justify-center gap-2 mb-4">
@@ -176,14 +238,24 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
                   />
                 </div>
                 <p className="text-[#5B5B5B] text-sm mt-3">{t('qrDetail.shareWithRecipient')}</p>
-                <div className="mt-3">
+                <div className="mt-3 flex gap-2">
+                  <NordicButton
+                    variant="blue"
+                    size="sm"
+                    onClick={() => downloadQr(qrDrop.qrCodeUrl, 'qr-1-access.png')}
+                    className="flex-1"
+                  >
+                    <Download className="size-4 mr-2" />
+                    {t('qrDetail.download', { defaultValue: 'Last ned' })}
+                  </NordicButton>
                   <NordicButton
                     variant="blue"
                     size="sm"
                     onClick={() => shareQrAsImage(qrDrop.qrCodeUrl, '1')}
+                    className="flex-1"
                   >
                     <Share2 className="size-4 mr-2" />
-                    {t('qrDetail.shareQrImage', { qrNumber: '1' })}
+                    {t('qrDetail.share', { defaultValue: 'Del' })}
                   </NordicButton>
                 </div>
               </div>
@@ -210,14 +282,24 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
                   />
                 </div>
                 <p className="text-[#5B5B5B] text-sm mt-3">{t('qrDetail.keyToUnlock')}</p>
-                <div className="mt-3">
+                <div className="mt-3 flex gap-2">
+                  <NordicButton
+                    variant="coral"
+                    size="sm"
+                    onClick={() => downloadQr(qrDrop.qrCodeUrl2!, 'qr-2-unlock.png')}
+                    className="flex-1"
+                  >
+                    <Download className="size-4 mr-2" />
+                    {t('qrDetail.download', { defaultValue: 'Last ned' })}
+                  </NordicButton>
                   <NordicButton
                     variant="coral"
                     size="sm"
                     onClick={() => shareQrAsImage(qrDrop.qrCodeUrl2!, '2')}
+                    className="flex-1"
                   >
                     <Share2 className="size-4 mr-2" />
-                    {t('qrDetail.shareQrImage', { qrNumber: '2' })}
+                    {t('qrDetail.share', { defaultValue: 'Del' })}
                   </NordicButton>
                 </div>
               </div>
@@ -248,32 +330,182 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
               </NordicButton>
             </div>
           </div>
-        ) : (
-          // Standard Mode: Show single QR code
-          <div className="text-center">
-            <h2 className="text-[#3F3F3F] mb-8">{t('qrDetail.yourQrCode')}</h2>
-            
-            {/* Large QR Code with pastel frame */}
-            <div 
-              className="inline-block p-4 bg-white rounded-2xl border-8"
-              style={{ 
-                borderColor: '#D5C5BD',
-                boxShadow: '0 12px 36px rgba(63, 63, 63, 0.08), 0 4px 12px rgba(63, 63, 63, 0.04)',
-              }}
-            >
-              <img 
-                src={qrDrop.qrCodeUrl} 
-                alt="QR Code" 
-                className="w-64 h-64 md:w-80 md:h-80 rounded-xl"
-              />
+        ) : qrDrop.singleQrMode && qrDrop.qrCodeUrlShare ? (
+          // Single QR Mode: Show 2 QR codes (share link, unlock QR)
+          <div>
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl mb-4"
+                style={{ 
+                  background: 'linear-gradient(135deg, #5D8CC9, #E8927E)',
+                  color: 'white'
+                }}
+              >
+                <Key className="size-5" />
+                <span>{t('qrDetail.singleQrMode', { defaultValue: 'Lås opp med QR' })}</span>
+              </div>
+              <h2 className="text-[#3F3F3F] mb-2">{t('qrDetail.yourQrCodes')}</h2>
+              <p className="text-[#5B5B5B]">{t('qrDetail.shareAndUnlock', { defaultValue: 'Del lenke eller skann opplåsningskode' })}</p>
+            </div>
+
+            {/* Two QR Codes Side by Side */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              {/* QR for Share Link */}
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-[#5D8CC9] flex items-center justify-center">
+                    <Link2 className="size-4 text-white" />
+                  </div>
+                  <h3 className="text-[#3F3F3F]">{t('qrDetail.shareLink', { defaultValue: 'Del lenke' })}</h3>
+                </div>
+                <div 
+                  className="inline-block p-3 bg-white rounded-2xl border-4"
+                  style={{ 
+                    borderColor: '#5D8CC9',
+                    boxShadow: '0 8px 24px rgba(93, 140, 201, 0.15)',
+                  }}
+                >
+                  <img 
+                    src={qrDrop.qrCodeUrlShare} 
+                    alt="Share QR Code" 
+                    className="w-56 h-56 rounded-xl"
+                  />
+                </div>
+                <p className="text-[#5B5B5B] text-sm mt-3">{t('qrDetail.shareWithRecipient')}</p>
+                <div className="mt-3 flex gap-2">
+                  <NordicButton
+                    variant="blue"
+                    size="sm"
+                    onClick={() => downloadQr(qrDrop.qrCodeUrlShare!, 'qr-share.png')}
+                    className="flex-1"
+                  >
+                    <Download className="size-4 mr-2" />
+                    {t('qrDetail.download', { defaultValue: 'Last ned' })}
+                  </NordicButton>
+                  <NordicButton
+                    variant="blue"
+                    size="sm"
+                    onClick={() => shareQrAsImage(qrDrop.qrCodeUrlShare!, 'share')}
+                    className="flex-1"
+                  >
+                    <Share2 className="size-4 mr-2" />
+                    {t('qrDetail.share', { defaultValue: 'Del' })}
+                  </NordicButton>
+                </div>
+              </div>
+
+              {/* QR for Unlock */}
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-[#E8927E] flex items-center justify-center">
+                    <Key className="size-4 text-white" />
+                  </div>
+                  <h3 className="text-[#3F3F3F]">{t('qrDetail.unlockCode')}</h3>
+                </div>
+                <div 
+                  className="inline-block p-3 bg-white rounded-2xl border-4"
+                  style={{ 
+                    borderColor: '#E8927E',
+                    boxShadow: '0 8px 24px rgba(232, 146, 126, 0.15)',
+                  }}
+                >
+                  <img 
+                    src={qrDrop.qrCodeUrl} 
+                    alt="Unlock QR Code" 
+                    className="w-56 h-56 rounded-xl"
+                  />
+                </div>
+                <p className="text-[#5B5B5B] text-sm mt-3">{t('qrDetail.keyToUnlock')}</p>
+                <div className="mt-3 flex gap-2">
+                  <NordicButton
+                    variant="coral"
+                    size="sm"
+                    onClick={() => downloadQr(qrDrop.qrCodeUrl, 'qr-unlock.png')}
+                    className="flex-1"
+                  >
+                    <Download className="size-4 mr-2" />
+                    {t('qrDetail.download', { defaultValue: 'Last ned' })}
+                  </NordicButton>
+                  <NordicButton
+                    variant="coral"
+                    size="sm"
+                    onClick={() => shareQrAsImage(qrDrop.qrCodeUrl, 'unlock')}
+                    className="flex-1"
+                  >
+                    <Share2 className="size-4 mr-2" />
+                    {t('qrDetail.share', { defaultValue: 'Del' })}
+                  </NordicButton>
+                </div>
+              </div>
             </div>
 
             {/* Action Buttons */}
-            <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <NordicButton onClick={handleDownloadQr} variant="ghost" size="lg">
                 <Download className="size-5 mr-2" />
-                {t('qrDetail.downloadQr')}
+                {t('qrDetail.downloadBoth')}
               </NordicButton>
+              <NordicButton onClick={handleShare} variant="blue" size="lg">
+                <Share2 className="size-5 mr-2" />
+                {t('qrDetail.shareQr1')}
+              </NordicButton>
+            </div>
+          </div>
+        ) : (
+          // Standard Mode: Show single QR code (for sharing)
+          <div>
+            <div className="text-center mb-6">
+              <h2 className="text-[#3F3F3F] mb-2">{t('qrDetail.yourQrCode')}</h2>
+              <p className="text-[#5B5B5B]">{t('qrDetail.shareToAccess', { defaultValue: 'Del QR-koden for å gi tilgang' })}</p>
+            </div>
+
+            {/* Single QR Code */}
+            <div className="flex justify-center mb-8">
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-[#5D8CC9] flex items-center justify-center">
+                    <Link2 className="size-4 text-white" />
+                  </div>
+                  <h3 className="text-[#3F3F3F]">{t('qrDetail.shareLink', { defaultValue: 'Del lenke' })}</h3>
+                </div>
+                <div 
+                  className="inline-block p-3 bg-white rounded-2xl border-4"
+                  style={{ 
+                    borderColor: '#5D8CC9',
+                    boxShadow: '0 8px 24px rgba(93, 140, 201, 0.15)',
+                  }}
+                >
+                  <img 
+                    src={qrDrop.qrCodeUrl} 
+                    alt="QR Code" 
+                    className="w-56 h-56 rounded-xl"
+                  />
+                </div>
+                <p className="text-[#5B5B5B] text-sm mt-3">{t('qrDetail.shareWithRecipient')}</p>
+                <div className="mt-3 flex gap-2 justify-center max-w-xs mx-auto">
+                  <NordicButton
+                    variant="blue"
+                    size="sm"
+                    onClick={() => downloadQr(qrDrop.qrCodeUrl, 'qr-share.png')}
+                    className="flex-1"
+                  >
+                    <Download className="size-4 mr-2" />
+                    {t('qrDetail.download', { defaultValue: 'Last ned' })}
+                  </NordicButton>
+                  <NordicButton
+                    variant="blue"
+                    size="sm"
+                    onClick={() => shareQrAsImage(qrDrop.qrCodeUrl, 'share')}
+                    className="flex-1"
+                  >
+                    <Share2 className="size-4 mr-2" />
+                    {t('qrDetail.share', { defaultValue: 'Del' })}
+                  </NordicButton>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <NordicButton onClick={handleCopyLink} variant="ghost" size="lg">
                 {copied ? (
                   <>
@@ -289,19 +521,7 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
               </NordicButton>
               <NordicButton onClick={handleShare} variant="blue" size="lg">
                 <Share2 className="size-5 mr-2" />
-                {t('qrDetail.share')}
-              </NordicButton>
-            </div>
-            
-            {/* Share QR code as image button */}
-            <div className="flex justify-center mt-4">
-              <NordicButton
-                variant="ghost"
-                size="lg"
-                onClick={() => shareQrAsImage(qrDrop.qrCodeUrl, '')}
-              >
-                <Share2 className="size-5 mr-2" />
-                {t('qrDetail.shareQrImageSingle')}
+                {t('qrDetail.shareQr1')}
               </NordicButton>
             </div>
           </div>

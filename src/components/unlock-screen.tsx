@@ -374,6 +374,8 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
   const handleQrScanned = (data: string) => {
     console.log('📱 [UNLOCK SCREEN] QR code scanned, raw data:', data);
     console.log('📱 [UNLOCK SCREEN] Current qrDropId:', qrDropId);
+    console.log('📱 [UNLOCK SCREEN] Current hasK1 state:', hasK1);
+    console.log('📱 [UNLOCK SCREEN] Current isSingleQrMode:', isSingleQrMode);
     
     // CRITICAL FIX: Some QR scanners convert # to @ in URLs
     // Fix this before parsing
@@ -398,15 +400,20 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
       const key = url.searchParams.get('key');
       const unlock = url.searchParams.get('unlock');
       
-      // NEW: Check for k2 in URL fragment (split-key QR #2)
+      // NEW: Check for k1 and k2 in URL fragment (split-key QR #1 and QR #2)
       const hash = url.hash;
+      const hasK1 = hash && hash.includes('k1=');
       const hasK2 = hash && hash.includes('k2=');
       
       console.log('📱 [UNLOCK SCREEN] URL analysis:', {
         hasKey: !!key,
         hasUnlock: unlock === '1',
+        hasK1: hasK1,
         hasK2: hasK2,
-        hash: hash ? hash.substring(0, 50) + '...' : 'none'
+        hash: hash ? hash.substring(0, 50) + '...' : 'none',
+        pathname: url.pathname,
+        isUnlockPath: url.pathname.includes('/unlock/'),
+        isScanPath: url.pathname.includes('/scan/')
       });
       
       // Extract k2 value if present (for split-key mode)
@@ -422,19 +429,22 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
       }
       
       // Check if this is QR #1 (has k1 in fragment)
-      const hasK1InScanned = hash && hash.includes('k1=');
-      if (hasK1InScanned) {
+      // CRITICAL: Check k1 FIRST, before k2, to avoid misidentification
+      if (hasK1 && !hasK2) {
         console.log('✅ [UNLOCK SCREEN] Valid QR #1 detected, processing...');
         const k1Match = hash.match(/k1=([^&]+)/);
-        if (k1Match && qrDropId) {
+        if (k1Match) {
           const k1Value = k1Match[1];
           console.log('🔑 [UNLOCK SCREEN] Extracted k1 from scanned QR:', k1Value.substring(0, 20) + '...');
           
-          // Extract ID from pathname
+          // Extract ID from pathname (use scanned QR's ID, not prop)
           let pathMatch = url.pathname.match(/\/scan\/([^/]+)/);
-          if (pathMatch) {
-            const fileId = pathMatch[1];
+          const fileId = pathMatch ? pathMatch[1] : qrDropId; // Use scanned ID or fallback to prop
+          
+          if (fileId) {
             console.log('💾 [UNLOCK SCREEN] Storing k1 for QR1:', fileId);
+            console.log('💾 [UNLOCK SCREEN] qrDropId from props:', qrDropId);
+            console.log('💾 [UNLOCK SCREEN] fileId from scanned QR:', pathMatch ? pathMatch[1] : 'none (using prop)');
             
             // Store k1 immediately
             const timestamp = Date.now().toString();
@@ -511,13 +521,31 @@ export function UnlockScreen({ onUnlock, isUnlocking, qrDropId }: UnlockScreenPr
             
             checkModeAndHandle();
             return;
+          } else {
+            console.error('❌ [UNLOCK SCREEN] No fileId found - cannot process QR1');
+            toast.error('Kunne ikke behandle QR-kode. Ugyldig format.');
+            setShowScanner(false);
+            return;
           }
+        } else {
+          console.error('❌ [UNLOCK SCREEN] No k1 value found in hash');
+          toast.error('Kunne ikke behandle QR-kode. Ugyldig format.');
+          setShowScanner(false);
+          return;
         }
       }
       
       // Check if this is QR #2 (legacy: key/unlock, or new: k2 fragment)
-      if (key || unlock === '1' || hasK2) {
+      // CRITICAL: Only process as QR2 if it's NOT QR1 (has k2 but not k1, or has unlock path)
+      if ((hasK2 && !hasK1) || (key || unlock === '1')) {
         console.log('✅ [UNLOCK SCREEN] Valid QR #2 detected, processing...');
+        console.log('📱 [UNLOCK SCREEN] QR2 check details:', {
+          hasK2: hasK2,
+          hasK1: hasK1,
+          hasKey: !!key,
+          hasUnlock: unlock === '1',
+          pathname: url.pathname
+        });
         
         // For split-key mode (k2 in fragment), extract and store k2 BEFORE navigation
         // This ensures we don't lose k2 on mobile browsers that might mishandle fragments

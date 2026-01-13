@@ -875,20 +875,6 @@ function AppContent() {
               
               console.log('✅ QR #1 scanned - k1 stored, waiting for QR #2');
             }
-          } catch (error) {
-            console.error('⚠️ [APP] Failed to check QR mode, assuming Secure Mode:', error);
-            // Fallback: assume Secure Mode if check fails
-            // Store k1 and continue
-            const timestamp = Date.now().toString();
-            safeSetItem(localStorage, `k1_${id}`, k1);
-            safeSetItem(sessionStorage, `k1_${id}`, k1);
-            safeSetItem(localStorage, `qr1_timestamp_${id}`, timestamp);
-            safeSetItem(sessionStorage, `qr1_timestamp_${id}`, timestamp);
-            setScanId(id);
-            setCurrentView('scan');
-            setTimeout(() => {
-              window.history.replaceState({}, '', `/scan/${id}`);
-            }, 100);
           }
         } else if (unlock === '1') {
           // Legacy: QR #2 with unlock flag (old method - fetch from server)

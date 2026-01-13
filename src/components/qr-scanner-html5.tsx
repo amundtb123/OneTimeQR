@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Scan } from 'lucide-react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeScanType } from 'html5-qrcode';
 
 interface QrScannerProps {
   onScan: (data: string) => void;
@@ -27,19 +27,39 @@ export function QrScanner({ onScan, onClose, qrNumber = '2' }: QrScannerProps) {
       console.log('📷 [QR SCANNER] Starting scanner...');
       console.log('📷 [QR SCANNER] Target element ID: qr-reader');
       
+      // Detect if mobile device
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      console.log('📷 [QR SCANNER] Device type:', isMobile ? 'Mobile' : 'Desktop');
+      
       // Create scanner instance
       const scanner = new Html5Qrcode('qr-reader');
       scannerRef.current = scanner;
       console.log('📷 [QR SCANNER] Scanner instance created');
+
+      // Optimize settings for mobile vs desktop
+      // Mobile needs larger scanning area and higher FPS for better detection
+      const qrboxSize = isMobile ? { width: 300, height: 300 } : { width: 250, height: 250 };
+      const fps = isMobile ? 20 : 10; // Higher FPS on mobile for better detection
+      
+      console.log('📷 [QR SCANNER] Scanner config:', { qrboxSize, fps, isMobile });
 
       // Start scanning
       console.log('📷 [QR SCANNER] Starting camera...');
       await scanner.start(
         { facingMode: 'environment' }, // Use back camera
         {
-          fps: 10, // Frames per second
-          qrbox: { width: 250, height: 250 }, // Scanning box size
+          fps: fps,
+          qrbox: qrboxSize,
           aspectRatio: 1.0,
+          // Additional mobile optimizations
+          ...(isMobile && {
+            supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
+            videoConstraints: {
+              facingMode: 'environment',
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            }
+          })
         },
         (decodedText) => {
           // Success callback
@@ -55,8 +75,9 @@ export function QrScanner({ onScan, onClose, qrNumber = '2' }: QrScannerProps) {
         },
         (errorMessage) => {
           // Error callback (fires continuously, but log first few to see what's happening)
-          // Only log occasionally to avoid spam
-          if (Math.random() < 0.01) { // Log ~1% of errors
+          // Log more frequently on mobile to help debug
+          const logFrequency = isMobile ? 0.05 : 0.01; // Log 5% on mobile, 1% on desktop
+          if (Math.random() < logFrequency) {
             console.log('📷 [QR SCANNER] Scanning error (sample):', errorMessage.substring(0, 100));
           }
         }

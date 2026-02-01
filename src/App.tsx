@@ -713,76 +713,60 @@ function AppContent() {
           // For Secure Mode: Store K1 and wait for K2
           console.log('💾 [APP] Storing k1 for QR1:', id, 'k1 length:', k1.length);
           
-          // OPTIMIZATION: Check cached mode first (from localStorage) to avoid async fetch
-          const cachedMode = localStorage.getItem(`qr_mode_${id}`);
-          let isSingleQrMode = cachedMode === 'single';
-          let needsModeCheck = !cachedMode;
-          
-          console.log('🔍 [APP] Mode check (cached):', { cachedMode, isSingleQrMode, needsModeCheck });
-          
           // Check if this is Single QR Mode or Secure Mode
-          if (needsModeCheck) {
-            try {
-              const { projectId, publicAnonKey } = await import('./utils/supabase/info');
-              const checkResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${id}/check`, {
-                headers: {
-                  'Authorization': `Bearer ${publicAnonKey}`
+          try {
+            const { projectId, publicAnonKey } = await import('./utils/supabase/info');
+            const checkResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${id}/check`, {
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`
+              }
+            });
+            
+            let isSingleQrMode = false;
+            if (checkResponse.ok) {
+              const checkData = await checkResponse.json();
+              isSingleQrMode = checkData.singleQrMode || false;
+              console.log('🔍 [APP] QR drop mode check:', { singleQrMode: isSingleQrMode, secureMode: checkData.secureMode });
+            }
+            
+            if (isSingleQrMode) {
+              // SINGLE QR MODE: K1 is the master key - convert from base64url to hex
+              console.log('🔑 [APP] Single QR Mode detected - converting K1 to master key');
+              try {
+                const { fromB64u } = await import('./utils/encryption');
+                const k1Bytes = fromB64u(k1);
+                const masterKeyHex = Array.from(k1Bytes)
+                  .map(b => b.toString(16).padStart(2, '0'))
+                  .join('');
+                
+                // Store master key directly
+                const storedMaster = safeSetItem(sessionStorage, `master_${id}`, masterKeyHex);
+                if (!storedMaster) {
+                  console.error('❌ [APP] Failed to store master key due to storage quota');
+                  toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
                 }
-              });
-              
-              if (checkResponse.ok) {
-                const checkData = await checkResponse.json();
-                isSingleQrMode = checkData.singleQrMode || false;
-                // Cache the mode for future use
-                const modeToCache = checkData.singleQrMode ? 'single' : (checkData.secureMode ? 'secure' : 'standard');
-                localStorage.setItem(`qr_mode_${id}`, modeToCache);
-                localStorage.setItem(`qr_mode_${id}_timestamp`, Date.now().toString());
-                console.log('🔍 [APP] QR drop mode check:', { singleQrMode: isSingleQrMode, secureMode: checkData.secureMode });
+                
+                console.log('✅ [APP] Single QR Mode: K1 converted to master key');
+                setScanId(id);
+                setUnlockKey(masterKeyHex);
+                setCurrentView('scan');
+                
+                // Clean up URL fragment
+                setTimeout(() => {
+                  window.history.replaceState({}, '', `/scan/${id}`);
+                  console.log('🧹 [APP] URL fragment cleaned after Single QR unlock');
+                }, 100);
+                
+                console.log('✅ Single QR scanned - master key ready, content unlocked');
+                return;
+              } catch (error) {
+                console.error('❌ [APP] Failed to convert K1 to master key:', error);
+                toast.error('Kunne ikke dekryptere. Ugyldig nøkkel.');
+                return;
               }
-            } catch (error) {
-              console.error('❌ [APP] Failed to fetch mode, assuming Secure Mode:', error);
-              isSingleQrMode = false;
-            }
-          }
-          
-          if (isSingleQrMode) {
-            // SINGLE QR MODE: K1 is the master key - convert from base64url to hex
-            console.log('🔑 [APP] Single QR Mode detected - converting K1 to master key');
-            try {
-              const { fromB64u } = await import('./utils/encryption');
-              const k1Bytes = fromB64u(k1);
-              const masterKeyHex = Array.from(k1Bytes)
-                .map(b => b.toString(16).padStart(2, '0'))
-                .join('');
-              
-              // Store master key directly
-              const storedMaster = safeSetItem(sessionStorage, `master_${id}`, masterKeyHex);
-              if (!storedMaster) {
-                console.error('❌ [APP] Failed to store master key due to storage quota');
-                toast.error('Kunne ikke lagre nøkkel. Prøv å tømme nettleserens cache.');
-              }
-              
-              console.log('✅ [APP] Single QR Mode: K1 converted to master key');
-              setScanId(id);
-              setUnlockKey(masterKeyHex);
-              setCurrentView('scan');
-              
-              // Clean up URL fragment
-              setTimeout(() => {
-                window.history.replaceState({}, '', `/scan/${id}`);
-                console.log('🧹 [APP] URL fragment cleaned after Single QR unlock');
-              }, 100);
-              
-              console.log('✅ Single QR scanned - master key ready, content unlocked');
-              return;
-            } catch (error) {
-              console.error('❌ [APP] Failed to convert K1 to master key:', error);
-              toast.error('Kunne ikke dekryptere. Ugyldig nøkkel.');
-              return;
-            }
-          } else {
-            // SECURE MODE: Store K1 and wait for K2
-            console.log('🔐 [APP] Secure Mode detected - storing K1, waiting for K2');
+            } else {
+              // SECURE MODE: Store K1 and wait for K2
+              console.log('🔐 [APP] Secure Mode detected - storing K1, waiting for K2');
               
               // CRITICAL FIX: Store k1 IMMEDIATELY and verify BEFORE any async operations
               // This ensures k1 is persisted even if there are timing issues
@@ -875,6 +859,20 @@ function AppContent() {
               
               console.log('✅ QR #1 scanned - k1 stored, waiting for QR #2');
             }
+          } catch (error) {
+            console.error('⚠️ [APP] Failed to check QR mode, assuming Secure Mode:', error);
+            // Fallback: assume Secure Mode if check fails
+            // Store k1 and continue
+            const timestamp = Date.now().toString();
+            safeSetItem(localStorage, `k1_${id}`, k1);
+            safeSetItem(sessionStorage, `k1_${id}`, k1);
+            safeSetItem(localStorage, `qr1_timestamp_${id}`, timestamp);
+            safeSetItem(sessionStorage, `qr1_timestamp_${id}`, timestamp);
+            setScanId(id);
+            setCurrentView('scan');
+            setTimeout(() => {
+              window.history.replaceState({}, '', `/scan/${id}`);
+            }, 100);
           }
         } else if (unlock === '1') {
           // Legacy: QR #2 with unlock flag (old method - fetch from server)

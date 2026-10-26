@@ -115,7 +115,7 @@ export interface QrDropData {
   scanCount: number;
   downloadCount: number;
   viewOnly: boolean;
-  password: string | null;
+  password: boolean | null; // true if password protected (the hash never leaves the server)
   qrStyle?: any; // QR code styling preferences
   secureMode?: boolean; // Secure Mode flag (dual QR)
   singleQrMode?: boolean; // Single QR Mode flag (single QR with K1)
@@ -179,6 +179,28 @@ async function fetchApi(endpoint: string, options: RequestInit = {}, requireAuth
   }
 }
 
+// Secret owner tokens for QR drops created in this browser tab. Sent to /open so the
+// creator's own preview doesn't use up a view (works for anonymous creators too).
+const OWNER_TOKEN_PREFIX = 'owner_token_';
+
+function rememberOwnerToken(result: { id?: string; ownerToken?: string }) {
+  if (!result?.id || !result.ownerToken) return;
+  try {
+    sessionStorage.setItem(OWNER_TOKEN_PREFIX + result.id, result.ownerToken);
+  } catch {
+    // Storage unavailable (private mode) - preview will then count as a view
+  }
+}
+
+function ownerTokenHeaders(id: string): Record<string, string> {
+  try {
+    const token = sessionStorage.getItem(OWNER_TOKEN_PREFIX + id);
+    return token ? { 'X-Owner-Token': token } : {};
+  } catch {
+    return {};
+  }
+}
+
 export async function uploadFile(file: File, metadata: QrDropMetadata): Promise<{ success: boolean; id: string; qrDrop: any }>;
 export async function uploadFile(files: File[], metadata: QrDropMetadata): Promise<{ success: boolean; id: string; qrDrop: any }>;
 export async function uploadFile(fileOrFiles: File | File[], metadata: QrDropMetadata) {
@@ -194,13 +216,15 @@ export async function uploadFile(fileOrFiles: File | File[], metadata: QrDropMet
   
   formData.append('metadata', JSON.stringify(metadata));
 
-  return fetchApi('/upload', {
+  const result = await fetchApi('/upload', {
     method: 'POST',
     body: formData,
     headers: {
       // Don't set Content-Type - browser will set it with boundary for FormData
     },
   });
+  rememberOwnerToken(result);
+  return result;
 }
 
 export async function createQrDrop(metadata: QrDropMetadata) {
@@ -221,6 +245,7 @@ export async function createQrDrop(metadata: QrDropMetadata) {
       },
       body: jsonBody,
     });
+    rememberOwnerToken(result);
     return result;
   } catch (error) {
     console.error('❌ createQrDrop error:', error instanceof Error ? error.message : 'Unknown error');
@@ -239,19 +264,38 @@ export async function generateAccessToken(id: string): Promise<{ accessToken: st
   });
 }
 
-export async function verifyPassword(id: string, password: string): Promise<{ valid: boolean }> {
-  return fetchApi(`/qr/${id}/verify`, {
+// View tokens from /open, per QR drop. Required by /file, /key and /download.
+const viewTokens = new Map<string, string>();
+
+function viewTokenHeaders(id: string): Record<string, string> {
+  const token = viewTokens.get(id);
+  return token ? { 'X-View-Token': token } : {};
+}
+
+// Open a QR drop: the server verifies the password (if any), counts the view
+// and returns the content. Each successful call uses up one view.
+export async function openQrDrop(id: string, password?: string): Promise<{
+  qrDrop: QrDropData & { encryptionKey?: string | null };
+  files: Array<{fileUrl: string; fileName: string; fileType: string; fileSize: number; fileIndex: number}> | null;
+  fileUrl: string | null;
+  viewToken: string;
+}> {
+  const result = await fetchApi(`/qr/${id}/open`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...ownerTokenHeaders(id),
     },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify(password ? { password } : {}),
   });
+  viewTokens.set(id, result.viewToken);
+  return result;
 }
 
-export async function incrementScanCount(id: string): Promise<{ success: boolean; scanCount: number }> {
-  return fetchApi(`/qr/${id}/scan`, {
-    method: 'POST',
+// Encryption key for standard-mode files (requires a prior openQrDrop, or ownership)
+export async function getEncryptionKey(id: string): Promise<{ encryptionKey: string }> {
+  return fetchApi(`/qrdrop/${id}/key`, {
+    headers: viewTokenHeaders(id),
   });
 }
 
@@ -285,12 +329,15 @@ export async function getFileUrl(id: string): Promise<{
   files?: Array<{fileUrl: string; fileName: string; fileType: string; fileSize: number; fileIndex: number}>;
   fileCount?: number;
 }> {
-  return fetchApi(`/qr/${id}/file`);
+  return fetchApi(`/qr/${id}/file`, {
+    headers: viewTokenHeaders(id),
+  });
 }
 
 export async function incrementDownloadCount(id: string): Promise<{ success: boolean; downloadCount: number }> {
   return fetchApi(`/qr/${id}/download`, {
     method: 'POST',
+    headers: viewTokenHeaders(id),
   });
 }
 
@@ -301,12 +348,6 @@ export async function getAllQrDrops(): Promise<{ qrDrops: QrDropData[] }> {
 export async function deleteQrDrop(id: string): Promise<{ success: boolean }> {
   return fetchApi(`/qr/${id}`, {
     method: 'DELETE',
-  });
-}
-
-export async function cleanupExpired(): Promise<{ success: boolean; deletedCount: number }> {
-  return fetchApi('/cleanup', {
-    method: 'POST',
   });
 }
 

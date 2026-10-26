@@ -34,7 +34,7 @@ export interface QrDrop {
   scanCount: number;
   downloadCount: number;
   viewOnly: boolean;
-  password?: string;
+  password?: string | boolean; // Plaintext right after creation, true when loaded from the server
   createdAt: Date;
   expiredAt?: Date; // Timestamp when it was marked as expired
   qrCodeUrl: string;

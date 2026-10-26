@@ -1,0 +1,12 @@
+{
+  "name": "onetimeqr-edge-function-tests",
+  "private": true,
+  "description": "Access-control tests for the Edge Function, run against real Postgres (PGlite)",
+  "type": "module",
+  "scripts": {
+    "test": "node build.mjs && node test.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.2.17"
+  }
+}

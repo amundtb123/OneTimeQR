@@ -46,3 +46,6 @@ lerna-debug.log*
 
 
 
+
+# Edge Function test bundle
+tests/edge-function/.out/

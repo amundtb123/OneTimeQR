@@ -16,7 +16,7 @@ app.use('*', cors({
   ],
   credentials: true,
   allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-View-Token', 'X-Owner-Token'],
 }));
 app.use('*', logger(console.log));
 
@@ -80,10 +80,148 @@ const kv = {
     if (error) throw new Error(error.message);
     return data?.map((d) => d.value) ?? [];
   },
+  getEntriesByPrefix: async (prefix: string): Promise<Array<{ key: string; value: any }>> => {
+    const client = kvClient();
+    const { data, error } = await client.from('kv_store_c3c9181e').select('key, value').like('key', prefix + '%');
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  },
 };
 
 // Initialize storage bucket
 const BUCKET_NAME = 'make-c3c9181e-qrdrop-files';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// SECURITY: Content, keys and file URLs are only handed out by /open, which issues a
+// short-lived view token. Follow-up calls (/file, /key, /download) must present it.
+const VIEW_TOKEN_TTL_MS = 15 * 60 * 1000;
+const PASSWORD_MAX_ATTEMPTS = 5;
+const PASSWORD_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+
+// Resolve the logged-in user from the Authorization header (null for anon key or invalid token)
+async function getRequestUserId(c: any): Promise<string | null> {
+  const accessToken = c.req.header('Authorization')?.split(' ')[1];
+  if (!accessToken || accessToken === Deno.env.get('SUPABASE_ANON_KEY')) {
+    return null;
+  }
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    return error ? null : (user?.id ?? null);
+  } catch {
+    return null;
+  }
+}
+
+// Why a QR drop can no longer be opened, or null if it can.
+// Must stay in sync with qrdrop_consume() in supabase/migrations.
+function getExpiryReason(qrDrop: any, now = Date.now()): string | null {
+  const scanCount = qrDrop.scanCount || 0;
+  if (qrDrop.expiresAt && qrDrop.expiresAt < now) return 'Time expired';
+  if (qrDrop.expiryType === 'scan' && scanCount >= 1) return 'Already scanned';
+  if (qrDrop.maxScans && scanCount >= qrDrop.maxScans) return 'Max scans reached';
+  if (qrDrop.maxDownloads && (qrDrop.downloadCount || 0) >= qrDrop.maxDownloads) return 'Max downloads reached';
+  return null;
+}
+
+// A used-up drop is kept until the last viewer's token has expired, so an ongoing view can finish
+function isDeletable(qrDrop: any, now = Date.now()): boolean {
+  if (qrDrop.expiresAt && qrDrop.expiresAt < now) return true;
+  if (!getExpiryReason(qrDrop, now)) return false;
+  return !qrDrop.lastOpenedAt || qrDrop.lastOpenedAt + VIEW_TOKEN_TTL_MS < now;
+}
+
+// The password hash never leaves the server; clients only need to know whether one is set
+function withoutSecrets(qrDrop: any) {
+  const { password, ownerTokenHash, ...rest } = qrDrop;
+  return { ...rest, password: password ? true : null };
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Owner = the logged-in creator, or whoever holds the secret owner token returned at creation
+// (lets anonymous creators preview without using up a view)
+async function isRequestOwner(c: any, qrDrop: any): Promise<boolean> {
+  const ownerToken = c.req.header('X-Owner-Token');
+  if (ownerToken && qrDrop.ownerTokenHash && (await sha256Hex(ownerToken)) === qrDrop.ownerTokenHash) {
+    return true;
+  }
+  return !!qrDrop.userId && (await getRequestUserId(c)) === qrDrop.userId;
+}
+
+// What anyone holding the link may see before opening: no content, no keys
+function publicMetadata(qrDrop: any) {
+  const { textContent, urlContent, encryptionKey, ...rest } = withoutSecrets(qrDrop);
+  return { ...rest, hasTextContent: !!textContent, hasUrlContent: !!urlContent };
+}
+
+async function issueViewToken(qrDropId: string): Promise<string> {
+  const token = crypto.randomUUID();
+  await kv.set(`view:${token}`, { qrDropId, expiresAt: Date.now() + VIEW_TOKEN_TTL_MS });
+  return token;
+}
+
+// Viewers need a view token from /open; owners always have access to their own drops
+async function hasViewAccess(c: any, qrDrop: any): Promise<boolean> {
+  const token = c.req.header('X-View-Token');
+  if (token && UUID_REGEX.test(token)) {
+    const tokenData = await kv.get(`view:${token}`);
+    if (tokenData && tokenData.qrDropId === qrDrop.id && tokenData.expiresAt > Date.now()) {
+      return true;
+    }
+  }
+  return isRequestOwner(c, qrDrop);
+}
+
+// Atomically count a scan or download, enforcing limits in the database.
+// Returns the updated QR drop, or null if the limit was already reached.
+async function consumeQrDrop(id: string, kind: 'scan' | 'download'): Promise<any | null> {
+  const { data, error } = await supabase.rpc('qrdrop_consume', { p_id: id, p_kind: kind, p_now: Date.now() });
+  if (error) throw new Error(`qrdrop_consume failed: ${error.message}`);
+  return data;
+}
+
+// Atomically register a password attempt; returns the number of attempts in the current window
+async function registerPasswordAttempt(id: string): Promise<number> {
+  const { data, error } = await supabase.rpc('qrdrop_register_password_attempt', {
+    p_id: id,
+    p_now: Date.now(),
+    p_window_ms: PASSWORD_ATTEMPT_WINDOW_MS,
+  });
+  if (error) throw new Error(`qrdrop_register_password_attempt failed: ${error.message}`);
+  return data;
+}
+
+// Signed download URLs for all files in a QR drop (supports legacy single-file drops)
+async function createSignedFileUrls(qrDrop: any) {
+  const files = Array.isArray(qrDrop.files) && qrDrop.files.length > 0
+    ? qrDrop.files
+    : (qrDrop.filePath ? [{ name: qrDrop.fileName, type: qrDrop.fileType, size: qrDrop.fileSize, path: qrDrop.filePath }] : []);
+
+  const signed = await Promise.all(files.map(async (file: any, index: number) => {
+    const { data, error } = await supabase.storage
+      .from(BUCKET_NAME)
+      .createSignedUrl(file.path, 120); // 2 minutes expiry for security
+
+    if (error || !data) {
+      console.error(`Error getting signed URL for file ${index}:`, error);
+      return null;
+    }
+
+    return {
+      fileUrl: data.signedUrl,
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+      fileIndex: index,
+    };
+  }));
+
+  return signed.filter((f) => f !== null);
+}
 
 // Password hashing using Web Crypto API (works in Deno)
 async function hashPassword(password: string): Promise<string> {
@@ -236,46 +374,25 @@ async function cleanupExpired() {
     for (const qrDrop of qrDrops) {
       if (!qrDrop) continue;
 
-      let isExpired = false;
-
-      // Check if expired
-      if (qrDrop.expiresAt && qrDrop.expiresAt < now) {
-        isExpired = true;
-      }
-
-      // For "scan once" type: allow first viewer (scanCount <= 1), block subsequent scans
-      if (qrDrop.expiryType === 'scan' && qrDrop.scanCount > 1) {
-        isExpired = true;
-      }
-
-      if (qrDrop.maxScans && qrDrop.scanCount >= qrDrop.maxScans) {
-        isExpired = true;
-      }
-
-      if (qrDrop.maxDownloads && qrDrop.downloadCount >= qrDrop.maxDownloads) {
-        isExpired = true;
-      }
-
-      // Delete immediately if expired
-      if (isExpired) {
+      if (isDeletable(qrDrop, now)) {
         // SECURITY: Don't log QR drop IDs during cleanup
         await deleteQrDrop(qrDrop.id);
         deletedCount++;
       }
     }
-    
-    // Also cleanup expired access tokens
-    const accessTokens = await kv.getByPrefix('access:');
+
+    // Also cleanup expired short-lived tokens and counters (all carry expiresAt)
     let expiredTokens = 0;
-    for (const tokenData of accessTokens) {
-      if (tokenData && tokenData.expiresAt < now) {
-        const tokenId = tokenData.key?.split(':')[1];
-        if (tokenId) {
-          await kv.del(`access:${tokenId}`);
-          expiredTokens++;
-          // SECURITY: Don't log token cleanup
-        }
+    for (const prefix of ['access:', 'view:', 'unlock_token:', 'qr1_scanned:', 'pwfail:']) {
+      const entries = await kv.getEntriesByPrefix(prefix);
+      const expiredKeys = entries
+        .filter((entry) => !entry.value?.expiresAt || entry.value.expiresAt < now)
+        .map((entry) => entry.key);
+      // Delete in batches to keep the request URL short
+      for (let i = 0; i < expiredKeys.length; i += 100) {
+        await kv.mdel(expiredKeys.slice(i, i + 100));
       }
+      expiredTokens += expiredKeys.length;
     }
 
     // SECURITY: Minimal logging - only count, no details
@@ -464,6 +581,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       ? metadata.clientId
       : crypto.randomUUID();
     const timestamp = Date.now();
+    const ownerToken = crypto.randomUUID();
     
     if (metadata.secureMode && !metadata.clientId && id !== metadata.clientId) {
       console.warn('⚠️ [SERVER] Secure Mode file upload WITHOUT clientId! This will cause decryption to fail!');
@@ -577,6 +695,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       secureMode: metadata.secureMode || false,
       singleQrMode: metadata.singleQrMode || false,
       encryptionKey: metadata.encryptionKey || null,
+      ownerTokenHash: await sha256Hex(ownerToken),
       createdAt: timestamp,
     };
 
@@ -588,7 +707,8 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     return c.json({ 
       success: true, 
       id,
-      qrDrop: qrDropData 
+      qrDrop: withoutSecrets(qrDropData),
+      ownerToken, // Secret for the creator only; lets them preview without using up a view
     });
   } catch (error) {
     console.error('Error in upload endpoint:', error);
@@ -671,6 +791,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       ? metadata.clientId
       : crypto.randomUUID();
     const timestamp = Date.now();
+    const ownerToken = crypto.randomUUID();
     
     if (isSecureMode && !metadata.clientId) {
       console.warn('⚠️ [SERVER] Secure Mode QR drop created WITHOUT clientId! This will cause decryption to fail!');
@@ -685,11 +806,11 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     }
 
     // Store metadata in KV
-    // For secureMode: use ciphertext fields, for standard: use textContent/urlContent
-    const textContentToStore = isSecureMode 
+    // For secureMode/singleQrMode: use ciphertext fields, for standard: use textContent/urlContent
+    const textContentToStore = isEncryptedMode
       ? (metadata.textContentCiphertext || null)
       : (metadata.textContent || null);
-    const urlContentToStore = isSecureMode
+    const urlContentToStore = isEncryptedMode
       ? (metadata.urlContentCiphertext || null)
       : (metadata.urlContent || null);
     
@@ -721,6 +842,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       secureMode: metadata.secureMode || false,
       singleQrMode: metadata.singleQrMode || false,
       encryptionKey: metadata.encryptionKey || null,
+      ownerTokenHash: await sha256Hex(ownerToken),
       createdAt: timestamp,
     };
 
@@ -732,7 +854,8 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     return c.json({ 
       success: true, 
       id,
-      qrDrop: qrDropData 
+      qrDrop: withoutSecrets(qrDropData),
+      ownerToken, // Secret for the creator only; lets them preview without using up a view
     });
   } catch (error) {
     console.error('Error in create endpoint:', error);
@@ -740,166 +863,146 @@ app.post('/make-server-c3c9181e/create', async (c) => {
   }
 });
 
-// Get QR drop by ID (for scanning)
+// Get QR drop metadata by ID (for scanning)
+// SECURITY: Returns metadata only. Content, keys and file URLs require /open.
 app.get('/make-server-c3c9181e/qr/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    
+
     // SECURITY: Validate UUID format
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!UUID_REGEX.test(id)) {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
-    
+
     const accessToken = c.req.query('access');
-    
+
     // If NO access token is provided, generate one and return it in JSON
     if (!accessToken) {
       // SECURITY: Don't log token generation
-      
+
       // Generate fresh access token
       const token = crypto.randomUUID();
       const expiresAt = Date.now() + (5 * 60 * 1000); // 5 minutes
-      
+
       await kv.set(`access:${token}`, {
         qrDropId: id,
         expiresAt,
         createdAt: Date.now(),
       });
-      
+
       // Return the token to the client so they can redirect themselves
-      return c.json({ 
+      return c.json({
         requiresToken: true,
-        accessToken: token 
+        accessToken: token
       });
     }
-    
+
     // If access token IS provided, validate it
     const tokenData = await kv.get(`access:${accessToken}`);
-    
+
     if (!tokenData) {
-      return c.json({ 
-        error: '🔒 Denne lenken kan ikke deles. Skann QR-koden på nytt for tilgang.', 
-        code: 'INVALID_TOKEN' 
+      return c.json({
+        error: '🔒 Denne lenken kan ikke deles. Skann QR-koden på nytt for tilgang.',
+        code: 'INVALID_TOKEN'
       }, 403);
     }
-    
+
     // Check if token matches the QR drop ID
     if (tokenData.qrDropId !== id) {
-      return c.json({ 
-        error: 'Ugyldig tilgangslenke', 
-        code: 'INVALID_TOKEN' 
+      return c.json({
+        error: 'Ugyldig tilgangslenke',
+        code: 'INVALID_TOKEN'
       }, 403);
     }
-    
+
     // Token is valid - delete it immediately (one-time use)
     await kv.del(`access:${accessToken}`);
     // SECURITY: Don't log access tokens
-    
-    const qrDrop = await kv.get(`qrdrop:${id}`);
 
-    // SECURITY: Minimal logging - don't log QR drop data
+    const qrDrop = await kv.get(`qrdrop:${id}`);
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    // Check if expired
-    const now = Date.now();
-    let isExpired = false;
-    let expiredReason = '';
-    
-    // Time-based expiry
-    if (qrDrop.expiresAt && qrDrop.expiresAt < now) {
-      isExpired = true;
-      expiredReason = 'Time expired';
-    }
-
-    // For "scan once" type: allow first viewer (scanCount <= 1), block subsequent scans
-    if (qrDrop.expiryType === 'scan' && qrDrop.scanCount > 1) {
-      isExpired = true;
-      expiredReason = 'Already scanned';
-    }
-
-    // Max scans reached
-    if (qrDrop.maxScans && qrDrop.scanCount >= qrDrop.maxScans) {
-      isExpired = true;
-      expiredReason = 'Max scans reached';
-    }
-
-    // Max downloads reached
-    if (qrDrop.maxDownloads && qrDrop.downloadCount >= qrDrop.maxDownloads) {
-      isExpired = true;
-      expiredReason = 'Max downloads reached';
-    }
-
-    // If expired, delete it immediately and return 410 Gone
-    if (isExpired) {
-      // SECURITY: Don't log QR drop IDs
-      await deleteQrDrop(id);
+    if (getExpiryReason(qrDrop)) {
+      if (isDeletable(qrDrop)) {
+        await deleteQrDrop(id);
+      }
       return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
     }
 
-    // OPTIMIZATION: If this QR drop has files, include signed URLs in the response
-    let fileUrl = null; // Backwards compatibility - first file
-    let files = null; // Multiple files
-    
-    // Support both single file (backwards compatibility) and multiple files
-    if (qrDrop.files && Array.isArray(qrDrop.files) && qrDrop.files.length > 0) {
-      // Multiple files - generate signed URLs for all
-      try {
-        const filesWithUrls = await Promise.all(qrDrop.files.map(async (file: any, index: number) => {
-          const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-            .from(BUCKET_NAME)
-            .createSignedUrl(file.path, 120); // 2 minutes expiry for security
-
-          if (signedUrlError) {
-            console.error(`Error getting signed URL for file ${index}:`, signedUrlError);
-            return null;
-          }
-
-          return {
-            fileUrl: signedUrlData.signedUrl,
-            fileName: file.name,
-            fileType: file.type,
-            fileSize: file.size,
-            fileIndex: index
-          };
-        }));
-
-        const validFiles = filesWithUrls.filter(f => f !== null);
-        if (validFiles.length > 0) {
-          files = validFiles;
-          fileUrl = validFiles[0].fileUrl; // Backwards compatibility
-          // SECURITY: Don't log file URLs or counts
-        }
-      } catch (error) {
-        console.error('Error getting signed URLs for files (non-critical):', error);
-      }
-    } else if (qrDrop.filePath) {
-      // Single file (backwards compatibility)
-      try {
-        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-          .from(BUCKET_NAME)
-          .createSignedUrl(qrDrop.filePath, 120); // 2 minutes expiry for security
-
-        if (!signedUrlError && signedUrlData) {
-          fileUrl = signedUrlData.signedUrl;
-          // SECURITY: Don't log file URLs
-        }
-      } catch (error) {
-        console.error('Error getting signed URL (non-critical):', error);
-      }
-    }
-
-    return c.json({ 
-      qrDrop,
-      fileUrl, // Backwards compatibility
-      files // Multiple files
-    });
+    return c.json({ qrDrop: publicMetadata(qrDrop) });
   } catch (error) {
     console.error('Error getting QR drop:', error);
-    return c.json({ error: `Failed to get QR drop: ${error.message}` }, 500);
+    return c.json({ error: 'Failed to get QR drop' }, 500);
+  }
+});
+
+// Open a QR drop: verifies password, counts the view atomically and returns content.
+// This is the only endpoint that hands out content, keys and file URLs.
+app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
+  try {
+    const id = c.req.param('id');
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid QR drop ID format' }, 400);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const password = typeof body?.password === 'string' ? body.password : '';
+
+    let qrDrop = await kv.get(`qrdrop:${id}`);
+    if (!qrDrop) {
+      return c.json({ error: 'QR drop not found' }, 404);
+    }
+
+    if (getExpiryReason(qrDrop)) {
+      if (isDeletable(qrDrop)) {
+        await deleteQrDrop(id);
+      }
+      return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
+    }
+
+    if (qrDrop.password) {
+      if (!password) {
+        return c.json({ error: 'Password required', code: 'PASSWORD_REQUIRED' }, 401);
+      }
+
+      // SECURITY: Count the attempt before verifying, so parallel guesses are limited too
+      const attempts = await registerPasswordAttempt(id);
+      if (attempts > PASSWORD_MAX_ATTEMPTS) {
+        return c.json({ error: 'Too many password attempts. Try again later.', code: 'TOO_MANY_ATTEMPTS' }, 429);
+      }
+
+      if (!(await verifyPasswordSecure(password, qrDrop.password))) {
+        return c.json({ error: 'Invalid password', code: 'INVALID_PASSWORD' }, 401);
+      }
+      await kv.del(`pwfail:${id}`);
+    }
+
+    // Owners previewing their own drop don't use up a view
+    if (!(await isRequestOwner(c, qrDrop))) {
+      const consumed = await consumeQrDrop(id, 'scan');
+      if (!consumed) {
+        // Another viewer used the last view between our read and the atomic update
+        return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
+      }
+      qrDrop = consumed;
+    }
+
+    const viewToken = await issueViewToken(id);
+    const files = await createSignedFileUrls(qrDrop);
+
+    // A password was supplied and verified, so the client no longer needs to treat it as locked
+    return c.json({
+      qrDrop: { ...withoutSecrets(qrDrop), password: null },
+      files: files.length > 0 ? files : null,
+      fileUrl: files[0]?.fileUrl ?? null, // Backwards compatibility - first file
+      viewToken,
+    });
+  } catch (error) {
+    console.error('Error opening QR drop:', error);
+    return c.json({ error: 'Failed to open QR drop' }, 500);
   }
 });
 
@@ -908,83 +1011,63 @@ app.post('/make-server-c3c9181e/qr/:id/access-token', async (c) => {
   try {
     const id = c.req.param('id');
     const qrDrop = await kv.get(`qrdrop:${id}`);
-    
+
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }
-    
+
     // Generate random access token
     const accessToken = crypto.randomUUID();
-    
+
     // Store token with 5 minute expiry
     await kv.set(`access:${accessToken}`, {
       qrDropId: id,
       createdAt: Date.now(),
       expiresAt: Date.now() + (5 * 60 * 1000) // 5 minutes
     });
-    
-    return c.json({ 
+
+    return c.json({
       accessToken,
       url: `/scan/${id}?access=${accessToken}`
     });
   } catch (error) {
     console.error('Error generating access token:', error);
-    return c.json({ error: `Failed to generate access token: ${error.message}` }, 500);
+    return c.json({ error: 'Failed to generate access token' }, 500);
   }
 });
 
-// Verify password
-app.post('/make-server-c3c9181e/qr/:id/verify', async (c) => {
-  try {
-    const id = c.req.param('id');
-    const { password } = await c.req.json();
-    const qrDrop = await kv.get(`qrdrop:${id}`);
-
-    if (!qrDrop) {
-      return c.json({ error: 'QR drop not found' }, 404);
-    }
-
-    // Verify password using PBKDF2 (secure comparison)
-    const isValid = qrDrop.password ? await verifyPasswordSecure(password, qrDrop.password) : false;
-    return c.json({ valid: isValid });
-  } catch (error) {
-    console.error('Error verifying password:', error);
-    return c.json({ error: `Failed to verify password: ${error.message}` }, 500);
-  }
-});
-
-// Get encryption key for Secure Mode (QR #2) and standard encrypted files
+// Get encryption key for standard encrypted files
+// SECURITY: Requires a view token from /open (or ownership)
 app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
   try {
     const id = c.req.param('id');
-    
+
     // SECURITY: Validate UUID format
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!UUID_REGEX.test(id)) {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
-    
+
     const qrDrop = await kv.get(`qrdrop:${id}`);
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    // Return encryption key if it exists
-    // ALL files are now encrypted, so encryptionKey should exist for all files
-    // For Secure Mode (QR #2), this endpoint is accessed after QR #1 is scanned
-    // For standard encrypted files, this endpoint is used for file decryption
+    if (!(await hasViewAccess(c, qrDrop))) {
+      return c.json({ error: 'Open the QR drop first', code: 'VIEW_TOKEN_REQUIRED' }, 403);
+    }
+
+    // Secure Mode and Single QR Mode never store a key on the server
     if (!qrDrop.encryptionKey) {
-      console.error(`❌ No encryption key found for QR drop (secureMode: ${qrDrop.secureMode || false}) - this should not happen for encrypted files`);
       return c.json({ error: 'Encryption key not found' }, 404);
     }
 
     // SECURITY: Don't log QR drop IDs or encryption key operations
-    
+
     return c.json({ encryptionKey: qrDrop.encryptionKey });
   } catch (error) {
     console.error('Error fetching encryption key:', error);
-    return c.json({ error: `Failed to fetch encryption key: ${error.message}` }, 500);
+    return c.json({ error: 'Failed to fetch encryption key' }, 500);
   }
 });
 
@@ -994,7 +1077,6 @@ app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
     const id = c.req.param('id');
     
     // SECURITY: Validate UUID format
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!UUID_REGEX.test(id)) {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
@@ -1028,7 +1110,6 @@ app.post('/make-server-c3c9181e/qrdrop/:id/qr1-scanned', async (c) => {
     const id = c.req.param('id');
     
     // SECURITY: Validate UUID format
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!UUID_REGEX.test(id)) {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
@@ -1098,7 +1179,6 @@ app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
     const id = c.req.param('id');
     
     // SECURITY: Validate UUID format
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!UUID_REGEX.test(id)) {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
@@ -1173,122 +1253,72 @@ app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
 });
 
 // Increment scan count
+// DEPRECATED: Views are now counted atomically by /open. Kept as a no-op for older clients.
 app.post('/make-server-c3c9181e/qr/:id/scan', async (c) => {
-  try {
-    const id = c.req.param('id');
-    const qrDrop = await kv.get(`qrdrop:${id}`);
-
-    if (!qrDrop) {
-      return c.json({ error: 'QR drop not found' }, 404);
-    }
-
-    qrDrop.scanCount += 1;
-    await kv.set(`qrdrop:${id}`, qrDrop);
-
-    return c.json({ success: true, scanCount: qrDrop.scanCount });
-  } catch (error) {
-    console.error('Error incrementing scan count:', error);
-    return c.json({ error: `Failed to increment scan count: ${error.message}` }, 500);
-  }
-});
-
-// Get file URL(s) (for file downloads) - supports multiple files
-app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
   const id = c.req.param('id');
-  
-  // SECURITY: Validate UUID format
-  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!UUID_REGEX.test(id)) {
     return c.json({ error: 'Invalid QR drop ID format' }, 400);
   }
-  
+  const qrDrop = await kv.get(`qrdrop:${id}`);
+  if (!qrDrop) {
+    return c.json({ error: 'QR drop not found' }, 404);
+  }
+  return c.json({ success: true, scanCount: qrDrop.scanCount || 0 });
+});
+
+// Get file URL(s) (for file downloads) - supports multiple files
+// SECURITY: Requires a view token from /open (or ownership)
+app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
+  const id = c.req.param('id');
+
+  // SECURITY: Validate UUID format
+  if (!UUID_REGEX.test(id)) {
+    return c.json({ error: 'Invalid QR drop ID format' }, 400);
+  }
+
   const fileIndex = c.req.query('index'); // Optional: specific file index
-  
+
   try {
     const qrDrop = await kv.get(`qrdrop:${id}`);
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    // Support both single file (backwards compatibility) and multiple files
-    const files = qrDrop.files && Array.isArray(qrDrop.files) ? qrDrop.files : 
-                   (qrDrop.filePath ? [{ name: qrDrop.fileName, type: qrDrop.fileType, size: qrDrop.fileSize, path: qrDrop.filePath }] : []);
-
-    if (files.length === 0) {
-      return c.json({ error: 'This QR drop does not contain any files' }, 404);
+    if (!(await hasViewAccess(c, qrDrop))) {
+      return c.json({ error: 'Open the QR drop first', code: 'VIEW_TOKEN_REQUIRED' }, 403);
     }
 
     if (qrDrop.expiresAt && Date.now() > qrDrop.expiresAt) {
-      await kv.set(`qrdrop:${id}`, { ...qrDrop, expiredAt: Date.now() });
-      return c.json({ 
+      return c.json({
         error: 'This QR drop has expired',
-        expired: true 
+        expired: true
       }, 410);
     }
 
-    if (qrDrop.maxDownloads && qrDrop.downloadCount >= qrDrop.maxDownloads) {
-      await kv.set(`qrdrop:${id}`, { ...qrDrop, expiredAt: Date.now() });
-      return c.json({ 
+    if (qrDrop.maxDownloads && (qrDrop.downloadCount || 0) >= qrDrop.maxDownloads) {
+      return c.json({
         error: 'Maximum downloads reached',
-        expired: true 
+        expired: true
       }, 410);
+    }
+
+    const validFiles = await createSignedFileUrls(qrDrop);
+
+    if (validFiles.length === 0) {
+      return c.json({ error: 'This QR drop does not contain any files' }, 404);
     }
 
     // If specific index requested, return only that file
     if (fileIndex !== undefined) {
-      const index = parseInt(fileIndex);
-      if (index >= 0 && index < files.length) {
-        const file = files[index];
-        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-          .from(BUCKET_NAME)
-          .createSignedUrl(file.path, 120); // 2 minutes expiry for security
-
-        if (signedUrlError) {
-          console.error('Error getting signed URL:', signedUrlError);
-          return c.json({ error: 'Error getting file URL' }, 500);
-        }
-
-        return c.json({ 
-          fileUrl: signedUrlData.signedUrl,
-          fileName: file.name,
-          fileType: file.type,
-          fileSize: file.size,
-          fileIndex: index,
-          totalFiles: files.length
-        });
-      } else {
+      const file = validFiles.find((f: any) => f.fileIndex === parseInt(fileIndex));
+      if (!file) {
         return c.json({ error: 'Invalid file index' }, 400);
       }
-    }
-
-    // Return all files with signed URLs
-    const filesWithUrls = await Promise.all(files.map(async (file: any, index: number) => {
-        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-          .from(BUCKET_NAME)
-          .createSignedUrl(file.path, 120); // 2 minutes expiry for security
-
-      if (signedUrlError) {
-        console.error(`Error getting signed URL for file ${index}:`, signedUrlError);
-        return null;
-      }
-
-      return {
-        fileUrl: signedUrlData.signedUrl,
-        fileName: file.name,
-        fileType: file.type,
-        fileSize: file.size,
-        fileIndex: index
-      };
-    }));
-
-    const validFiles = filesWithUrls.filter(f => f !== null);
-
-    if (validFiles.length === 0) {
-      return c.json({ error: 'Error getting file URLs' }, 500);
+      return c.json({ ...file, totalFiles: validFiles.length });
     }
 
     // For backwards compatibility, also include first file at root level
-    return c.json({ 
+    return c.json({
       files: validFiles,
       fileCount: validFiles.length,
       // Backwards compatibility fields (first file)
@@ -1303,129 +1333,96 @@ app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
 });
 
 // Increment download count
+// SECURITY: Requires a view token; the limit is enforced atomically in the database
 app.post('/make-server-c3c9181e/qr/:id/download', async (c) => {
   try {
     const id = c.req.param('id');
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid QR drop ID format' }, 400);
+    }
+
     const qrDrop = await kv.get(`qrdrop:${id}`);
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    qrDrop.downloadCount += 1;
-    await kv.set(`qrdrop:${id}`, qrDrop);
+    if (!(await hasViewAccess(c, qrDrop))) {
+      return c.json({ error: 'Open the QR drop first', code: 'VIEW_TOKEN_REQUIRED' }, 403);
+    }
 
-    return c.json({ success: true, downloadCount: qrDrop.downloadCount });
+    const updated = await consumeQrDrop(id, 'download');
+    if (!updated) {
+      return c.json({ error: 'Maximum downloads reached', expired: true }, 410);
+    }
+
+    return c.json({ success: true, downloadCount: updated.downloadCount });
   } catch (error) {
     console.error('Error incrementing download count:', error);
-    return c.json({ error: `Failed to increment download count: ${error.message}` }, 500);
+    return c.json({ error: 'Failed to increment download count' }, 500);
   }
 });
 
 // Get all QR drops (for list view)
 app.get('/make-server-c3c9181e/qrdrops', async (c) => {
   try {
-    let userId: string | null = null;
-    const authHeader = c.req.header('Authorization');
-    const accessToken = authHeader?.split(' ')[1];
-    
-    console.log('📋 GET /qrdrops - Auth header present:', !!authHeader, 'Token present:', !!accessToken);
-    
-    if (accessToken && accessToken !== Deno.env.get('SUPABASE_ANON_KEY')) {
-      try {
-        const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-        if (error) {
-          console.error('❌ Error getting user from token:', error.message);
-        } else if (user?.id) {
-          userId = user.id;
-          console.log('✅ Authenticated user:', userId);
-        } else {
-          console.log('⚠️ No user ID in response');
-        }
-      } catch (error) {
-        console.error('❌ Exception getting user:', error);
-      }
-    } else {
-      console.log('⚠️ No access token or token is anon key');
-    }
-
-    const indexes = await kv.getByPrefix('qrdrop:index:');
-    const ids = indexes.map((idx: any) => idx.id);
-    
-    const qrDrops = await kv.mget(ids.map((id: string) => `qrdrop:${id}`));
-    
-    let validQrDrops = qrDrops.filter((qr: any) => qr !== null);
-    
+    const userId = await getRequestUserId(c);
     if (!userId) {
       return c.json({ qrDrops: [] });
     }
-    
-    // SECURITY: Don't log user IDs or QR drop counts
-    validQrDrops = validQrDrops.filter((qr: any) => qr.userId === userId);
-    
-    validQrDrops = validQrDrops.sort((a: any, b: any) => b.createdAt - a.createdAt);
 
-    return c.json({ qrDrops: validQrDrops });
+    // Only load the caller's own drops (the index entry carries the owner)
+    const indexes = await kv.getByPrefix('qrdrop:index:');
+    const ids = indexes
+      .filter((idx: any) => idx?.userId === userId)
+      .map((idx: any) => idx.id);
+
+    const qrDrops = ids.length > 0 ? await kv.mget(ids.map((id: string) => `qrdrop:${id}`)) : [];
+
+    // SECURITY: Don't log user IDs or QR drop counts
+    const ownQrDrops = qrDrops
+      .filter((qr: any) => qr && qr.userId === userId)
+      .map(withoutSecrets)
+      .sort((a: any, b: any) => b.createdAt - a.createdAt);
+
+    return c.json({ qrDrops: ownQrDrops });
   } catch (error) {
     console.error('❌ Error getting QR drops:', error);
-    return c.json({ error: `Failed to get QR drops: ${error.message}` }, 500);
+    return c.json({ error: 'Failed to get QR drops' }, 500);
   }
 });
 
 // Delete QR drop
+// SECURITY: Only the logged-in owner can delete. Anonymous drops can't be deleted
+// (nobody can prove ownership) and are removed when they expire.
 app.delete('/make-server-c3c9181e/qr/:id', async (c) => {
   try {
     const id = c.req.param('id');
     
     // SECURITY: Validate UUID format
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!UUID_REGEX.test(id)) {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
     
-    // SECURITY: Get user ID from auth token and verify ownership
-    const authHeader = c.req.header('Authorization');
-    const accessToken = authHeader?.split(' ')[1];
-    
-    let userId: string | null = null;
-    if (accessToken && accessToken !== Deno.env.get('SUPABASE_ANON_KEY')) {
-      try {
-        const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
-        if (authError || !user) {
-          // If auth fails, allow deletion only if QR drop is anonymous (userId is null)
-          // This maintains backwards compatibility for anonymous uploads
-        } else {
-          userId = user.id;
-        }
-      } catch (error) {
-        console.error('Error getting user during delete:', error);
-        // Continue - will check if QR drop is anonymous
-      }
+    const userId = await getRequestUserId(c);
+    if (!userId) {
+      return c.json({ error: 'Authentication required to delete this QR drop' }, 401);
     }
     
-    // Verify ownership - get QR drop first
     const qrDrop = await kv.get(`qrdrop:${id}`);
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }
     
-    // SECURITY: Allow deletion if:
-    // 1. User owns the QR drop (userId matches), OR
-    // 2. QR drop is anonymous (qrDrop.userId is null) - backwards compatibility
-    if (qrDrop.userId && userId && qrDrop.userId !== userId) {
+    if (qrDrop.userId !== userId) {
       return c.json({ error: 'Unauthorized: You can only delete your own QR drops' }, 403);
-    }
-    
-    // If QR drop has userId but user is not authenticated, deny
-    if (qrDrop.userId && !userId) {
-      return c.json({ error: 'Authentication required to delete this QR drop' }, 401);
     }
     
     await deleteQrDrop(id);
     return c.json({ success: true });
   } catch (error) {
     console.error('Error deleting QR drop:', error);
-    return c.json({ error: `Failed to delete QR drop: ${error.message}` }, 500);
+    return c.json({ error: 'Failed to delete QR drop' }, 500);
   }
 });
 
@@ -1512,19 +1509,8 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
 app.post('/make-server-c3c9181e/webhook', async (c) => {
   console.log('🔔 Webhook received!');
   
-  // Safely log headers
-  try {
-    const headers: Record<string, string> = {};
-    if (c.req.headers) {
-      c.req.headers.forEach((value, key) => {
-        headers[key] = value;
-      });
-    }
-    console.log('📋 Headers:', JSON.stringify(headers, null, 2));
-  } catch (headerError) {
-    console.log('⚠️ Could not log headers:', headerError);
-  }
-  
+  // SECURITY: Don't log headers or body - they contain signatures and customer data
+
   // Check if service role key is set
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!serviceRoleKey) {
@@ -1539,11 +1525,8 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       console.error('❌ Missing stripe-signature header');
       return c.json({ error: 'Missing stripe-signature header' }, 400);
     }
-    console.log('✅ Stripe signature found');
 
     const body = await c.req.text();
-    console.log('📦 Webhook body length:', body.length);
-    console.log('📦 Webhook body preview:', body.substring(0, 200));
     
     const Stripe = (await import('npm:stripe@17.3.1')).default;
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
@@ -1565,28 +1548,18 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       console.log('📋 Event type:', event.type);
       console.log('📋 Event ID:', event.id);
     } catch (err) {
-      console.error('❌ Webhook signature verification failed:', err);
-      console.error('❌ Error message:', err?.message);
-      console.error('❌ Error type:', err?.constructor?.name);
-      console.error('❌ Body length:', body.length);
-      console.error('❌ Signature length:', signature?.length);
-      console.error('❌ Webhook secret length:', webhookSecret?.length);
-      console.error('❌ Full error:', JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
-      return c.json({ error: `Webhook Error: ${err?.message || 'Signature verification failed'}` }, 400);
+      console.error('❌ Webhook signature verification failed:', err?.message);
+      return c.json({ error: 'Signature verification failed' }, 400);
     }
 
     // Handle the checkout.session.completed event
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
       const userId = session.metadata?.userId;
-      const userEmail = session.metadata?.userEmail || session.customer_email || 'unknown';
       const coinsToAdd = parseInt(session.metadata?.coins || '50', 10);
 
-      console.log('🎉 Checkout session completed!');
-      console.log('📋 Session details:', {
-        sessionId: session.id,
-        userId: userId,
-        userEmail: userEmail,
+      // SECURITY: Don't log user IDs or emails
+      console.log('🎉 Checkout session completed:', {
         paymentStatus: session.payment_status,
         amountTotal: session.amount_total,
         currency: session.currency,
@@ -1617,12 +1590,7 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       });
 
       if (existingSession && !checkError) {
-        console.log('⚠️ Session already processed - skipping coin addition:', {
-          sessionId: sessionId,
-          coinsAdded: existingSession.coins_added,
-          processedAt: existingSession.processed_at,
-          userId: existingSession.user_id,
-        });
+        console.log('⚠️ Session already processed - skipping coin addition');
         // Return success but don't add coins again
         return c.json({ 
           received: true, 
@@ -1710,7 +1678,7 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
         console.log('✅ Session marked as processed:', sessionId);
       }
 
-      console.log(`🎊 Successfully added ${coinsToAdd} coins to user ${userId}`);
+      console.log(`🎊 Successfully added ${coinsToAdd} coins`);
       
       // Verify the coins were actually added
       const { data: verifyProfile, error: verifyError } = await supabase
@@ -1722,7 +1690,7 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       if (verifyError) {
         console.error('❌ Error verifying coins after update:', verifyError);
       } else {
-        console.log(`✅ Verified: User ${userId} now has ${verifyProfile.coins} coins`);
+        console.log('✅ Verified coin balance after update');
       }
       
       return c.json({ 

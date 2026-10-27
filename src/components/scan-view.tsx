@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Download, Eye, Lock, AlertCircle, CheckCircle, Loader2, Clock, FileText, Link as LinkIcon, ExternalLink, Copy, Shield } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from './ui/alert';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { UnlockScreen } from './unlock-screen';
-import { getQrDrop, verifyPassword, incrementScanCount, getFileUrl, incrementDownloadCount } from '../utils/api-client';
+import { getQrDrop, openQrDrop, getEncryptionKey, getFileUrl, incrementDownloadCount } from '../utils/api-client';
 import { 
   decryptData, 
   decryptFile,
@@ -43,6 +43,27 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const [decryptedContent, setDecryptedContent] = useState<{text?: string; urls?: string[]}>({});
   const [currentQrDropId] = useState(qrDropId); // Store ID in state so it doesn't get lost
   const [effectiveUnlockKey, setEffectiveUnlockKey] = useState<string | null>(unlockKey); // Use state to track unlockKey from prop or storage
+  // Response from /open (content + view token). Opening uses up a view, so it is done once and reused.
+  const openedRef = useRef<any>(null);
+  const openPromiseRef = useRef<Promise<any> | null>(null); // Shares an in-flight /open between effect re-runs
+  const [reloadNonce, setReloadNonce] = useState(0); // Bumped after a password unlock to re-run loading
+
+  // SECURITY: The server only returns content from /open. Open as soon as nothing is missing
+  // (no password, and for Secure/Single QR Mode the key is present); otherwise return metadata.
+  const withContent = async (response: any) => {
+    if (openedRef.current) return openedRef.current;
+    const meta = response.qrDrop;
+    const needsKey = (meta.secureMode || meta.singleQrMode) && !effectiveUnlockKey;
+    if (meta.password || needsKey) return response;
+    if (!openPromiseRef.current) {
+      openPromiseRef.current = openQrDrop(currentQrDropId).catch((error) => {
+        openPromiseRef.current = null;
+        throw error;
+      });
+    }
+    openedRef.current = await openPromiseRef.current;
+    return openedRef.current;
+  };
 
   // CRITICAL FIX: Check storage for unlockKey if prop is not set
   // This handles the case where App.tsx has combined k1+k2 and stored masterKey in sessionStorage
@@ -157,7 +178,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         // 🔐 SECURE MODE / SINGLE QR MODE: If this is a direct scan without unlock key or unlock param,
         // this might be QR #1 - just show UnlockScreen without loading data
         // Use effectiveUnlockKey (from prop or storage) instead of just unlockKey prop
-        if (isDirectScan && !effectiveUnlockKey && !unlockParam && !accessToken) {
+        if (!openedRef.current && isDirectScan && !effectiveUnlockKey && !unlockParam && !accessToken) {
           // We need to check if this is a Secure Mode or Single QR Mode QR drop
           // Make a lightweight check without incrementing scan count
           const lightCheck = await fetch(`https://${(await import('../utils/supabase/info')).projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/check`, {
@@ -177,7 +198,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         }
         
         // First call: try to get QR drop (might return requiresToken)
-        const response = await getQrDrop(currentQrDropId, accessToken);
+        let response = openedRef.current ?? await getQrDrop(currentQrDropId, accessToken);
         
         // Check if server requires token (first scan without token)
         if ((response as any).requiresToken) {
@@ -189,9 +210,6 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           if (unlockParam === '1') {
             redirectUrl += '&unlock=1';
           }
-          if (effectiveUnlockKey) {
-            redirectUrl += `&key=${encodeURIComponent(effectiveUnlockKey)}`;
-          }
           
           // Use pushState instead of full page reload to preserve React state
           window.history.pushState({}, '', redirectUrl);
@@ -200,7 +218,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Recursive call with the access token
           const newUrlParams = new URLSearchParams(redirectUrl.split('?')[1]);
           const newAccessToken = newUrlParams.get('access') || undefined;
-          const newResponse = await getQrDrop(currentQrDropId, newAccessToken);
+          const newResponse = await withContent(await getQrDrop(currentQrDropId, newAccessToken));
           
           // Continue processing with the new response
           setQrDrop(newResponse.qrDrop);
@@ -261,7 +279,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           }
           
           // Decrypt content if we have the key (Secure Mode or Single QR Mode)
-          if ((isSecureMode || isSingleQrMode) && effectiveUnlockKey) {
+          if ((isSecureMode || isSingleQrMode) && effectiveUnlockKey && !newResponse.qrDrop.password) {
             try {
               setIsDecrypting(true);
               const decrypted: {text?: string; urls?: string[]} = {};
@@ -401,11 +419,6 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               await loadFile();
             }
           }
-            
-            // Only increment scan count AFTER file is loaded (important for "scan once" type)
-            if (!isPreview) {
-              await incrementScanCount(currentQrDropId);
-            }
           }
           
           setIsLoading(false);
@@ -427,6 +440,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           window.history.replaceState({}, '', `/scan/${currentQrDropId}`);
         }
         
+        response = await withContent(response);
         setQrDrop(response.qrDrop);
         
         // OPTIMIZATION: Check if server already included fileUrl or files
@@ -477,7 +491,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         }
         
         // Decrypt content if we have the key (Secure Mode or Single QR Mode)
-        if ((isSecureMode || isSingleQrMode) && effectiveUnlockKey) {
+        if ((isSecureMode || isSingleQrMode) && effectiveUnlockKey && !response.qrDrop.password) {
           console.log('🔐 [SCAN VIEW] Starting decryption for Secure/Single QR Mode:', {
             isSecureMode,
             isSingleQrMode,
@@ -769,11 +783,6 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               await loadFile();
             }
           }
-          
-          // Only increment scan count AFTER file is loaded (important for "scan once" type)
-          if (!isPreview) {
-            await incrementScanCount(currentQrDropId);
-          }
         }
       } catch (error: any) {
         console.error('Error loading QR drop:', error);
@@ -796,7 +805,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     };
 
     loadQrDrop();
-  }, [qrDropId, isPreview, isDirectScan, effectiveUnlockKey]);
+  }, [qrDropId, isPreview, isDirectScan, effectiveUnlockKey, reloadNonce]);
 
   const loadFile = async () => {
     try {
@@ -853,15 +862,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         // Standard encrypted files (ALL files are encrypted): fetch key from server
         // Always try to fetch key for non-secureMode files since they're all encrypted
         try {
-          const { projectId } = await import('../utils/supabase/info');
-          const keyResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/key`);
-          if (keyResponse.ok) {
-            const keyData = await keyResponse.json();
-            decryptionKey = keyData.encryptionKey;
-            console.log('✅ Fetched decryption key from server for standard encrypted file');
-          } else {
-            console.error('Failed to fetch decryption key for preview:', keyResponse.status);
-          }
+          const keyData = await getEncryptionKey(currentQrDropId);
+          decryptionKey = keyData.encryptionKey;
+          console.log('✅ Fetched decryption key from server for standard encrypted file');
         } catch (error) {
           console.error('Failed to fetch decryption key for preview:', error);
         }
@@ -1030,7 +1033,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     const isSingleQrMode = qrDrop.singleQrMode;
     const hasFiles = qrDrop.filePath || (qrDrop.files && qrDrop.files.length > 0);
     
-    if ((!isSecureMode && !isSingleQrMode) || !hasFiles) return;
+    if ((!isSecureMode && !isSingleQrMode) || !hasFiles || qrDrop.password) return;
     
     // Check if we have decryption key (effectiveUnlockKey for secureMode/singleQrMode)
     const hasDecryptionKey = (isSecureMode || isSingleQrMode) && effectiveUnlockKey;
@@ -1050,27 +1053,22 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
 
   const handlePasswordSubmit = async () => {
     try {
-      const response = await verifyPassword(currentQrDropId, passwordInput);
-      
-      if (response.valid) {
-        setIsUnlocked(true);
-        setPasswordError(false);
-        
-        // Load file(s) first if they exist
-        if (qrDrop?.filePath || (qrDrop?.files && qrDrop.files.length > 0)) {
-          await loadFile();
-        }
-        
-        // Then increment scan count (important for "scan once" type)
-        if (!isPreview) {
-          await incrementScanCount(currentQrDropId);
-        }
-      } else {
+      // The server verifies the password and only then returns the content
+      openedRef.current = await openQrDrop(currentQrDropId, passwordInput);
+      setPasswordError(false);
+      // Re-run loading with the opened content (decryption, files, unlocked state)
+      setReloadNonce((n) => n + 1);
+    } catch (error: any) {
+      if (error?.status === 401) {
         setPasswordError(true);
+      } else if (error?.status === 429) {
+        toast.error(t('scanView.tooManyAttempts'));
+      } else if (error?.status === 410) {
+        setError(t('scanView.qrExpired'));
+      } else {
+        console.error('Error verifying password:', error);
+        toast.error(t('scanView.couldNotLoad'));
       }
-    } catch (error) {
-      console.error('Error verifying password:', error);
-      toast.error(t('scanView.couldNotLoad'));
     }
   };
 
@@ -1094,15 +1092,9 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           // Standard encrypted files (ALL files are encrypted): fetch key from server
           // Always try to fetch key for non-secureMode files since they're all encrypted
           try {
-            const { projectId } = await import('../utils/supabase/info');
-            const keyResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e/qrdrop/${currentQrDropId}/key`);
-            if (keyResponse.ok) {
-              const keyData = await keyResponse.json();
-              decryptionKey = keyData.encryptionKey;
-              console.log('✅ Fetched decryption key from server for download');
-            } else {
-              console.error('Failed to fetch decryption key:', keyResponse.status);
-            }
+            const keyData = await getEncryptionKey(currentQrDropId);
+            decryptionKey = keyData.encryptionKey;
+            console.log('✅ Fetched decryption key from server for download');
           } catch (error) {
             console.error('Failed to fetch decryption key:', error);
           }
@@ -1563,8 +1555,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                                 {t('scanView.copyAll')}
                               </Button>
                               <Button
-                                onClick={async () => {
-                                  await incrementScanCount(currentQrDropId);
+                                onClick={() => {
                                   validUrls.forEach(url => window.open(url, '_blank'));
                                 }}
                                 size="lg"
@@ -1605,8 +1596,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
                             {t('scanView.copy')}
                           </Button>
                           <Button
-                            onClick={async () => {
-                              await incrementScanCount(currentQrDropId);
+                            onClick={() => {
                               window.open(qrDrop.urlContent, '_blank');
                             }}
                             size="lg"

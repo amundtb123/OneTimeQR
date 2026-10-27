@@ -3,13 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner@2.0.3';
 import type { QrDrop } from '../../App';
 import { useAuth } from '../../utils/auth-context';
-import { getFileUrl } from '../../utils/api-client';
 import { copyToClipboard } from '../../utils/clipboard';
 import { formatActivationDate } from '../../utils/activation';
 import { ActivationEditor } from '../activation-editor';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/alert-dialog';
 import { dropRuleLine } from './rules';
-import { downloadImage, keyImages, shareLink } from './step-ready';
+import { downloadImage, lockImage, shareLink } from './step-ready';
 
 type KeyState = 'sealed' | 'opened' | 'invalid' | 'scheduled';
 
@@ -44,8 +43,6 @@ const MARK: Record<KeyState, string> = {
 
 const markText = (qrDrop: QrDrop) => (qrDrop.secureMode ? '2' : qrDrop.maxScans ? `${qrDrop.maxScans}×` : '∞');
 
-type FileInfo = { fileUrl: string; fileName: string; fileType: string; fileSize: number };
-
 interface KeyringProps {
   qrDrops: QrDrop[];
   isLoading: boolean;
@@ -59,8 +56,6 @@ export function Keyring({ qrDrops, isLoading, onDelete, onActivationChanged, onC
   const { user, signInWithGoogle } = useAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
-  const [content, setContent] = useState<Record<string, FileInfo[] | 'loading' | 'error'>>({});
-  const [showContent, setShowContent] = useState(false);
 
   // Keeps states and "expires" times current while the page is open
   useEffect(() => {
@@ -70,8 +65,6 @@ export function Keyring({ qrDrops, isLoading, onDelete, onActivationChanged, onC
 
   const sorted = [...qrDrops].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const selected = sorted.find((q) => q.id === selectedId) || sorted[0];
-
-  useEffect(() => setShowContent(false), [selected?.id]);
 
   const date = (d: Date) => formatActivationDate(d, i18n.language);
 
@@ -114,28 +107,8 @@ export function Keyring({ qrDrops, isLoading, onDelete, onActivationChanged, onC
     { sealed: 0, opened: 0, invalid: 0 },
   );
 
-  const toggleContent = async () => {
-    if (!selected) return;
-    const next = !showContent;
-    setShowContent(next);
-    if (!next || content[selected.id]) return;
-    setContent((c) => ({ ...c, [selected.id]: 'loading' }));
-    try {
-      const res = await getFileUrl(selected.id);
-      const files: FileInfo[] = res.files && Array.isArray(res.files)
-        ? res.files
-        : res.fileUrl
-          ? [{ fileUrl: res.fileUrl, fileName: res.fileName || 'file', fileType: res.fileType || 'application/octet-stream', fileSize: res.fileSize || 0 }]
-          : [];
-      setContent((c) => ({ ...c, [selected.id]: files }));
-    } catch {
-      setContent((c) => ({ ...c, [selected.id]: 'error' }));
-    }
-  };
-
   const state = selected ? keyState(selected, now) : 'sealed';
   const expired = selected ? isExpired(selected, now) : false;
-  const selectedContent = selected ? content[selected.id] : undefined;
 
   return (
     <main className="lg-wrap lg-main lg-tight">
@@ -173,12 +146,10 @@ export function Keyring({ qrDrops, isLoading, onDelete, onActivationChanged, onC
             </div>
             <span className="lg-muted" style={{ fontSize: 15 }}>{dropRuleLine(t, selected)}</span>
 
-            {selected.qrCodeUrl && (
-              <div className="lg-qr-frame" style={{ opacity: expired ? 0.4 : 1 }}>
-                <img src={selected.qrCodeUrl} alt={selected.fileName} style={{ width: 180, height: 'auto' }} />
-              </div>
-            )}
-            {(selected.secureMode || selected.singleQrMode) && !selected.qrCodeUrl2 && !selected.qrCodeUrlShare && (
+            <div className="lg-qr-frame" style={{ opacity: expired ? 0.4 : 1 }}>
+              <img src={lockImage(selected).src} alt={selected.fileName} style={{ width: 180, height: 'auto' }} />
+            </div>
+            {(selected.secureMode || selected.singleQrMode) && (
               <span className="lg-xs lg-muted">{t('keyring.keysOnlyOnce')}</span>
             )}
 
@@ -227,25 +198,6 @@ export function Keyring({ qrDrops, isLoading, onDelete, onActivationChanged, onC
 
             {state === 'scheduled' && <ActivationEditor qrDrop={selected} onChanged={onActivationChanged} />}
 
-            {!selected.secureMode && !selected.singleQrMode && (
-              <button type="button" className="lg-link" style={{ alignSelf: 'flex-start', padding: '6px 0' }} aria-expanded={showContent} onClick={toggleContent}>
-                {showContent ? t('keyring.hideContent') : t('keyring.showContent')}
-              </button>
-            )}
-            {showContent && (
-              <div className="lg-stack" style={{ gap: 8 }}>
-                {selected.textContent && <div className="lg-content-item" style={{ whiteSpace: 'pre-wrap' }}>{selected.textContent}</div>}
-                {selectedContent === 'loading' && <span className="lg-small lg-muted">{t('qrList.loadingFile')}</span>}
-                {selectedContent === 'error' && <span className="lg-small lg-muted">{t('qrList.couldNotLoadFile')}</span>}
-                {Array.isArray(selectedContent) && selectedContent.map((f, i) => (
-                  <div key={i} className="lg-content-item">
-                    {f.fileType.startsWith('image/') && <img src={f.fileUrl} alt={f.fileName} />}
-                    <span className="lg-small" style={{ overflowWrap: 'anywhere' }}>{f.fileName}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
             <div className="lg-row" style={{ gap: 8 }}>
               <button
                 type="button"
@@ -262,7 +214,10 @@ export function Keyring({ qrDrops, isLoading, onDelete, onActivationChanged, onC
                 type="button"
                 className="lg-btn"
                 style={{ flex: 1 }}
-                onClick={() => keyImages(selected).forEach((img, i) => setTimeout(() => downloadImage(img.src, img.file), i * 150))}
+                onClick={() => {
+                  const img = lockImage(selected);
+                  downloadImage(img.src, img.file);
+                }}
               >
                 {t('keyring.downloadQr')}
               </button>

@@ -131,7 +131,6 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     timesLabel(t, rules.times, 'lag.preview.badges.times'),
     rules.who === 'two' && t('lag.preview.badges.two'),
     rules.who === 'password' && t('lag.preview.badges.password'),
-    rules.who === 'scan' && t('lag.preview.badges.scan'),
     opensDate && t('lag.preview.badges.opens', { date: opensLabel }),
     t(`lag.preview.badges.expiry.${rules.expiry}`),
     rules.mode === 'view' && t('lag.preview.badges.view'),

@@ -145,8 +145,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
           noPreview: draft.noPreview,
           password: rules.who === 'password' ? draft.password : undefined,
           qrStyle: draft.style,
-          secureMode: rules.who === 'two',
-          singleQrMode: rules.who === 'scan',
+          twoKeys: rules.who === 'two',
         },
         t('upload.sharedContent'),
       );

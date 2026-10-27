@@ -1,12 +1,12 @@
 // The rules of a key, as the "Lag" flow shows them: one sentence with a few choices.
-// They map one to one onto the fields the server already understands.
+// Every key is sealed: one key travels in the link (singleQrMode), two keys are split (secureMode).
 import type { QrDrop } from '../../App';
 import { defaultActivationDate, formatActivationDate, toLocalInputValue } from '../../utils/activation';
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 export type Times = number | 'inf'; // How many opens; 'inf' = no limit
-export type Who = 'code' | 'password' | 'two' | 'scan';
+export type Who = 'code' | 'password' | 'two';
 export type Expiry = '10m' | '30m' | '1h' | '24h' | '7d';
 export type Mode = 'download' | 'view';
 
@@ -20,7 +20,7 @@ export interface Rules {
 
 export const TIMES: Times[] = [1, 5, 10, 25, 50, 'inf'];
 export const MAX_TIMES = 1000;
-export const WHO: Who[] = ['code', 'password', 'two', 'scan'];
+export const WHO: Who[] = ['code', 'password', 'two'];
 export const EXPIRY: Expiry[] = ['10m', '30m', '1h', '24h', '7d'];
 export const MODE: Mode[] = ['download', 'view'];
 
@@ -85,7 +85,6 @@ export function dropRuleLine(t: Translate, qrDrop: QrDrop): string {
   const parts: string[] = [];
   parts.push(timesLabel(t, qrDrop.maxScans || 'inf', 'lag.short.times'));
   if (qrDrop.secureMode) parts.push(t('lag.short.who.two'));
-  else if (qrDrop.singleQrMode) parts.push(t('lag.short.who.scan'));
   else if (qrDrop.password) parts.push(t('lag.short.who.password'));
   else parts.push(t('lag.short.who.code'));
   if (qrDrop.viewOnly) parts.push(t('lag.short.viewOnly'));

@@ -236,6 +236,8 @@ console.log('\nS1: ownership');
   const list2 = await call('GET', '/qrdrops', paid);
   check('/qrdrops hides password hash', list2.json.qrDrops.find((q) => q.id === pw.id)?.password === true);
   check('/qrdrops without auth is empty', (await call('GET', '/qrdrops')).json.qrDrops.length === 0);
+  const listed = list.json.qrDrops.find((q) => q.id === id);
+  check('/qrdrops leaves out content and keys', listed && !('textContent' in listed) && !('urlContent' in listed) && !('encryptionKey' in listed), listed);
 
   check('delete without auth 401', (await call('DELETE', `/qr/${id}`)).status === 401);
   check('delete by other user 403', (await call('DELETE', `/qr/${id}`, { token: 'tok-B' })).status === 403);
@@ -278,6 +280,10 @@ console.log('\nS3: server-side pricing');
   check('anonymous 24h drop is 401', anonLong.status === 401, anonLong);
   const anonSecure = await call('POST', '/create', { body: { contentType: 'bundle', secureMode: true, textContentCiphertext: '{}', expiryType: '10m' } });
   check('anonymous Secure Mode is 401', anonSecure.status === 401, anonSecure);
+  const anonSealed = await call('POST', '/create', { body: { contentType: 'bundle', singleQrMode: true, textContentCiphertext: '{"c":1}', clientId: crypto.randomUUID(), expiryType: '10m' } });
+  check('anonymous one sealed key (10 min) is allowed and free', anonSealed.status === 200 && anonSealed.json.coinsCharged === 0, anonSealed);
+  const anonSealedLong = await call('POST', '/create', { body: { contentType: 'bundle', singleQrMode: true, textContentCiphertext: '{"c":1}', expiryType: '24h' } });
+  check('anonymous sealed key for 24h is 401', anonSealedLong.status === 401, anonSealedLong);
   const badExpiry = await call('POST', '/create', { body: { contentType: 'text', textContent: 'x', expiryType: '1y' } });
   check('unknown expiry type is 400', badExpiry.status === 400, badExpiry);
 

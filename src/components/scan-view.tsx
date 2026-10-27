@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Download, Eye, Lock, AlertCircle, CheckCircle, Loader2, Clock, FileText, Link as LinkIcon, ExternalLink, Copy, Shield } from 'lucide-react';
+import { ArrowLeft, Download, Eye, Lock, AlertCircle, CheckCircle, Loader2, Clock, FileText, Link as LinkIcon, ExternalLink, Copy, Shield, CalendarClock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -10,6 +10,7 @@ import { getQrDrop, openQrDrop, incrementDownloadCount } from '../utils/api-clie
 import { decryptFile, decryptTextWithSplitKey } from '../utils/encryption';
 import { loadKeyParts, rememberKeyParts, forgetKeyParts, masterKeyHex, hexToBytes, type KeyParts } from '../utils/key-handover';
 import { formatTimeLeft, useNow } from '../utils/time-left';
+import { formatActivationDate, formatCountdown } from '../utils/activation';
 import { toast } from 'sonner@2.0.3';
 
 interface ScanViewProps {
@@ -28,8 +29,12 @@ interface ScanFile {
   blobUrl?: string; // Decrypted file, once ready
 }
 
-// loading → (locked: needs QR key) → (password) → open, or error at any point
-type Status = 'loading' | 'locked' | 'password' | 'open' | 'error';
+// loading → (scheduled: waits for the release date) → (locked: needs QR key) → (password) → open,
+// or error at any point
+type Status = 'loading' | 'scheduled' | 'locked' | 'password' | 'open' | 'error';
+
+// When the server still says "not yet" (clocks differ), try again this much later
+const ACTIVATION_RETRY_MS = 5000;
 
 class DecryptError extends Error {}
 
@@ -65,8 +70,10 @@ function parseUrls(urlContent: string | null | undefined): string[] {
 }
 
 export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = false }: ScanViewProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [status, setStatus] = useState<Status>('loading');
+  const [activatesAt, setActivatesAt] = useState<number | null>(null); // While scheduled
+  const [attempt, setAttempt] = useState(0); // Restarts loading once a scheduled drop opens
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<any>(null); // From GET /qr/:id: no content, doesn't use a view
   const [qrDrop, setQrDrop] = useState<any>(null); // From /open: with content
@@ -77,12 +84,23 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState(false);
   const keyRef = useRef<string | null>(null); // Secure/Single QR Mode key (hex), never leaves the browser
+  // Key parts stay here while waiting for a scheduled drop (the stored copy only lasts a few minutes)
+  const keyPartsRef = useRef<KeyParts>({});
   const fileBlobsRef = useRef<Record<number, Promise<Blob>>>({}); // Decrypted files for preview and download
   const blobUrlsRef = useRef<string[]>([]);
   const isE2E = !!(meta?.secureMode || meta?.singleQrMode);
-  const now = useNow(status === 'open' && !!qrDrop?.expiresAt);
+  const now = useNow(status === 'scheduled' || (status === 'open' && !!qrDrop?.expiresAt));
+
+  const showScheduled = (at: number) => {
+    setActivatesAt(Math.max(at, Date.now() + (at > Date.now() ? 0 : ACTIVATION_RETRY_MS)));
+    setStatus('scheduled');
+  };
 
   const showError = (err: any) => {
+    if (err?.code === 'NOT_YET_ACTIVE') {
+      showScheduled(activatesAt ?? 0);
+      return;
+    }
     if (err instanceof DecryptError) setError(t('scanView.couldNotDecrypt'));
     else if (err?.status === 410) setError(t('scanView.qrExpired'));
     else if (err?.status === 404) setError(t('scanView.qrNotFound'));
@@ -165,9 +183,18 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         if (cancelled) return;
         setMeta(metadata);
         if (metadata.secureMode || metadata.singleQrMode) {
-          const parts = loadKeyParts(qrDropId);
+          const parts = { ...keyPartsRef.current, ...loadKeyParts(qrDropId) };
+          keyPartsRef.current = parts;
           setKeyParts(parts);
-          if (!applyKeyParts(metadata, parts)) {
+          applyKeyParts(metadata, parts);
+        }
+        // Owners can preview early (the server allows it); everyone else sees when it opens
+        if (!isPreview && metadata.activatesAt && metadata.activatesAt > Date.now()) {
+          showScheduled(metadata.activatesAt);
+          return;
+        }
+        if (metadata.secureMode || metadata.singleQrMode) {
+          if (!keyRef.current) {
             setStatus('locked');
             return;
           }
@@ -184,7 +211,15 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     return () => {
       cancelled = true;
     };
-  }, [qrDropId]);
+  }, [qrDropId, attempt]);
+
+  // A scheduled drop opens by itself once its time has come
+  useEffect(() => {
+    if (status === 'scheduled' && activatesAt && now >= activatesAt) {
+      setStatus('loading');
+      setAttempt((a) => a + 1);
+    }
+  }, [status, activatesAt, now]);
 
   // Free decrypted files when leaving
   useEffect(() => () => blobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url)), []);
@@ -204,6 +239,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const handleKeyParts = async (parts: KeyParts) => {
     // Kept for a few minutes, so the other QR code can also be scanned with the camera app
     const merged = rememberKeyParts(qrDropId, parts);
+    keyPartsRef.current = merged;
     setKeyParts(merged);
     if (!applyKeyParts(meta, merged)) return;
     if (meta.password) {
@@ -227,7 +263,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         setPasswordError(true);
       } else if (err?.status === 429) {
         toast.error(t('scanView.tooManyAttempts'));
-      } else if (err?.status === 410 || err instanceof DecryptError) {
+      } else if (err?.status === 410 || err?.code === 'NOT_YET_ACTIVE' || err instanceof DecryptError) {
         showError(err);
       } else {
         toast.error(t('scanView.couldNotLoad'));
@@ -301,6 +337,23 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           <AlertCircle className="size-12 text-red-600 mx-auto mb-4" />
           <h3 className="text-gray-900 mb-2">{t('scanView.couldNotLoadQr')}</h3>
           <p className="text-gray-600">{error}</p>
+        </Card>
+      </div>
+    );
+  }
+
+  if (status === 'scheduled' && activatesAt) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        {backButton}
+        <Card className="p-12 text-center">
+          <CalendarClock className="size-12 text-indigo-600 mx-auto mb-4" />
+          <h3 className="text-gray-900 mb-2">{t('activation.notYetTitle')}</h3>
+          <p className="text-gray-600 mb-4">
+            {t('activation.notYetBody', { date: formatActivationDate(activatesAt, i18n.language) })}
+          </p>
+          <p className="text-2xl text-gray-900 mb-4">{formatCountdown(t, activatesAt, now)}</p>
+          <p className="text-gray-500 text-sm">{t('activation.keepOpen')}</p>
         </Card>
       </div>
     );

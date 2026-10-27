@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { QrDrop } from '../types/qr-drop';
+import type { QrDrop } from '../App';
+import { ActivationEditor } from './activation-editor';
+import { useAuth } from '../utils/auth-context';
 import { Check, Download, Copy, Share2, Eye, Shield, Clock, Key, Link2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SoftCard } from './soft-card';
@@ -10,10 +12,12 @@ import { copyToClipboard } from '../utils/clipboard';
 interface QrDetailViewProps {
   qrDrop: QrDrop;
   onScan: () => void;
+  onActivationChanged: (id: string, changes: { activatesAt?: Date; expiryDate?: Date }) => void;
 }
 
-export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
+export function QrDetailView({ qrDrop, onScan, onActivationChanged }: QrDetailViewProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [copied, setCopied] = useState(false);
 
   const handleCopyLink = async () => {
@@ -147,6 +151,8 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* Scheduled drops are always paid, so their owner is logged in */}
+      {user && <ActivationEditor qrDrop={qrDrop} onChanged={onActivationChanged} />}
 
       {/* QR Code Display */}
       <SoftCard>

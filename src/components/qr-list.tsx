@@ -10,18 +10,21 @@ import { getFileUrl } from '../utils/api-client';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { toast } from 'sonner';
+import { ActivationEditor } from './activation-editor';
+import { formatActivationDate } from '../utils/activation';
 
 interface QrListProps {
   qrDrops: QrDrop[];
   onDelete: (id: string) => void;
   onScan: (qrDrop: QrDrop) => void;
   onDetail?: (qrDrop: QrDrop) => void;
+  onActivationChanged: (id: string, changes: { activatesAt?: Date; expiryDate?: Date }) => void;
   isLoading?: boolean;
 }
 
-export function QrList({ qrDrops, onDelete, onScan, onDetail, isLoading }: QrListProps) {
+export function QrList({ qrDrops, onDelete, onScan, onDetail, onActivationChanged, isLoading }: QrListProps) {
   const { user } = useAuth();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [expandedQrId, setExpandedQrId] = useState<string | null>(null);
   const [fileUrls, setFileUrls] = useState<Record<string, string>>({}); // Backwards compatibility - first file URL
   const [allFiles, setAllFiles] = useState<Record<string, Array<{fileUrl: string; fileName: string; fileType: string; fileSize: number; fileIndex: number}>>>({});
@@ -262,6 +265,7 @@ export function QrList({ qrDrops, onDelete, onScan, onDetail, isLoading }: QrLis
       <div className="grid gap-4">
         {sortedQrDrops.map((qrDrop) => {
           const expired = isExpired(qrDrop);
+          const scheduled = !expired && !!qrDrop.activatesAt && qrDrop.activatesAt > new Date();
           
           return (
             <SoftCard key={qrDrop.id} className={`relative ${expired ? 'opacity-60' : ''}`}>
@@ -351,6 +355,14 @@ export function QrList({ qrDrops, onDelete, onScan, onDetail, isLoading }: QrLis
                         <Timer className="size-3" />
                         {t('qrList.expired')}
                       </span>
+                    ) : scheduled ? (
+                      <span 
+                        className="px-3 py-1 rounded-full text-sm flex items-center gap-1 border"
+                        style={{ backgroundColor: '#E2EFFA', color: '#4A6FA5', borderColor: '#D5C5BD' }}
+                      >
+                        <Calendar className="size-3" />
+                        {t('activation.opensAt', { date: formatActivationDate(qrDrop.activatesAt!, i18n.language) })}
+                      </span>
                     ) : (
                       <span 
                         className="px-3 py-1 rounded-full text-sm flex items-center gap-1 border"
@@ -391,6 +403,12 @@ export function QrList({ qrDrops, onDelete, onScan, onDetail, isLoading }: QrLis
                       </span>
                     )}
                   </div>
+
+                  {scheduled && (
+                    <div className="mb-4">
+                      <ActivationEditor qrDrop={qrDrop} onChanged={onActivationChanged} />
+                    </div>
+                  )}
 
                   {/* Statistics */}
                   <div 

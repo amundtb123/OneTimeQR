@@ -1,12 +1,12 @@
 // Creates a QR drop: encrypts the content, sends it to the server and renders the QR codes.
-// Moved out of the old upload form unchanged in behaviour, so the new "Lag" flow only handles the UI.
+// Every drop is sealed: the key is made here and never sent. One key travels in the link's
+// fragment (Single QR Mode); two keys are split between two QR codes (Secure Mode).
 import type { QrDrop } from '../App';
 import type { QrStyle } from '../components/qr-style-picker';
 import { uploadFile, createQrDrop } from './api-client';
 import { generateStyledQrCode } from './qr-generator';
 import { createBrandedQrCode } from './qr-with-branding';
 import {
-  generateEncryptionKey,
   encryptFile,
   splitKey,
   encryptTextWithSplitKey,
@@ -27,8 +27,7 @@ export interface DropRequest {
   noPreview: boolean;
   password?: string;
   qrStyle: QrStyle;
-  secureMode: boolean; // Two keys: QR 1 and QR 2 must both be scanned (split-key, zero-knowledge)
-  singleQrMode: boolean; // The key lives in the QR code only (zero-knowledge)
+  twoKeys: boolean; // QR 1 and QR 2 must both be scanned; otherwise one key in the link
 }
 
 // QR 2 is always black on white with square corners so every scanner reads it
@@ -78,38 +77,31 @@ async function renderQr(url: string, style: QrStyle): Promise<string> {
 }
 
 export async function createDrop(req: DropRequest, fallbackName: string): Promise<{ qrDrop: QrDrop; coinsCharged: number }> {
-  const { secureMode, singleQrMode } = req;
-  const zeroKnowledge = secureMode || singleQrMode;
+  const secureMode = req.twoKeys;
+  const singleQrMode = !req.twoKeys;
   const text = req.textContent.trim();
   const title = req.title.trim();
   const expiryMinutes = EXPIRY_MINUTES[req.expiryType] ?? 10;
   const expiryDate = new Date(Date.now() + expiryMinutes * 60 * 1000);
 
-  // Every file is encrypted before upload. Standard mode keeps this key on the server.
-  const encryptionKeyForFiles = await generateEncryptionKey();
+  // Content is encrypted with the drop's id, so the id is made here and the server uses it
+  const clientId = crypto.randomUUID();
 
-  // Zero-knowledge modes encrypt with the drop's id, so the id is made here and the server uses it
-  const clientId = zeroKnowledge ? crypto.randomUUID() : undefined;
-
-  let master: Uint8Array | undefined;
+  let master: Uint8Array;
   let splitKeys: { k1: string; k2: string; master: Uint8Array } | undefined;
   let singleKey: string | undefined;
   if (secureMode) {
     splitKeys = await splitKey();
     master = splitKeys.master;
-  } else if (singleQrMode) {
+  } else {
     master = crypto.getRandomValues(new Uint8Array(32));
     singleKey = toBase64Url(master);
   }
 
-  let textContentCiphertext: string | undefined;
-  let urlContentCiphertext: string | undefined;
-  if (master && clientId) {
-    if (text) textContentCiphertext = JSON.stringify(await encryptTextWithSplitKey(text, master, clientId));
-    if (req.urls.length > 0) {
-      urlContentCiphertext = JSON.stringify(await encryptTextWithSplitKey(JSON.stringify(req.urls), master, clientId));
-    }
-  }
+  const textContentCiphertext = text ? JSON.stringify(await encryptTextWithSplitKey(text, master, clientId)) : undefined;
+  const urlContentCiphertext = req.urls.length > 0
+    ? JSON.stringify(await encryptTextWithSplitKey(JSON.stringify(req.urls), master, clientId))
+    : undefined;
 
   // Files go up as application/octet-stream, so the original types travel in the metadata
   const originalFileTypes: Record<string, string> = {};
@@ -117,11 +109,10 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
     originalFileTypes[index === 0 ? 'file' : `file${index}`] = file.type;
   });
 
+  // No plain text and no key: the server only ever gets ciphertext
   const metadata = {
     title: title || undefined,
     contentType: 'bundle' as const,
-    textContent: zeroKnowledge ? undefined : text || undefined,
-    urlContent: zeroKnowledge ? undefined : req.urls.length > 0 ? JSON.stringify(req.urls) : undefined,
     expiryType: req.expiryType,
     expiryDate: expiryDate.toISOString(),
     activatesAt: req.activatesAt ? req.activatesAt.toISOString() : undefined, // Server checks it is within 3 months
@@ -134,14 +125,15 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
     secureMode,
     singleQrMode,
     encrypted: true,
-    encryptionKey: zeroKnowledge ? undefined : encryptionKeyForFiles,
     originalFileTypes,
-    ...(zeroKnowledge ? { textContentCiphertext, urlContentCiphertext, clientId } : {}),
+    textContentCiphertext,
+    urlContentCiphertext,
+    clientId,
   };
 
   let response;
   if (req.files.length > 0) {
-    const fileKeyHex = master ? toHex(master) : encryptionKeyForFiles;
+    const fileKeyHex = toHex(master);
     const encryptedFiles = await Promise.all(
       req.files.map(async (file) => new File([await encryptFile(file, fileKeyHex)], file.name, { type: 'application/octet-stream' })),
     );
@@ -150,7 +142,7 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
     response = await createQrDrop(metadata);
   }
 
-  if (clientId && response.id !== clientId) {
+  if (response.id !== clientId) {
     // Decryption uses the id, so content made this way can't be opened
     console.error('❌ Server did not use the client-generated id; decryption will fail');
   }
@@ -158,16 +150,14 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
   const shareUrl = `${window.location.origin}/scan/${response.id}`;
   let qrCodeUrl: string;
   let qrCodeUrl2: string | undefined;
-  let qrCodeUrlShare: string | undefined;
-  if (secureMode && splitKeys) {
-    qrCodeUrlShare = await renderQr(shareUrl, req.qrStyle);
+  let keyUrl: string | undefined;
+  const qrCodeUrlShare = await renderQr(shareUrl, req.qrStyle); // Leads to the lock only
+  if (splitKeys) {
     qrCodeUrl = await renderQr(createQr1Url(window.location.origin, response.id, splitKeys.k1), req.qrStyle);
     qrCodeUrl2 = await renderQr(createQr2Url(window.location.origin, response.id, splitKeys.k2), unlockQrStyle);
-  } else if (singleQrMode && singleKey) {
-    qrCodeUrlShare = await renderQr(shareUrl, req.qrStyle);
-    qrCodeUrl = await renderQr(createQr1Url(window.location.origin, response.id, singleKey), req.qrStyle);
   } else {
-    qrCodeUrl = await renderQr(shareUrl, req.qrStyle);
+    keyUrl = createQr1Url(window.location.origin, response.id, singleKey!);
+    qrCodeUrl = await renderQr(keyUrl, req.qrStyle);
   }
 
   const totalSize =
@@ -180,8 +170,6 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
     fileName: title || fallbackName,
     fileType: 'bundle',
     fileSize: totalSize,
-    textContent: text || undefined,
-    urlContent: req.urls.length > 0 ? JSON.stringify(req.urls) : undefined,
     expiryType: req.expiryType,
     // The server's times: with a release date the lifetime starts then
     expiryDate: response.qrDrop?.expiresAt ? new Date(response.qrDrop.expiresAt) : expiryDate,
@@ -198,6 +186,7 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
     singleQrMode,
     qrCodeUrl2,
     qrCodeUrlShare,
+    keyUrl,
   };
 
   return { qrDrop, coinsCharged: response.coinsCharged ?? 0 };

@@ -320,7 +320,8 @@ function priceQrDrop(c: any, userId: string | null, metadata: any, fileSizes: nu
   }
   const activatesAt = parseActivatesAt(metadata.activatesAt);
   if (activatesAt === undefined) return invalidActivationResponse(c);
-  if ((metadata.secureMode || metadata.singleQrMode) && !userId) {
+  // One sealed key (the key travels in the link) is the default and free; two keys need an account
+  if (metadata.secureMode && !userId) {
     return c.json({ error: 'Log in to use Secure Mode', code: 'LOGIN_REQUIRED' }, 401);
   }
   const cost = calculateCoinCost({ hasPassword: !!metadata.password, fileSizes, expiryType: metadata.expiryType, scheduled: activatesAt !== null });
@@ -1277,7 +1278,11 @@ app.get('/make-server-c3c9181e/qrdrops', async (c) => {
     // SECURITY: Don't log user IDs or QR drop counts
     const total = count ?? 0;
     return c.json({
-      qrDrops: (data ?? []).map((row: any) => withoutSecrets(dropFromRow(row))),
+      // SECURITY: The key ring shows rules and status, never content or keys
+      qrDrops: (data ?? []).map((row: any) => {
+        const { textContent, urlContent, encryptionKey, ...rest } = withoutSecrets(dropFromRow(row));
+        return { ...rest, hasTextContent: !!textContent, hasUrlContent: !!urlContent };
+      }),
       total,
       nextOffset: offset + limit < total ? offset + limit : null,
     });

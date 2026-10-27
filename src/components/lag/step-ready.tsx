@@ -17,23 +17,33 @@ export function downloadImage(src: string, filename: string) {
   document.body.removeChild(link);
 }
 
-export type KeyImageKind = 'link' | 'key1' | 'key2' | 'unlock' | 'single';
+export type KeyImageKind = 'link' | 'key' | 'key1' | 'key2' | 'single';
 
-// The images a key consists of, in the order they should be handed out. Unlock codes only exist
-// right after creation; a key loaded from the server has just the plain link QR.
+const fileStem = (qrDrop: QrDrop) => qrDrop.fileName.replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 40) || 'key';
+
+// The QR code the owner can always get back: for a sealed key it only leads to the lock
+export function lockImage(qrDrop: QrDrop): { src: string; file: string; kind: KeyImageKind } {
+  const sealed = !!(qrDrop.secureMode || qrDrop.singleQrMode);
+  return {
+    src: qrDrop.qrCodeUrlShare || qrDrop.qrCodeUrl,
+    file: `onetimeqr-${fileStem(qrDrop)}${sealed ? '-link' : ''}.png`,
+    kind: sealed ? 'link' : 'single',
+  };
+}
+
+// The images a key consists of, in the order they should be handed out. The keys only exist
+// right after creation; a key loaded from the server has just the lock QR.
 export function keyImages(qrDrop: QrDrop): Array<{ src: string; file: string; kind: KeyImageKind }> {
-  const name = qrDrop.fileName.replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 40) || 'key';
-  const images: Array<{ src: string; file: string; kind: KeyImageKind }> = [];
-  if (qrDrop.qrCodeUrlShare) images.push({ src: qrDrop.qrCodeUrlShare, file: `onetimeqr-${name}-link.png`, kind: 'link' });
+  const name = fileStem(qrDrop);
   if (qrDrop.secureMode && qrDrop.qrCodeUrl2) {
-    images.push({ src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}-key-1.png`, kind: 'key1' });
-    images.push({ src: qrDrop.qrCodeUrl2, file: `onetimeqr-${name}-key-2.png`, kind: 'key2' });
-  } else if (qrDrop.singleQrMode && qrDrop.qrCodeUrlShare) {
-    images.push({ src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}-unlock.png`, kind: 'unlock' });
-  } else {
-    images.push({ src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}.png`, kind: 'single' });
+    return [
+      lockImage(qrDrop),
+      { src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}-key-1.png`, kind: 'key1' },
+      { src: qrDrop.qrCodeUrl2, file: `onetimeqr-${name}-key-2.png`, kind: 'key2' },
+    ];
   }
-  return images;
+  if (qrDrop.keyUrl) return [{ src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}.png`, kind: 'key' }];
+  return [lockImage(qrDrop)];
 }
 
 // Set while step 3 shows unlock codes that haven't been saved. They exist only on this page,
@@ -49,11 +59,12 @@ interface StepReadyProps {
 export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
   const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState(false);
-  const url = shareLink(qrDrop);
+  // One key: the link carries the key. Two keys: the plain link only leads to the lock.
+  const url = qrDrop.keyUrl || shareLink(qrDrop);
   const two = !!(qrDrop.secureMode && qrDrop.qrCodeUrl2);
   const images = keyImages(qrDrop);
   const message = t('lag.ready.shareMessage', { url });
-  const keysOnlyNow = images.some((img) => img.kind === 'key1' || img.kind === 'unlock');
+  const keysOnlyNow = two || !!qrDrop.keyUrl;
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -73,6 +84,7 @@ export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
   const copy = async () => {
     if (await copyToClipboard(url)) {
       setCopied(true);
+      if (!two) setSaved(true); // With two keys the link alone saves nothing
       setTimeout(() => setCopied(false), 2000);
     } else {
       toast.error(t('qrDetail.couldNotCopyLink'));
@@ -115,12 +127,12 @@ export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
                 ))}
               </div>
             ) : (
-              <img src={qrDrop.qrCodeUrl} alt={qrDrop.fileName} />
+              <img src={images[0].src} alt={qrDrop.fileName} />
             )}
             <div className="lg-ticket-title">{qrDrop.fileName}</div>
           </div>
           {two && <p className="lg-note" style={{ margin: 0 }}>{t('lag.ready.onlyNow')}</p>}
-          {qrDrop.singleQrMode && <p className="lg-note" style={{ margin: 0 }}>{t('lag.ready.scanOnly')}</p>}
+          {qrDrop.keyUrl && <p className="lg-note" style={{ margin: 0 }}>{t('lag.ready.keyInLink')}</p>}
         </div>
 
         <div className="lg-col-half">
@@ -131,8 +143,8 @@ export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
               <button type="button" onClick={copy}>{copied ? t('lag.ready.copied') : t('lag.ready.copy')}</button>
             </div>
             <div className="lg-grid-2">
-              <a className="lg-btn" href={`sms:?&body=${encodeURIComponent(message)}`}>{t('lag.ready.sms')}</a>
-              <a className="lg-btn" href={`mailto:?subject=${encodeURIComponent(t('lag.ready.emailSubject'))}&body=${encodeURIComponent(message)}`}>{t('lag.ready.email')}</a>
+              <a className="lg-btn" href={`sms:?&body=${encodeURIComponent(message)}`} onClick={() => !two && setSaved(true)}>{t('lag.ready.sms')}</a>
+              <a className="lg-btn" href={`mailto:?subject=${encodeURIComponent(t('lag.ready.emailSubject'))}&body=${encodeURIComponent(message)}`} onClick={() => !two && setSaved(true)}>{t('lag.ready.email')}</a>
               <button type="button" className="lg-btn" onClick={download}>{t('lag.ready.download')}</button>
               <button type="button" className="lg-btn" onClick={() => { window.print(); setSaved(true); }}>{t('lag.ready.print')}</button>
             </div>

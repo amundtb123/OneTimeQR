@@ -42,23 +42,30 @@ for (const f of fs.readdirSync(path.join(project, 'supabase/migrations')).sort()
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
 const USER_C = '33333333-3333-4333-8333-333333333333';
-await db.exec(`insert into auth.users (id) values ('${USER_A}'), ('${USER_B}'), ('${USER_C}');`);
-globalThis.__users = { 'tok-A': USER_A, 'tok-B': USER_B };
+const USER_R = '44444444-4444-4444-8444-444444444444'; // has plenty of coins for paid features
+const USER_P = '55555555-5555-4555-8555-555555555555'; // pricing tests
+const USER_W = '66666666-6666-4666-8666-666666666666'; // webhook tests
+await db.exec(`insert into auth.users (id) values ('${USER_A}'), ('${USER_B}'), ('${USER_C}'), ('${USER_R}'), ('${USER_P}'), ('${USER_W}');`);
+await db.exec(`update public.user_profiles set coins = 100000 where id = '${USER_R}';`);
+globalThis.__users = { 'tok-A': USER_A, 'tok-B': USER_B, 'tok-R': USER_R, 'tok-P': USER_P, 'tok-W': USER_W };
+const paid = { token: 'tok-R' };
 
 // Seed expired and fresh tokens; the function's startup cleanup must remove only the expired ones
 const now = Date.now();
-for (const k of ['access:old', 'view:old', 'pwfail:old', 'qr1_scanned:old', 'unlock_token:old']) {
+for (const k of ['access:old', 'view:old', 'pwfail:old', 'qr1_scanned:old', 'unlock_token:old', 'ratelimit:old']) {
   await db.query(`insert into public.kv_store_c3c9181e values ($1, $2)`, [k, JSON.stringify({ expiresAt: 1 })]);
 }
 await db.query(`insert into public.kv_store_c3c9181e values ($1, $2)`, ['view:fresh', JSON.stringify({ expiresAt: now + 1e6 })]);
 
 // ---------- Load the Edge Function ----------
-const env = { SUPABASE_URL: 'http://db', SUPABASE_SERVICE_ROLE_KEY: 'service', SUPABASE_ANON_KEY: 'anon-key' };
+const env = { SUPABASE_URL: 'http://db', SUPABASE_SERVICE_ROLE_KEY: 'service', SUPABASE_ANON_KEY: 'anon-key', STRIPE_WEBHOOK_SECRET: 'whsec_test' };
 globalThis.Deno = { env: { get: (k) => env[k] }, serve: (h) => { globalThis.__handler = h; } };
 await import(path.join(here, '.out/server.mjs'));
 
-async function call(method, p, { body, token, viewToken, form } = {}) {
-  const headers = {};
+// Each request comes from a fresh IP unless one is given, so anonymous rate limits don't interfere
+const randomIp = () => `10.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+async function call(method, p, { body, token, viewToken, form, ip, headers: extraHeaders } = {}) {
+  const headers = { 'x-forwarded-for': ip ?? randomIp(), ...extraHeaders };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (viewToken) headers['X-View-Token'] = viewToken;
   let reqBody;
@@ -73,16 +80,19 @@ async function meta(id, opts) {
   const t = await call('GET', `/qr/${id}`, opts);
   return call('GET', `/qr/${id}?access=${t.json.accessToken}`, opts);
 }
-const future = () => new Date(Date.now() + 3600e3).toISOString();
 async function create(extra = {}, opts = {}) {
   const r = await call('POST', '/create', {
     ...opts,
-    body: { contentType: 'text', textContent: 'hemmelig', expiryType: '24h', expiryDate: future(), viewOnly: false, ...extra },
+    body: { contentType: 'text', textContent: 'hemmelig', expiryType: '10m', viewOnly: false, ...extra },
   });
   if (r.status !== 200) throw new Error('create failed ' + JSON.stringify(r));
   return r.json;
 }
 const rawDrop = async (id) => (await db.query(`select value from public.kv_store_c3c9181e where key = $1`, ['qrdrop:' + id])).rows[0]?.value;
+const coinsOf = async (id) => (await db.query(`select coins from public.user_profiles where id = $1`, [id])).rows[0]?.coins;
+const setCoins = (id, coins) => db.query(`update public.user_profiles set coins = $2 where id = $1`, [id, coins]);
+// Makes a drop time-expired without waiting
+const expireNow = (id) => db.query(`update public.kv_store_c3c9181e set value = jsonb_set(value, '{expiresAt}', to_jsonb($2::bigint)) where key = $1`, ['qrdrop:' + id, Date.now() - 1000]);
 
 // Wait for startup cleanup to finish
 await new Promise((r) => setTimeout(r, 500));
@@ -90,13 +100,13 @@ await new Promise((r) => setTimeout(r, 500));
 console.log('\nCleanup');
 {
   const { rows } = await db.query(`select key from public.kv_store_c3c9181e where key like '%:old' or key = 'view:fresh'`);
-  check('expired access/view/pwfail/qr1/unlock tokens removed', !rows.some((r) => r.key.endsWith(':old')), rows);
+  check('expired access/view/pwfail/qr1/unlock/ratelimit entries removed', !rows.some((r) => r.key.endsWith(':old')), rows);
   check('unexpired view token kept', rows.some((r) => r.key === 'view:fresh'), rows);
 }
 
 console.log('\nS1: password-protected drop');
 {
-  const created = await create({ password: 'riktig' });
+  const created = await create({ password: 'riktig' }, paid);
   const id = created.id;
   check('create response hides password hash', created.qrDrop.password === true, created.qrDrop.password);
   check('hash is stored server-side', typeof (await rawDrop(id)).password === 'string');
@@ -121,14 +131,14 @@ console.log('\nS1: password-protected drop');
 
 console.log('\nS1: password brute force');
 {
-  const { id } = await create({ password: 'riktig' });
+  const { id } = await create({ password: 'riktig' }, paid);
   const statuses = [];
   for (let i = 0; i < 5; i++) statuses.push((await call('POST', `/qr/${id}/open`, { body: { password: 'feil' + i } })).status);
   check('first 5 wrong attempts are 401', statuses.every((s) => s === 401), statuses);
   const locked = await call('POST', `/qr/${id}/open`, { body: { password: 'riktig' } });
   check('6th attempt is 429 even with correct password', locked.status === 429, locked);
 
-  const { id: id2 } = await create({ password: 'riktig' });
+  const { id: id2 } = await create({ password: 'riktig' }, paid);
   const parallel = await Promise.all(Array.from({ length: 12 }, (_, i) => call('POST', `/qr/${id2}/open`, { body: { password: 'feil' + i } })));
   const n401 = parallel.filter((r) => r.status === 401).length;
   check('parallel guesses are capped at 5', n401 === 5, parallel.map((r) => r.status));
@@ -149,13 +159,13 @@ console.log('\nS1: encryption key needs view token');
 
 console.log('\nB2 + S1: view limits');
 {
-  const { id } = await create({ expiryType: 'scan' });
+  const { id } = await create({ expiryType: 'scan' }, paid);
   check('scan-once: first open 200', (await call('POST', `/qr/${id}/open`, { body: {} })).status === 200);
   check('scan-once: second open 410', (await call('POST', `/qr/${id}/open`, { body: {} })).status === 410);
   check('scan-once: metadata now 410', (await meta(id)).status === 410);
   check('scan-once: drop kept while the viewer\'s token is valid', !!(await rawDrop(id)));
 
-  const { id: id2 } = await create({ expiryType: 'scan' });
+  const { id: id2 } = await create({ expiryType: 'scan' }, paid);
   const parallel = await Promise.all(Array.from({ length: 8 }, () => call('POST', `/qr/${id2}/open`, { body: {} })));
   check('scan-once: exactly one of 8 parallel opens succeeds', parallel.filter((r) => r.status === 200).length === 1, parallel.map((r) => r.status));
 
@@ -164,10 +174,12 @@ console.log('\nB2 + S1: view limits');
   for (let i = 0; i < 3; i++) s.push((await call('POST', `/qr/${id3}/open`, { body: {} })).status);
   check('maxScans=2: 200, 200, 410', s.join() === '200,200,410', s);
 
-  const { id: id4 } = await create({ expiryDate: new Date(Date.now() - 1000).toISOString() });
+  const { id: id4 } = await create({});
+  await expireNow(id4);
   check('time-expired: metadata 410', (await meta(id4)).status === 410);
   check('time-expired: deleted', !(await rawDrop(id4)));
-  const { id: id5 } = await create({ expiryDate: new Date(Date.now() - 1000).toISOString() });
+  const { id: id5 } = await create({});
+  await expireNow(id5);
   check('time-expired: open 410', (await call('POST', `/qr/${id5}/open`, { body: {} })).status === 410);
 
   const { id: id6 } = await create({});
@@ -179,7 +191,7 @@ console.log('\nS1: files and downloads');
 {
   const form = new FormData();
   form.append('file', new Blob([new Uint8Array(100)], { type: 'application/octet-stream' }), 'doc.pdf');
-  form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '24h', expiryDate: future(), maxDownloads: 1, viewOnly: false, encryptionKey: 'b'.repeat(64), originalFileTypes: { file: 'application/pdf' } }));
+  form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', maxDownloads: 1, viewOnly: false, encryptionKey: 'b'.repeat(64), originalFileTypes: { file: 'application/pdf' } }));
   const up = await call('POST', '/upload', { form });
   check('upload ok', up.status === 200, up);
   const id = up.json.id;
@@ -209,8 +221,8 @@ console.log('\nS1: ownership');
 
   const list = await call('GET', '/qrdrops', { token: 'tok-A' });
   check('/qrdrops returns own drops only', list.json.qrDrops.length >= 1 && list.json.qrDrops.every((q) => q.userId === USER_A), list.json.qrDrops.length);
-  const pw = await create({ password: 'x' }, { token: 'tok-A' });
-  const list2 = await call('GET', '/qrdrops', { token: 'tok-A' });
+  const pw = await create({ password: 'x' }, paid);
+  const list2 = await call('GET', '/qrdrops', paid);
   check('/qrdrops hides password hash', list2.json.qrDrops.find((q) => q.id === pw.id)?.password === true);
   check('/qrdrops without auth is empty', (await call('GET', '/qrdrops')).json.qrDrops.length === 0);
 
@@ -223,7 +235,7 @@ console.log('\nS1: ownership');
 
 console.log('\nOwner token (anonymous creator preview)');
 {
-  const created = await create({ expiryType: 'scan' });
+  const created = await create({ maxScans: 1 });
   check('create returns owner token', typeof created.ownerToken === 'string');
   check('owner token hash is not exposed', created.qrDrop.ownerTokenHash === undefined && (await meta(created.id)).json.qrDrop.ownerTokenHash === undefined);
   const call2 = (h) => globalThis.__handler(new Request(`http://local/make-server-c3c9181e/qr/${created.id}/open`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: '{}' }));
@@ -239,10 +251,160 @@ console.log('\nB1: Single QR Mode text-only');
 {
   const clientId = crypto.randomUUID();
   const ct = JSON.stringify({ iv: 'i', salt: 's', ciphertext: 'c' });
-  const r = await call('POST', '/create', { body: { contentType: 'bundle', singleQrMode: true, textContentCiphertext: ct, clientId, expiryType: '24h', expiryDate: future(), viewOnly: false } });
+  const r = await call('POST', '/create', { ...paid, body: { contentType: 'bundle', singleQrMode: true, textContentCiphertext: ct, clientId, expiryType: '10m', viewOnly: false } });
   check('uses client id', r.json.id === clientId);
   const opened = await call('POST', `/qr/${clientId}/open`, { body: {} });
   check('ciphertext is stored and returned', opened.json.qrDrop.textContent === ct, opened.json.qrDrop.textContent);
+}
+
+console.log('\nS3: server-side pricing');
+{
+  const free = await call('POST', '/create', { body: { contentType: 'text', textContent: 'x', expiryType: '10m' } });
+  check('anonymous free drop (10 min) is allowed', free.status === 200 && free.json.coinsCharged === 0, free);
+  const anonPw = await call('POST', '/create', { body: { contentType: 'text', textContent: 'x', expiryType: '10m', password: 'p' } });
+  check('anonymous password drop is 401 LOGIN_REQUIRED', anonPw.status === 401 && anonPw.json.code === 'LOGIN_REQUIRED', anonPw);
+  const anonLong = await call('POST', '/create', { body: { contentType: 'text', textContent: 'x', expiryType: '24h' } });
+  check('anonymous 24h drop is 401', anonLong.status === 401, anonLong);
+  const anonSecure = await call('POST', '/create', { body: { contentType: 'bundle', secureMode: true, textContentCiphertext: '{}', expiryType: '10m' } });
+  check('anonymous Secure Mode is 401', anonSecure.status === 401, anonSecure);
+  const badExpiry = await call('POST', '/create', { body: { contentType: 'text', textContent: 'x', expiryType: '1y' } });
+  check('unknown expiry type is 400', badExpiry.status === 400, badExpiry);
+
+  const before = Date.now();
+  const longDate = await create({ expiryDate: new Date(Date.now() + 365 * 864e5).toISOString() });
+  const expiresAt = (await rawDrop(longDate.id)).expiresAt;
+  check('client expiryDate is ignored (free drop lives 10 min)', expiresAt >= before + 10 * 60e3 && expiresAt <= Date.now() + 10 * 60e3, expiresAt - before);
+  check('junk maxScans is dropped', (await rawDrop((await create({ maxScans: 'abc' })).id)).maxScans === null);
+
+  const clientId = crypto.randomUUID();
+  const broke = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType: '10m', password: 'p', clientId } });
+  check('user without coins gets 402 INSUFFICIENT_COINS', broke.status === 402 && broke.json.code === 'INSUFFICIENT_COINS' && broke.json.coinCost === 1, broke);
+  check('nothing is stored when payment fails', !(await rawDrop(clientId)));
+
+  await setCoins(USER_P, 10);
+  const bought = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType: '7d', password: 'p' } });
+  check('password + 7 days costs 8 coins', bought.status === 200 && bought.json.coinsCharged === 8 && bought.json.coins === 2, bought.json);
+  check('balance is 2 after paying 8 of 10', (await coinsOf(USER_P)) === 2);
+  const priced = { '30m': 1, '1h': 1, '24h': 1, 'scan': 7 };
+  for (const [expiryType, cost] of Object.entries(priced)) {
+    await setCoins(USER_P, 100);
+    const r = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType } });
+    check(`expiry ${expiryType} costs ${cost}`, r.json?.coinsCharged === cost && (await coinsOf(USER_P)) === 100 - cost, r.json);
+  }
+
+  // Files: 1 MB free, then 1 coin per started 2 MB (encrypted size minus a small allowance)
+  const upload = (bytes, token) => {
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(bytes)]), 'a.bin');
+    form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m' }));
+    return call('POST', '/upload', { form, token });
+  };
+  const MB = 1024 * 1024;
+  const exactlyFree = await upload(MB + 28, undefined);
+  check('1 MB file (+ encryption overhead) is free for anonymous users', exactlyFree.status === 200 && exactlyFree.json.coinsCharged === 0, exactlyFree);
+  await setCoins(USER_P, 100);
+  const threeMb = await upload(3 * MB + 28, 'tok-P');
+  check('3 MB file costs 1 coin', threeMb.json?.coinsCharged === 1 && (await coinsOf(USER_P)) === 99, threeMb.json);
+  const fourMb = await upload(4 * MB, 'tok-P');
+  check('4 MB file costs 2 coins', fourMb.json?.coinsCharged === 2, fourMb.json);
+  check('anonymous 2 MB file is rejected', (await upload(2 * MB, undefined)).status >= 400);
+
+  await setCoins(USER_P, 5);
+  globalThis.__failStorageUpload = true;
+  const failed = await upload(3 * MB, 'tok-P');
+  globalThis.__failStorageUpload = false;
+  check('failed upload returns 500', failed.status === 500, failed);
+  check('failed upload refunds the coins', (await coinsOf(USER_P)) === 5, await coinsOf(USER_P));
+
+  await setCoins(USER_P, 3);
+  const parallel = await Promise.all(Array.from({ length: 6 }, () =>
+    call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType: '10m', password: 'p' } })));
+  check('parallel paid creates: only as many as the balance allows', parallel.filter((r) => r.status === 200).length === 3 && parallel.filter((r) => r.status === 402).length === 3, parallel.map((r) => r.status));
+  check('balance never goes negative', (await coinsOf(USER_P)) === 0, await coinsOf(USER_P));
+
+  check('old /deduct-coins endpoint is gone', (await call('POST', '/deduct-coins', { token: 'tok-P', body: { amount: -100 } })).status === 404);
+  check('debug /test-coins endpoint is gone', (await call('GET', '/test-coins', { token: 'tok-P' })).status === 404);
+}
+
+console.log('\nClient-chosen IDs');
+{
+  const victim = await create({ textContent: 'original' });
+  const hijack = await call('POST', '/create', { body: { contentType: 'text', textContent: 'phishing', expiryType: '10m', clientId: victim.id } });
+  check('create with an existing ID is 409', hijack.status === 409, hijack);
+  check('existing drop is untouched', (await rawDrop(victim.id)).textContent === 'original');
+  const form = new FormData();
+  form.append('file', new Blob([new Uint8Array(10)]), 'a.bin');
+  form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', clientId: victim.id }));
+  check('upload with an existing ID is 409', (await call('POST', '/upload', { form })).status === 409);
+  check('existing drop is still untouched', (await rawDrop(victim.id)).textContent === 'original');
+}
+
+console.log('\nS5: rate limiting');
+{
+  const ip = '203.0.113.7';
+  const statuses = [];
+  for (let i = 0; i < 21; i++) {
+    statuses.push((await call('POST', '/create', { ip, body: { contentType: 'text', textContent: 'x', expiryType: '10m' } })).status);
+  }
+  check('anonymous: 20 creates per hour per IP', statuses.slice(0, 20).every((s) => s === 200) && statuses[20] === 429, statuses);
+  const form = new FormData();
+  form.append('file', new Blob([new Uint8Array(10)]), 'a.bin');
+  form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m' }));
+  check('the limit also covers /upload', (await call('POST', '/upload', { ip, form })).status === 429);
+  check('another IP is not affected', (await call('POST', '/create', { ip: '203.0.113.8', body: { contentType: 'text', textContent: 'x', expiryType: '10m' } })).status === 200);
+  const { rows } = await db.query(`select key from public.kv_store_c3c9181e where key like 'ratelimit:%'`);
+  check('rate limit keys hold no raw IPs', rows.length > 0 && !rows.some((r) => r.key.includes(ip)), rows.slice(0, 2));
+  // Logged-in users have their own, larger bucket regardless of IP
+  check('logged-in user is not limited by the IP bucket', (await call('POST', '/create', { ip, token: 'tok-A', body: { contentType: 'text', textContent: 'x', expiryType: '10m' } })).status === 200);
+}
+
+console.log('\nB5: Stripe webhook');
+{
+  const deliver = (event, signature = 'whsec_test') => call('POST', '/webhook', { headers: { 'stripe-signature': signature, 'Content-Type': 'application/json' }, form: JSON.stringify(event) });
+  const session = (id, extra = {}) => ({ id: 'evt_' + id, type: 'checkout.session.completed', data: { object: { id, payment_status: 'paid', metadata: { userId: USER_W, coins: '50' }, ...extra } } });
+
+  check('missing signature is 400', (await call('POST', '/webhook', { form: '{}' })).status === 400);
+  check('wrong signature is 400', (await deliver(session('cs_forged'), 'forged')).status === 400);
+  check('forged event adds no coins', (await coinsOf(USER_W)) === 0);
+
+  check('paid checkout is 200', (await deliver(session('cs_1'))).status === 200);
+  check('paid checkout adds 50 coins', (await coinsOf(USER_W)) === 50);
+  await deliver(session('cs_1'));
+  check('redelivery does not add coins again', (await coinsOf(USER_W)) === 50);
+  await Promise.all(Array.from({ length: 5 }, () => deliver(session('cs_2'))));
+  check('parallel deliveries add coins exactly once', (await coinsOf(USER_W)) === 100, await coinsOf(USER_W));
+
+  await deliver(session('cs_unpaid', { payment_status: 'unpaid' }));
+  check('unpaid session adds no coins', (await coinsOf(USER_W)) === 100);
+  await deliver({ ...session('cs_unpaid', { payment_status: 'paid' }), type: 'checkout.session.async_payment_succeeded' });
+  check('async payment success adds coins', (await coinsOf(USER_W)) === 150);
+  check('invalid metadata is 400', (await deliver(session('cs_bad', { metadata: { userId: 'nope', coins: '50' } }))).status === 400);
+  const resp = await deliver(session('cs_3'));
+  check('webhook response leaks no user data', !JSON.stringify(resp.json).includes(USER_W), resp.json);
+}
+
+console.log('\nB4: owner list pagination');
+{
+  const { json: first } = await call('GET', '/qrdrops?limit=2', { token: 'tok-P' });
+  check('limit=2 returns 2 drops', first.qrDrops.length === 2, first.qrDrops.length);
+  check('total counts all own drops', first.total > 2 && first.nextOffset === 2, first);
+  const { json: second } = await call('GET', '/qrdrops?limit=2&offset=2', { token: 'tok-P' });
+  check('next page has different drops', second.qrDrops.every((q) => !first.qrDrops.some((f) => f.id === q.id)));
+  check('pages are newest first', first.qrDrops[0].createdAt >= first.qrDrops[1].createdAt && first.qrDrops[1].createdAt >= second.qrDrops[0].createdAt);
+  const { json: all } = await call('GET', '/qrdrops', { token: 'tok-P' });
+  check('only own drops are listed', all.qrDrops.every((q) => q.userId === USER_P) && all.qrDrops.length === Math.min(all.total, 100));
+}
+
+console.log('\nCORS');
+{
+  const preflight = (origin) => globalThis.__handler(new Request('http://local/make-server-c3c9181e/qr/x/open', {
+    method: 'OPTIONS',
+    headers: { Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-view-token' },
+  }));
+  const ok = await preflight('https://www.onetimeqr.com');
+  check('preflight from the site is allowed', ok.headers.get('access-control-allow-origin') === 'https://www.onetimeqr.com' && /x-view-token/i.test(ok.headers.get('access-control-allow-headers') ?? ''));
+  const evil = await preflight('https://evil.example');
+  check('preflight from another origin is not allowed', evil.headers.get('access-control-allow-origin') !== 'https://evil.example');
 }
 
 console.log('\nSQL: privileges and RLS');
@@ -256,6 +418,10 @@ async function asRole(role, sub, sql, params = []) {
 {
   check('anon cannot call qrdrop_consume', !(await asRole('anon', null, `select public.qrdrop_consume('x', 'scan', 0)`)).ok);
   check('authenticated cannot call qrdrop_register_password_attempt', !(await asRole('authenticated', USER_A, `select public.qrdrop_register_password_attempt('x', 0, 1)`)).ok);
+  check('authenticated cannot call deduct_coins', !(await asRole('authenticated', USER_A, `select public.deduct_coins($1, 1)`, [USER_A])).ok);
+  check('authenticated cannot call refund_coins', !(await asRole('authenticated', USER_A, `select public.refund_coins($1, 1000)`, [USER_A])).ok);
+  check('authenticated cannot call credit_checkout_session', !(await asRole('authenticated', USER_A, `select public.credit_checkout_session('x', $1, 1000, 'e')`, [USER_A])).ok);
+  check('anon cannot call rate_limit_hit', !(await asRole('anon', null, `select public.rate_limit_hit('x', 0, 1)`)).ok);
   check('anon cannot read kv store', ((await asRole('anon', null, `select * from public.kv_store_c3c9181e`)).res?.rows.length ?? 0) === 0);
   check('authenticated cannot read kv store', ((await asRole('authenticated', USER_A, `select * from public.kv_store_c3c9181e`)).res?.rows.length ?? 0) === 0);
   check('anon cannot truncate kv store', !(await asRole('anon', null, `truncate public.kv_store_c3c9181e`)).ok);

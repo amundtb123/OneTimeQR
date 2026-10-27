@@ -29,7 +29,6 @@ import { Checkbox } from './ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { QrStylePicker, type QrStyle } from './qr-style-picker';
 import { useAuth } from '../utils/auth-context';
-import { deductCoins } from '../utils/api-client';
 import { CoinShop } from './coin-shop';
 
 const defaultQrStyle: QrStyle = {
@@ -608,18 +607,10 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         }
       }
       
-      // Deduct coins if cost > 0
-      if (coinCost > 0 && user) {
-        try {
-          await deductCoins(coinCost);
-          await refreshCoins();
-          toast.success(t('upload.coinsDeducted', { amount: coinCost }));
-        } catch (error: any) {
-          console.error('Error deducting coins:', error);
-          // QR was already created, but coins weren't deducted
-          // This is a problem - we should rollback or handle this
-          toast.error(t('upload.coinDeductionFailed'));
-        }
+      // The server charges coins as part of creating the QR drop
+      if (response.coinsCharged > 0) {
+        await refreshCoins();
+        toast.success(t('upload.coinsDeducted', { amount: response.coinsCharged }));
       }
       
       // SECURE MODE: Generate THREE QR codes (share link, QR #1, QR #2)
@@ -829,6 +820,11 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
 
       if (error?.status === 401) {
         toast.error(t('upload.mustBeLoggedIn'));
+      } else if (error?.code === 'INSUFFICIENT_COINS') {
+        await refreshCoins();
+        toast.error(t('upload.insufficientCoinsShort'));
+      } else if (error?.code === 'RATE_LIMITED') {
+        toast.error(t('upload.rateLimited'));
       } else {
         const errorMessage = error?.message || t('upload.createQrError');
         toast.error(errorMessage);

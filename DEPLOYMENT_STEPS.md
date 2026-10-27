@@ -1,60 +1,37 @@
-# Deployment Steps for Coin Shop
+# Deployment
 
-## 🚀 Steg 1: Deploy Frontend til Netlify
+Rekkefølgen er viktig: Edge-funksjonen kaller SQL-funksjoner som må finnes før den deployes,
+og frontend og Edge-funksjon må deployes rett etter hverandre.
 
-### Hvis du bruker Git:
-```bash
-git add .
-git commit -m "Add coin shop functionality"
-git push
-```
-Netlify vil automatisk deploye hvis du har auto-deploy aktivert.
+## 1. Kjør nye migreringer
 
-### Hvis du deployer manuelt:
-```bash
-npm run build
-# Dra og slipp dist-mappen til Netlify Dashboard
-```
+I Supabase Dashboard → **SQL Editor**: kjør hver ny fil i `supabase/migrations/` i navnerekkefølge
+(eldste først). Alle migreringene kan trygt kjøres flere ganger.
 
-## 🔧 Steg 2: Deploy Supabase Edge Function
+## 2. Deploy Edge-funksjonen
 
-Supabase Edge Function må deployes via Supabase CLI eller Dashboard.
+Funksjonen som kjører i produksjon er **`src/supabase/functions/server/index-standalone.tsx`**
+(én fil uten lokale imports, så den kan limes inn i dashboardet).
 
-### Metode A: Via Supabase Dashboard (enklest)
-1. Gå til [Supabase Dashboard](https://app.supabase.com)
-2. Velg ditt prosjekt
-3. Gå til **Edge Functions**
-4. Hvis du allerede har en function:
-   - Klikk på funksjonen (sannsynligvis `make-server-c3c9181e`)
-   - Klikk **Deploy** eller **Update**
-   - Last opp filen `src/supabase/functions/server/index.tsx`
-5. Hvis du ikke har en function ennå:
-   - Klikk **Create function**
-   - Navn: `make-server-c3c9181e`
-   - Kopier innholdet fra `src/supabase/functions/server/index.tsx`
+1. Supabase Dashboard → **Edge Functions** → `make-server-c3c9181e` → **Code**
+2. Erstatt all koden med innholdet i `index-standalone.tsx`
+3. Klikk **Deploy**
 
-### Metode B: Via Supabase CLI (anbefalt for fremtiden)
-```bash
-# Installer Supabase CLI hvis ikke allerede installert
-npm install -g supabase
+## 3. Deploy frontend
 
-# Logg inn
-supabase login
+Merge til `main`. Netlify bygger og publiserer automatisk.
 
-# Link til prosjektet
-supabase link --project-ref [DITT_PROJEKT_ID]
+## 4. Røyktest
 
-# Deploy function
-supabase functions deploy make-server-c3c9181e
-```
+- Lag en gratis QR-kode (10 min) uten innlogging og åpne den på mobil
+- Logget inn: lag en passordbeskyttet QR-kode og sjekk at saldoen går ned med riktig antall coins
+- Feil passord avvises, riktig passord viser innholdet
 
-## ✅ Sjekkliste etter deployment
+## Rollback
 
-- [ ] Frontend deployet til Netlify
-- [ ] Supabase Edge Function deployet
-- [ ] Database-migrasjon kjørt (`supabase_migration.sql`)
-- [ ] Stripe secrets lagt til i Supabase (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET)
-- [ ] Test at checkout fungerer
-- [ ] Test at webhook mottar events
+Deploy forrige versjon av Edge-funksjonen og frontend. Migreringene er additive og kan stå.
 
+## Secrets (Edge Functions → Secrets)
 
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (Supabase setter `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY` og `SUPABASE_ANON_KEY` selv). Ikke legg secrets i repoet.

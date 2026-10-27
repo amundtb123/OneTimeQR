@@ -41,7 +41,8 @@ class Query {
         return `${c} in (${v.map((x) => { params.push(x); return '$' + params.length; }).join(',')})`;
       }
       params.push(v);
-      return `${c} ${op} $${params.length}`;
+      // PostgREST JSON path: value->>userId  ->  value->>'userId'
+      return `${c.replace(/->>(\w+)$/, "->>'$1'")} ${op} $${params.length}`;
     }).join(' and ');
   }
 
@@ -101,8 +102,12 @@ export function createClient() {
       listBuckets: async () => ({ data: [{ name: 'make-c3c9181e-qrdrop-files' }], error: null }),
       createBucket: async () => ({ data: {}, error: null }),
       from: () => ({
-        upload: async (path, body) => { (globalThis.__files ??= new Map()).set(path, Buffer.from(body)); return { data: {}, error: null }; },
-        remove: async () => ({ data: {}, error: null }),
+        upload: async (path, body) => {
+          if (globalThis.__failStorageUpload) return { data: null, error: { message: 'storage unavailable' } };
+          (globalThis.__files ??= new Map()).set(path, Buffer.from(body));
+          return { data: {}, error: null };
+        },
+        remove: async (paths) => { for (const p of paths) globalThis.__files?.delete(p); return { data: {}, error: null }; },
         createSignedUrl: async (path) => ({ data: { signedUrl: `${globalThis.__storageBase ?? 'https://signed.test'}/${path}` }, error: null }),
       }),
     },

@@ -456,6 +456,9 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
             <div className="text-center mb-6">
               <h2 className="text-[#3F3F3F] mb-2">{t('qrDetail.yourQrCode')}</h2>
               <p className="text-[#5B5B5B]">{t('qrDetail.shareToAccess', { defaultValue: 'Del QR-koden for å gi tilgang' })}</p>
+              {(qrDrop.secureMode || qrDrop.singleQrMode) && (
+                <p className="text-[#5B5B5B] text-sm mt-2">{t('qrDetail.unlockCodesOnlyAtCreation')}</p>
+              )}
             </div>
 
             {/* Single QR Code */}

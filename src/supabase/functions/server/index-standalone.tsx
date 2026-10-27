@@ -1,6 +1,6 @@
-import { Hono } from 'npm:hono';
-import { cors } from 'npm:hono/cors';
-import { logger } from 'npm:hono/logger';
+import { Hono } from 'npm:hono@4.13.14';
+import { cors } from 'npm:hono@4.13.14/cors';
+import { logger } from 'npm:hono@4.13.14/logger';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const app = new Hono();
@@ -35,7 +35,7 @@ const supabase = createClient(
   supabaseServiceKey ?? ''
 );
 
-// KV Store functions (inline from kv_store.tsx)
+// KV store helpers over the kv_store_c3c9181e table
 const kvClient = () => createClient(
   Deno.env.get('SUPABASE_URL') ?? '',
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -46,6 +46,14 @@ const kv = {
     const client = kvClient();
     const { error } = await client.from('kv_store_c3c9181e').upsert({ key, value });
     if (error) throw new Error(error.message);
+  },
+  // Insert without overwriting; returns false if the key already exists
+  insert: async (key: string, value: any): Promise<boolean> => {
+    const client = kvClient();
+    const { error } = await client.from('kv_store_c3c9181e').insert({ key, value });
+    if (error?.code === '23505') return false;
+    if (error) throw new Error(error.message);
+    return true;
   },
   get: async (key: string): Promise<any> => {
     const client = kvClient();
@@ -193,6 +201,101 @@ async function registerPasswordAttempt(id: string): Promise<number> {
   });
   if (error) throw new Error(`qrdrop_register_password_attempt failed: ${error.message}`);
   return data;
+}
+
+// SECURITY (S3): Prices are decided here, never by the client.
+// Must stay in sync with calculateCoinCost() in src/components/upload-section.tsx.
+const EXPIRY_DURATIONS_MS: Record<string, number> = {
+  '10m': 10 * 60 * 1000,
+  '30m': 30 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  'scan': 7 * 24 * 60 * 60 * 1000, // Scan-once drops live at most 7 days
+};
+const FREE_EXPIRY_MS = EXPIRY_DURATIONS_MS['10m'];
+const FREE_FILE_BYTES = 1 * 1024 * 1024;
+const BYTES_PER_EXTRA_COIN = 2 * 1024 * 1024;
+// Files arrive encrypted (IV + auth tag), slightly larger than the originals the client prices
+const ENCRYPTION_OVERHEAD_ALLOWANCE = 1024;
+
+function calculateCoinCost(options: { hasPassword: boolean; fileSizes: number[]; expiryType: string }): number {
+  let cost = options.hasPassword ? 1 : 0;
+
+  const totalBytes = options.fileSizes.reduce((sum, size) => sum + Math.max(0, size - ENCRYPTION_OVERHEAD_ALLOWANCE), 0);
+  if (totalBytes > FREE_FILE_BYTES) {
+    cost += Math.ceil((totalBytes - FREE_FILE_BYTES) / BYTES_PER_EXTRA_COIN);
+  }
+
+  const extraMs = EXPIRY_DURATIONS_MS[options.expiryType] - FREE_EXPIRY_MS;
+  if (extraMs > 0) {
+    cost += Math.ceil(extraMs / EXPIRY_DURATIONS_MS['24h']);
+  }
+
+  return cost;
+}
+
+function toPositiveInt(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+// Rejects options the creator isn't allowed to pick, or returns the price (0 = free)
+function priceQrDrop(c: any, userId: string | null, metadata: any, fileSizes: number[]): { cost: number } | Response {
+  if (!(metadata.expiryType in EXPIRY_DURATIONS_MS)) {
+    return c.json({ error: 'Invalid expiry type' }, 400);
+  }
+  if ((metadata.secureMode || metadata.singleQrMode) && !userId) {
+    return c.json({ error: 'Log in to use Secure Mode', code: 'LOGIN_REQUIRED' }, 401);
+  }
+  const cost = calculateCoinCost({ hasPassword: !!metadata.password, fileSizes, expiryType: metadata.expiryType });
+  if (cost > 0 && !userId) {
+    return c.json({ error: 'Log in to use paid features', code: 'LOGIN_REQUIRED', coinCost: cost }, 401);
+  }
+  return { cost };
+}
+
+// Atomically takes coins from the user. Returns the new balance, or null if they can't afford it.
+async function deductCoins(userId: string, amount: number): Promise<number | null> {
+  const { data, error } = await supabase.rpc('deduct_coins', { p_user_id: userId, p_amount: amount });
+  if (error) throw new Error(`deduct_coins failed: ${error.message}`);
+  return data;
+}
+
+async function refundCoins(userId: string, amount: number): Promise<void> {
+  const { error } = await supabase.rpc('refund_coins', { p_user_id: userId, p_amount: amount });
+  if (error) console.error('❌ Failed to refund coins after a failed create:', error.message);
+}
+
+// SECURITY (S5): Limits how many QR drops one user (or one IP for anonymous users) can create
+const CREATE_RATE_WINDOW_MS = 60 * 60 * 1000;
+const CREATE_RATE_LIMIT_ANON = 20;
+const CREATE_RATE_LIMIT_USER = 100;
+
+function getClientIp(c: any): string {
+  return c.req.header('x-forwarded-for')?.split(',')[0].trim() || c.req.header('x-real-ip') || 'unknown';
+}
+
+// Counts this request; returns true if the creator is over the limit
+async function isCreateRateLimited(c: any, userId: string | null): Promise<boolean> {
+  // IPs are hashed so the rate limit table holds no personal data
+  const subject = userId ? `user:${userId}` : `ip:${await sha256Hex(getClientIp(c))}`;
+  const { data, error } = await supabase.rpc('rate_limit_hit', {
+    p_key: `create:${subject}`,
+    p_now: Date.now(),
+    p_window_ms: CREATE_RATE_WINDOW_MS,
+  });
+  if (error) throw new Error(`rate_limit_hit failed: ${error.message}`);
+  return data > (userId ? CREATE_RATE_LIMIT_USER : CREATE_RATE_LIMIT_ANON);
+}
+
+function rateLimitedResponse(c: any) {
+  c.header('Retry-After', String(CREATE_RATE_WINDOW_MS / 1000));
+  return c.json({ error: 'Too many QR codes created. Please try again later.', code: 'RATE_LIMITED' }, 429);
+}
+
+function insufficientCoinsResponse(c: any, cost: number) {
+  return c.json({ error: 'Insufficient coins', code: 'INSUFFICIENT_COINS', coinCost: cost }, 402);
 }
 
 // Signed download URLs for all files in a QR drop (supports legacy single-file drops)
@@ -383,7 +486,7 @@ async function cleanupExpired() {
 
     // Also cleanup expired short-lived tokens and counters (all carry expiresAt)
     let expiredTokens = 0;
-    for (const prefix of ['access:', 'view:', 'unlock_token:', 'qr1_scanned:', 'pwfail:']) {
+    for (const prefix of ['access:', 'view:', 'unlock_token:', 'qr1_scanned:', 'pwfail:', 'ratelimit:']) {
       const entries = await kv.getEntriesByPrefix(prefix);
       const expiredKeys = entries
         .filter((entry) => !entry.value?.expiresAt || entry.value.expiresAt < now)
@@ -493,26 +596,10 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       return c.json({ error: 'No files provided' }, 400);
     }
 
-    console.log(`📁 Uploading ${files.length} file(s)`);
-
-    // Get user ID from auth token (OPTIONAL - allows anonymous uploads)
-    let userId: string | null = null;
-    const authHeader = c.req.header('Authorization');
-    const accessToken = authHeader?.split(' ')[1];
-    // SECURITY: Don't log token presence
-    
-    if (accessToken && accessToken !== Deno.env.get('SUPABASE_ANON_KEY')) {
-      try {
-        const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-        if (error) {
-          console.error('❌ Error getting user from token during upload:', error.message);
-        } else if (user?.id) {
-          userId = user.id;
-          // SECURITY: Don't log user ID in production
-        }
-      } catch (error) {
-        console.error('❌ Exception getting user during upload:', error instanceof Error ? error.message : 'Unknown error');
-      }
+    // User is optional - anonymous uploads are allowed for free drops
+    const userId = await getRequestUserId(c);
+    if (await isCreateRateLimited(c, userId)) {
+      return rateLimitedResponse(c);
     }
 
     // SECURITY: Validate metadata size
@@ -526,9 +613,10 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     const MAX_FILE_SIZE = userId ? 20 * 1024 * 1024 : 1 * 1024 * 1024; // 20 MB or 1 MB
     const MAX_TOTAL_SIZE = userId ? 100 * 1024 * 1024 : 5 * 1024 * 1024; // 100 MB or 5 MB total
     
+    // Limits apply to the original size; files arrive slightly larger because they are encrypted
     let totalSize = 0;
     for (const file of files) {
-      if (file.size > MAX_FILE_SIZE) {
+      if (file.size - ENCRYPTION_OVERHEAD_ALLOWANCE > MAX_FILE_SIZE) {
         return c.json({ 
           error: `File "${file.name}" exceeds maximum size of ${MAX_FILE_SIZE / (1024 * 1024)} MB` 
         }, 400);
@@ -536,7 +624,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       totalSize += file.size;
     }
     
-    if (totalSize > MAX_TOTAL_SIZE) {
+    if (totalSize - files.length * ENCRYPTION_OVERHEAD_ALLOWANCE > MAX_TOTAL_SIZE) {
       return c.json({ 
         error: `Total file size exceeds maximum of ${MAX_TOTAL_SIZE / (1024 * 1024)} MB` 
       }, 400);
@@ -577,18 +665,30 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     // This ensures encryption/decryption use the same ID
     // SECURITY: Don't log clientId or IDs
     
-    const id = metadata.clientId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(metadata.clientId)
+    const id = metadata.clientId && UUID_REGEX.test(metadata.clientId)
       ? metadata.clientId
       : crypto.randomUUID();
     const timestamp = Date.now();
     const ownerToken = crypto.randomUUID();
-    
+
     if (metadata.secureMode && !metadata.clientId && id !== metadata.clientId) {
       console.warn('⚠️ [SERVER] Secure Mode file upload WITHOUT clientId! This will cause decryption to fail!');
     }
 
-    // Upload all files to Supabase Storage
-    const uploadedFiles: Array<{name: string; type: string; size: number; path: string}> = [];
+    // SECURITY: A client-chosen ID must never replace someone else's drop
+    if (await kv.get(`qrdrop:${id}`)) {
+      return c.json({ error: 'QR drop ID already in use' }, 409);
+    }
+
+    const price = priceQrDrop(c, userId, metadata, files.map((file) => file.size));
+    if (price instanceof Response) return price;
+    const { cost } = price;
+
+    let coinBalance: number | null = null;
+    if (cost > 0) {
+      coinBalance = await deductCoins(userId!, cost);
+      if (coinBalance === null) return insufficientCoinsResponse(c, cost);
+    }
 
     // SECURITY: Sanitize filename to prevent path traversal attacks
     const sanitizeFileName = (fileName: string): string => {
@@ -599,19 +699,21 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       // Limit length to prevent issues
       return sanitized.substring(0, 255);
     };
-    
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const sanitizedFileName = sanitizeFileName(file.name);
-      const filePath = `${id}/${timestamp}-${i}-${sanitizedFileName}`;
-      
-      // Get original file type from metadata if available (files are encrypted, so file.type is application/octet-stream)
-      const fileKey = i === 0 ? 'file' : `file${i}`;
-      const originalFileType = metadata.originalFileTypes?.[fileKey] || file.type;
 
-      try {
+    // Upload all files to Supabase Storage. Any failure undoes the whole drop and refunds the coins.
+    const uploadedFiles: Array<{name: string; type: string; size: number; path: string}> = [];
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const sanitizedFileName = sanitizeFileName(file.name);
+        const filePath = `${id}/${timestamp}-${i}-${sanitizedFileName}`;
+
+        // Get original file type from metadata if available (files are encrypted, so file.type is application/octet-stream)
+        const fileKey = i === 0 ? 'file' : `file${i}`;
+        const originalFileType = metadata.originalFileTypes?.[fileKey] || file.type;
+
         const fileBuffer = await file.arrayBuffer();
-        const { data: uploadData, error: uploadError } = await supabase.storage
+        const { error: uploadError } = await supabase.storage
           .from(BUCKET_NAME)
           .upload(filePath, fileBuffer, {
             contentType: 'application/octet-stream', // Always store as octet-stream since files are encrypted
@@ -619,9 +721,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
           });
 
         if (uploadError) {
-          console.error(`Upload error for file ${i} (${file.name}):`, uploadError);
-          // Continue with other files, but log error
-          continue;
+          throw new Error(`Upload failed for file ${i}: ${uploadError.message}`);
         }
 
         // Store original file type in metadata (before encryption) for proper decryption and display
@@ -631,88 +731,86 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
           size: file.size, // Encrypted size (may differ from original, but we store what we have)
           path: filePath
         });
-        console.log(`✅ Uploaded file ${i + 1}/${files.length}: ${file.name}`);
-      } catch (error) {
-        console.error(`Error uploading file ${i} (${file.name}):`, error);
-        // Continue with other files
       }
+
+      // Store metadata in KV
+      // For backwards compatibility, also store first file info in old fields
+      const firstFile = uploadedFiles[0];
+
+      // CRITICAL FIX: Handle Secure Mode ciphertext fields (same as create endpoint)
+      const isSecureMode = metadata.secureMode || false;
+      const isSingleQrMode = metadata.singleQrMode || false;
+      const isEncryptedMode = isSecureMode || isSingleQrMode;
+      const textContentToStore = isEncryptedMode
+        ? (metadata.textContentCiphertext || null)
+        : (metadata.textContent || null);
+      const urlContentToStore = isEncryptedMode
+        ? (metadata.urlContentCiphertext || null)
+        : (metadata.urlContent || null);
+
+      // SECURITY: Don't log content details
+
+      const qrDropData = {
+        id,
+        userId,
+        contentType: metadata.contentType || (uploadedFiles.length > 1 ? 'bundle' : 'file') as const,
+        title: metadata.title || null,
+        // Backwards compatibility fields (first file)
+        fileName: firstFile.name,
+        fileType: firstFile.type,
+        fileSize: totalSize,
+        filePath: firstFile.path,
+        // New fields for multiple files
+        files: uploadedFiles,
+        fileCount: uploadedFiles.length,
+        textContent: textContentToStore,
+        urlContent: urlContentToStore,
+        expiryType: metadata.expiryType,
+        // SECURITY: Lifetime follows the paid-for expiry type, not a client-supplied date
+        expiresAt: timestamp + EXPIRY_DURATIONS_MS[metadata.expiryType],
+        maxScans: toPositiveInt(metadata.maxScans),
+        maxDownloads: toPositiveInt(metadata.maxDownloads),
+        scanCount: 0,
+        downloadCount: 0,
+        viewOnly: metadata.viewOnly || false,
+        noPreview: metadata.noPreview || false,
+        password: metadata.password ? await hashPasswordSecure(metadata.password) : null, // Hash password before storing
+        qrStyle: metadata.qrStyle || null,
+        // NOTE: qrCodeDataUrl is not stored (too large - 30-50 KB, generated on-demand)
+        encrypted: metadata.encrypted || false,
+        secureMode: metadata.secureMode || false,
+        singleQrMode: metadata.singleQrMode || false,
+        encryptionKey: metadata.encryptionKey || null,
+        ownerTokenHash: await sha256Hex(ownerToken),
+        createdAt: timestamp,
+      };
+
+      if (!(await kv.insert(`qrdrop:${id}`, qrDropData))) {
+        throw Object.assign(new Error('QR drop ID already in use'), { status: 409 });
+      }
+      await kv.set(`qrdrop:index:${id}`, { id, createdAt: timestamp, userId });
+
+      // SECURITY: Don't log user IDs or file counts
+
+      return c.json({
+        success: true,
+        id,
+        qrDrop: withoutSecrets(qrDropData),
+        ownerToken, // Secret for the creator only; lets them preview without using up a view
+        coinsCharged: cost,
+        coins: coinBalance,
+      });
+    } catch (error) {
+      if (uploadedFiles.length > 0) {
+        await supabase.storage.from(BUCKET_NAME).remove(uploadedFiles.map((f) => f.path));
+      }
+      if (cost > 0) await refundCoins(userId!, cost);
+      if (error?.status === 409) return c.json({ error: error.message }, 409);
+      throw error;
     }
-
-    if (uploadedFiles.length === 0) {
-      return c.json({ error: 'Failed to upload any files' }, 500);
-    }
-
-    // Calculate expiry timestamp
-    let expiresAt: number | null = null;
-    if (metadata.expiryDate) {
-      expiresAt = new Date(metadata.expiryDate).getTime();
-    }
-
-    // Store metadata in KV
-    // For backwards compatibility, also store first file info in old fields
-    const firstFile = uploadedFiles[0];
-    
-    // CRITICAL FIX: Handle Secure Mode ciphertext fields (same as create endpoint)
-    const isSecureMode = metadata.secureMode || false;
-    const isSingleQrMode = metadata.singleQrMode || false;
-    const isEncryptedMode = isSecureMode || isSingleQrMode;
-    const textContentToStore = isEncryptedMode 
-      ? (metadata.textContentCiphertext || null)
-      : (metadata.textContent || null);
-    const urlContentToStore = isEncryptedMode
-      ? (metadata.urlContentCiphertext || null)
-      : (metadata.urlContent || null);
-    
-    // SECURITY: Don't log content details
-    
-    const qrDropData = {
-      id,
-      userId,
-      contentType: metadata.contentType || (uploadedFiles.length > 1 ? 'bundle' : 'file') as const,
-      title: metadata.title || null,
-      // Backwards compatibility fields (first file)
-      fileName: firstFile.name,
-      fileType: firstFile.type,
-      fileSize: totalSize,
-      filePath: firstFile.path,
-      // New fields for multiple files
-      files: uploadedFiles,
-      fileCount: uploadedFiles.length,
-      textContent: textContentToStore,
-      urlContent: urlContentToStore,
-      expiryType: metadata.expiryType,
-      expiresAt,
-      maxScans: metadata.maxScans || null,
-      maxDownloads: metadata.maxDownloads || null,
-      scanCount: 0,
-      downloadCount: 0,
-      viewOnly: metadata.viewOnly || false,
-      noPreview: metadata.noPreview || false,
-      password: metadata.password ? await hashPasswordSecure(metadata.password) : null, // Hash password before storing
-      qrStyle: metadata.qrStyle || null,
-      // NOTE: qrCodeDataUrl is not stored (too large - 30-50 KB, generated on-demand)
-      encrypted: metadata.encrypted || false,
-      secureMode: metadata.secureMode || false,
-      singleQrMode: metadata.singleQrMode || false,
-      encryptionKey: metadata.encryptionKey || null,
-      ownerTokenHash: await sha256Hex(ownerToken),
-      createdAt: timestamp,
-    };
-
-    await kv.set(`qrdrop:${id}`, qrDropData);
-    await kv.set(`qrdrop:index:${id}`, { id, createdAt: timestamp, userId });
-
-    // SECURITY: Don't log user IDs or file counts
-
-    return c.json({ 
-      success: true, 
-      id,
-      qrDrop: withoutSecrets(qrDropData),
-      ownerToken, // Secret for the creator only; lets them preview without using up a view
-    });
   } catch (error) {
     console.error('Error in upload endpoint:', error);
-    return c.json({ error: `Server error during upload: ${error.message}` }, 500);
+    return c.json({ error: 'Server error during upload' }, 500);
   }
 });
 
@@ -742,24 +840,10 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       return c.json({ error: 'Metadata too large. Maximum size is 10 KB.' }, 400);
     }
 
-    // Get user ID from auth token (OPTIONAL - allows anonymous creation)
-    let userId: string | null = null;
-    const authHeader = c.req.header('Authorization');
-    const accessToken = authHeader?.split(' ')[1];
-    // SECURITY: Don't log token presence
-    
-    if (accessToken && accessToken !== Deno.env.get('SUPABASE_ANON_KEY')) {
-      try {
-        const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-        if (error) {
-          console.error('❌ Error getting user from token during create:', error.message);
-        } else if (user?.id) {
-          userId = user.id;
-          // SECURITY: Don't log user ID in production
-        }
-      } catch (error) {
-        console.error('❌ Exception getting user during create:', error instanceof Error ? error.message : 'Unknown error');
-      }
+    // User is optional - anonymous creation is allowed for free drops
+    const userId = await getRequestUserId(c);
+    if (await isCreateRateLimited(c, userId)) {
+      return rateLimitedResponse(c);
     }
 
     // Validate content type
@@ -787,7 +871,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     // This ensures encryption/decryption use the same ID
     // SECURITY: Don't log clientId or IDs
     
-    const id = metadata.clientId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(metadata.clientId)
+    const id = metadata.clientId && UUID_REGEX.test(metadata.clientId)
       ? metadata.clientId
       : crypto.randomUUID();
     const timestamp = Date.now();
@@ -799,10 +883,21 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       console.error('❌ [SERVER] clientId provided but UUID validation failed!');
     }
 
-    // Calculate expiry timestamp
-    let expiresAt: number | null = null;
-    if (metadata.expiryDate) {
-      expiresAt = new Date(metadata.expiryDate).getTime();
+    // SECURITY: A client-chosen ID must never replace someone else's drop
+    if (await kv.get(`qrdrop:${id}`)) {
+      return c.json({ error: 'QR drop ID already in use' }, 409);
+    }
+
+    const price = priceQrDrop(c, userId, metadata, []);
+    if (price instanceof Response) return price;
+    const { cost } = price;
+    // Done before charging so a hashing failure can't cost coins
+    const passwordHash = metadata.password ? await hashPasswordSecure(metadata.password) : null;
+
+    let coinBalance: number | null = null;
+    if (cost > 0) {
+      coinBalance = await deductCoins(userId!, cost);
+      if (coinBalance === null) return insufficientCoinsResponse(c, cost);
     }
 
     // Store metadata in KV
@@ -828,14 +923,15 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       textContent: textContentToStore,
       urlContent: urlContentToStore,
       expiryType: metadata.expiryType,
-      expiresAt,
-      maxScans: metadata.maxScans || null,
-      maxDownloads: metadata.maxDownloads || null,
+      // SECURITY: Lifetime follows the paid-for expiry type, not a client-supplied date
+      expiresAt: timestamp + EXPIRY_DURATIONS_MS[metadata.expiryType],
+      maxScans: toPositiveInt(metadata.maxScans),
+      maxDownloads: toPositiveInt(metadata.maxDownloads),
       scanCount: 0,
       downloadCount: 0,
       viewOnly: metadata.viewOnly || false,
       noPreview: metadata.noPreview || false,
-      password: metadata.password ? await hashPasswordSecure(metadata.password) : null, // Hash password before storing
+      password: passwordHash, // Hashed before storing
       qrStyle: metadata.qrStyle || null,
       // NOTE: qrCodeDataUrl is not stored (too large - 30-50 KB, generated on-demand)
       encrypted: metadata.encrypted || false,
@@ -846,20 +942,30 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       createdAt: timestamp,
     };
 
-    await kv.set(`qrdrop:${id}`, qrDropData);
-    await kv.set(`qrdrop:index:${id}`, { id, createdAt: timestamp, userId });
+    try {
+      if (!(await kv.insert(`qrdrop:${id}`, qrDropData))) {
+        if (cost > 0) await refundCoins(userId!, cost);
+        return c.json({ error: 'QR drop ID already in use' }, 409);
+      }
+      await kv.set(`qrdrop:index:${id}`, { id, createdAt: timestamp, userId });
+    } catch (error) {
+      if (cost > 0) await refundCoins(userId!, cost);
+      throw error;
+    }
 
     // SECURITY: Don't log IDs or user IDs
 
-    return c.json({ 
-      success: true, 
+    return c.json({
+      success: true,
       id,
       qrDrop: withoutSecrets(qrDropData),
       ownerToken, // Secret for the creator only; lets them preview without using up a view
+      coinsCharged: cost,
+      coins: coinBalance,
     });
   } catch (error) {
     console.error('Error in create endpoint:', error);
-    return c.json({ error: `Server error during create: ${error.message}` }, 500);
+    return c.json({ error: 'Server error during create' }, 500);
   }
 });
 
@@ -1134,32 +1240,8 @@ app.post('/make-server-c3c9181e/qrdrop/:id/qr1-scanned', async (c) => {
       expiresAt: now + expiryMs // 5 minutes expiry
     };
     
-    const qr1ScanKey = `qr1_scanned:${id}`;
-    console.log(`💾 [QR1-SCANNED] Storing QR1 scan data with key: ${qr1ScanKey}`);
-    console.log(`💾 [QR1-SCANNED] Expiry calculation: now=${now}, expiryMs=${expiryMs}, expiresAt=${qr1ScanData.expiresAt}`);
-    console.log(`💾 [QR1-SCANNED] Expiry duration: ${expiryMs / 1000} seconds = ${expiryMs / (60 * 1000)} minutes`);
-    await kv.set(qr1ScanKey, qr1ScanData); // Note: expireIn parameter not supported by current kv.set implementation
-    
-    // Verify it was stored
-    const verifyStored = await kv.get(qr1ScanKey);
-    console.log(`💾 [QR1-SCANNED] Verification - data stored:`, verifyStored ? 'YES' : 'NO');
-    if (verifyStored) {
-      const storedScannedAt = new Date(verifyStored.scannedAt).toISOString();
-      const storedExpiresAt = new Date(verifyStored.expiresAt).toISOString();
-      const actualExpiryMs = verifyStored.expiresAt - verifyStored.scannedAt;
-      console.log(`💾 [QR1-SCANNED] Stored data:`, {
-        qrDropId: verifyStored.qrDropId,
-        scannedAt: storedScannedAt,
-        expiresAt: storedExpiresAt,
-        actualExpiryDuration: `${actualExpiryMs / 1000} seconds = ${actualExpiryMs / (60 * 1000)} minutes`
-      });
-      
-      // CRITICAL: Warn if expiry is not 5 minutes
-      if (actualExpiryMs < (4 * 60 * 1000)) {
-        console.error(`❌ [QR1-SCANNED] WARNING: Expiry is only ${actualExpiryMs / 1000} seconds, expected 300 seconds (5 minutes)!`);
-      }
-    }
-    
+    await kv.set(`qr1_scanned:${id}`, qr1ScanData);
+
     // SECURITY: Don't log QR drop IDs
     
     return c.json({ 
@@ -1194,20 +1276,9 @@ app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
     }
     
     // Check if QR1 was scanned
-    const qr1ScanKey = `qr1_scanned:${id}`;
-    console.log(`🔍 [VERIFY] Looking for QR1 scan data with key: ${qr1ScanKey}`);
-    const qr1ScanData = await kv.get(qr1ScanKey);
-    console.log(`🔍 [VERIFY] QR1 scan data found:`, qr1ScanData ? 'YES' : 'NO');
-    
+    const qr1ScanData = await kv.get(`qr1_scanned:${id}`);
+
     if (!qr1ScanData) {
-      // Debug: Check if any qr1_scanned keys exist
-      const allQr1Scans = await kv.getByPrefix('qr1_scanned:');
-      console.log(`🔍 [VERIFY] Total QR1 scans in KV store: ${allQr1Scans.length}`);
-      if (allQr1Scans.length > 0) {
-        const sampleKeys = allQr1Scans.slice(0, 3).map((scan: any) => scan?.qrDropId || 'unknown');
-        console.log(`🔍 [VERIFY] Sample QR1 scan IDs:`, sampleKeys);
-      }
-      
       return c.json({ 
         success: false,
         qr1Scanned: false,
@@ -1363,7 +1434,9 @@ app.post('/make-server-c3c9181e/qr/:id/download', async (c) => {
   }
 });
 
-// Get all QR drops (for list view)
+// Get the caller's QR drops (for list view), one page at a time
+const QRDROPS_PAGE_SIZE = 100;
+
 app.get('/make-server-c3c9181e/qrdrops', async (c) => {
   try {
     const userId = await getRequestUserId(c);
@@ -1371,13 +1444,24 @@ app.get('/make-server-c3c9181e/qrdrops', async (c) => {
       return c.json({ qrDrops: [] });
     }
 
-    // Only load the caller's own drops (the index entry carries the owner)
-    const indexes = await kv.getByPrefix('qrdrop:index:');
-    const ids = indexes
-      .filter((idx: any) => idx?.userId === userId)
-      .map((idx: any) => idx.id);
+    const limit = Math.min(toPositiveInt(c.req.query('limit')) ?? QRDROPS_PAGE_SIZE, QRDROPS_PAGE_SIZE);
+    const offset = Math.max(0, parseInt(c.req.query('offset') ?? '0', 10) || 0);
 
-    const qrDrops = ids.length > 0 ? await kv.mget(ids.map((id: string) => `qrdrop:${id}`)) : [];
+    // Only load the caller's own drops (the index entry carries the owner), newest first
+    const { data: indexes, error } = await kvClient()
+      .from('kv_store_c3c9181e')
+      .select('value')
+      .like('key', 'qrdrop:index:%')
+      .eq('value->>userId', userId);
+    if (error) throw new Error(error.message);
+
+    const ids = (indexes ?? [])
+      .map((row: any) => row.value)
+      .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0))
+      .map((idx: any) => idx.id);
+    const pageIds = ids.slice(offset, offset + limit);
+
+    const qrDrops = pageIds.length > 0 ? await kv.mget(pageIds.map((id: string) => `qrdrop:${id}`)) : [];
 
     // SECURITY: Don't log user IDs or QR drop counts
     const ownQrDrops = qrDrops
@@ -1385,7 +1469,11 @@ app.get('/make-server-c3c9181e/qrdrops', async (c) => {
       .map(withoutSecrets)
       .sort((a: any, b: any) => b.createdAt - a.createdAt);
 
-    return c.json({ qrDrops: ownQrDrops });
+    return c.json({
+      qrDrops: ownQrDrops,
+      total: ids.length,
+      nextOffset: offset + limit < ids.length ? offset + limit : null,
+    });
   } catch (error) {
     console.error('❌ Error getting QR drops:', error);
     return c.json({ error: 'Failed to get QR drops' }, 500);
@@ -1552,274 +1640,55 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       return c.json({ error: 'Signature verification failed' }, 400);
     }
 
-    // Handle the checkout.session.completed event
-    if (event.type === 'checkout.session.completed') {
+    // Card and Link payments complete synchronously; async methods report success separately
+    if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
       const session = event.data.object;
+
+      if (session.payment_status !== 'paid') {
+        console.log('ℹ️ Checkout session completed without payment yet - waiting for async payment');
+        return c.json({ received: true });
+      }
+
       const userId = session.metadata?.userId;
-      const coinsToAdd = parseInt(session.metadata?.coins || '50', 10);
+      const coinsToAdd = parseInt(session.metadata?.coins ?? '', 10);
 
-      // SECURITY: Don't log user IDs or emails
-      console.log('🎉 Checkout session completed:', {
-        paymentStatus: session.payment_status,
-        amountTotal: session.amount_total,
-        currency: session.currency,
-        coinsToAdd: coinsToAdd,
-      });
-
-      if (!userId) {
-        console.error('❌ No userId in session metadata');
-        // SECURITY: Don't log session metadata - may contain sensitive data
-        return c.json({ error: 'Missing userId in session metadata' }, 400);
+      // SECURITY: Don't log user IDs, emails or session metadata
+      if (!userId || !UUID_REGEX.test(userId) || !Number.isInteger(coinsToAdd) || coinsToAdd <= 0) {
+        console.error('❌ Checkout session has invalid metadata');
+        return c.json({ error: 'Invalid session metadata' }, 400);
       }
 
-      // Idempotency check: Check if this session has already been processed
-      const sessionId = session.id;
-      console.log('🔍 Checking idempotency for session:', sessionId);
-      
-      const { data: existingSession, error: checkError } = await supabase
-        .from('processed_checkout_sessions')
-        .select('coins_added, processed_at, user_id')
-        .eq('session_id', sessionId)
-        .single();
-
-      console.log('🔍 Idempotency check result:', {
-        found: !!existingSession,
-        error: checkError?.code,
-        coinsAdded: existingSession?.coins_added,
-        processedAt: existingSession?.processed_at,
+      // Marking the session as processed and adding coins is one transaction (B5)
+      const { data: credit, error: creditError } = await supabase.rpc('credit_checkout_session', {
+        p_session_id: session.id,
+        p_user_id: userId,
+        p_coins: coinsToAdd,
+        p_event_id: event.id,
       });
 
-      if (existingSession && !checkError) {
+      if (creditError) {
+        console.error('❌ Error crediting coins:', creditError.message);
+        // 500 makes Stripe retry; the session is only marked as processed if coins were added
+        return c.json({ error: 'Failed to credit coins' }, 500);
+      }
+
+      if (credit?.alreadyProcessed) {
         console.log('⚠️ Session already processed - skipping coin addition');
-        // Return success but don't add coins again
-        return c.json({ 
-          received: true, 
-          userId: userId,
-          coinsAdded: existingSession.coins_added,
-          alreadyProcessed: true,
-          message: 'Session already processed'
-        });
-      }
-
-      if (checkError && checkError.code !== 'PGRST116') {
-        // PGRST116 = no rows returned (expected if not processed)
-        // Other errors are unexpected
-        console.error('❌ Error checking idempotency:', checkError);
-        // Continue anyway - better to add coins twice than not at all
-      }
-
-      // Add coins to user profile using service role (bypasses RLS)
-      const { data: profile, error: fetchError } = await supabase
-        .from('user_profiles')
-        .select('coins')
-        .eq('id', userId)
-        .single();
-
-      if (fetchError) {
-        console.log('📝 Profile does not exist, creating new profile...');
-        // Profile doesn't exist, create it
-        const { data: newProfile, error: insertError } = await supabase
-          .from('user_profiles')
-          .insert({ id: userId, coins: coinsToAdd })
-          .select('coins')
-          .single();
-        
-        if (insertError) {
-          console.error('❌ Error creating user profile:', insertError);
-          return c.json({ error: 'Failed to create user profile' }, 500);
-        }
-        console.log(`✅ Created profile and added ${coinsToAdd} coins. New balance: ${newProfile.coins}`);
       } else {
-        const oldCoins = profile.coins || 0;
-        const newCoins = oldCoins + coinsToAdd;
-        console.log(`💰 Current coins: ${oldCoins}, Adding: ${coinsToAdd}, New total: ${newCoins}`);
-        
-        // Update existing profile
-        const { data: updatedProfile, error: updateError } = await supabase
-          .from('user_profiles')
-          .update({ coins: newCoins })
-          .eq('id', userId)
-          .select('coins')
-          .single();
-
-        if (updateError) {
-          console.error('❌ Error updating coins:', updateError);
-          console.error('Update error details:', JSON.stringify(updateError, null, 2));
-          return c.json({ error: 'Failed to update coins' }, 500);
-        }
-        console.log(`✅ Updated coins. New balance: ${updatedProfile.coins}`);
+        console.log(`🎊 Added ${coinsToAdd} coins`);
       }
-
-      // Mark this session as processed (idempotency) - BEFORE adding coins to prevent race conditions
-      const { error: insertSessionError } = await supabase
-        .from('processed_checkout_sessions')
-        .insert({
-          session_id: sessionId,
-          user_id: userId,
-          coins_added: coinsToAdd,
-          event_id: event.id,
-        });
-
-      if (insertSessionError) {
-        // If insert fails, check if it's because session already exists (race condition)
-        if (insertSessionError.code === '23505') { // Unique violation
-          console.log('⚠️ Session already exists in processed table (race condition) - skipping coin addition');
-          return c.json({ 
-            received: true, 
-            userId: userId,
-            coinsAdded: coinsToAdd,
-            alreadyProcessed: true,
-            message: 'Session already processed (race condition)'
-          });
-        }
-        console.error('❌ Error saving processed session:', insertSessionError);
-        // Don't fail the webhook, but log the error
-      } else {
-        console.log('✅ Session marked as processed:', sessionId);
-      }
-
-      console.log(`🎊 Successfully added ${coinsToAdd} coins`);
-      
-      // Verify the coins were actually added
-      const { data: verifyProfile, error: verifyError } = await supabase
-        .from('user_profiles')
-        .select('coins')
-        .eq('id', userId)
-        .single();
-      
-      if (verifyError) {
-        console.error('❌ Error verifying coins after update:', verifyError);
-      } else {
-        console.log('✅ Verified coin balance after update');
-      }
-      
-      return c.json({ 
-        received: true, 
-        userId: userId,
-        coinsAdded: coinsToAdd,
-        newBalance: verifyProfile?.coins ?? 0
-      });
+      return c.json({ received: true });
     }
 
     console.log('ℹ️ Webhook event received but not handled:', event.type);
-    return c.json({ received: true, eventType: event.type });
+    return c.json({ received: true });
   } catch (error) {
-    console.error('❌ Error processing webhook:', error);
-    console.error('❌ Error type:', error?.constructor?.name);
-    console.error('❌ Error message:', error?.message);
-    console.error('❌ Error stack:', error?.stack);
-    console.error('❌ Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-    return c.json({ 
-      error: `Webhook error: ${error?.message || 'Unknown error'}`,
-      errorType: error?.constructor?.name,
-      details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
-    }, 500);
+    console.error('❌ Error processing webhook:', error?.message);
+    return c.json({ error: 'Webhook error' }, 500);
   }
 });
 
-// Deduct coins endpoint
-app.post('/make-server-c3c9181e/deduct-coins', async (c) => {
-  try {
-    const { amount } = await c.req.json();
-    
-    if (!amount || amount <= 0) {
-      return c.json({ error: 'Invalid amount' }, 400);
-    }
-
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    if (!accessToken || accessToken === Deno.env.get('SUPABASE_ANON_KEY')) {
-      return c.json({ error: 'Authentication required' }, 401);
-    }
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
-    if (authError || !user) {
-      return c.json({ error: 'Invalid authentication' }, 401);
-    }
-
-    // Get current coins
-    const { data: profile, error: fetchError } = await supabase
-      .from('user_profiles')
-      .select('coins')
-      .eq('id', user.id)
-      .single();
-
-    if (fetchError) {
-      const { error: insertError } = await supabase
-        .from('user_profiles')
-        .insert({ id: user.id, coins: 0 });
-      
-      if (insertError) {
-        console.error('Error creating user profile:', insertError);
-        return c.json({ error: 'Failed to create user profile' }, 500);
-      }
-      
-      return c.json({ error: 'Insufficient coins' }, 400);
-    }
-
-    const currentCoins = profile?.coins || 0;
-    
-    if (currentCoins < amount) {
-      return c.json({ error: 'Insufficient coins' }, 400);
-    }
-
-    // Deduct coins
-    const { data: updatedProfile, error: updateError } = await supabase
-      .from('user_profiles')
-      .update({ coins: currentCoins - amount })
-      .eq('id', user.id)
-      .select('coins')
-      .single();
-
-    if (updateError) {
-      console.error('Error deducting coins:', updateError);
-      return c.json({ error: 'Failed to deduct coins' }, 500);
-    }
-
-    return c.json({ success: true, coins: updatedProfile.coins });
-  } catch (error) {
-    console.error('Error in deduct-coins endpoint:', error);
-    return c.json({ error: `Server error: ${error.message}` }, 500);
-  }
-});
-
-// Manual test endpoint to check coins (for debugging)
-app.get('/make-server-c3c9181e/test-coins', async (c) => {
-  try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    if (!accessToken || accessToken === Deno.env.get('SUPABASE_ANON_KEY')) {
-      return c.json({ error: 'Authentication required' }, 401);
-    }
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
-    if (authError || !user) {
-      return c.json({ error: 'Invalid authentication' }, 401);
-    }
-
-    // Get coins directly
-    const { data: profile, error: fetchError } = await supabase
-      .from('user_profiles')
-      .select('coins')
-      .eq('id', user.id)
-      .single();
-
-    if (fetchError) {
-      return c.json({ 
-        error: 'Failed to fetch coins', 
-        details: fetchError,
-        userId: user.id 
-      }, 500);
-    }
-
-    return c.json({ 
-      userId: user.id,
-      email: user.email,
-      coins: profile?.coins ?? 0,
-      profileExists: !!profile
-    });
-  } catch (error) {
-    return c.json({ error: `Server error: ${error.message}` }, 500);
-  }
-});
+// Coins are charged by /upload and /create (see priceQrDrop); there is no client-driven deduct endpoint.
 
 Deno.serve(app.fetch);
 

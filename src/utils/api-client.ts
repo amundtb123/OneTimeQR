@@ -166,6 +166,7 @@ async function fetchApi(endpoint: string, options: RequestInit = {}, requireAuth
       console.error('❌ API error:', errorMessage, error);
       const errorWithStatus = new Error(errorMessage);
       (errorWithStatus as any).status = response.status;
+      (errorWithStatus as any).code = error.code;
       throw errorWithStatus;
     }
 
@@ -341,7 +342,7 @@ export async function incrementDownloadCount(id: string): Promise<{ success: boo
   });
 }
 
-export async function getAllQrDrops(): Promise<{ qrDrops: QrDropData[] }> {
+export async function getAllQrDrops(): Promise<{ qrDrops: QrDropData[]; total?: number; nextOffset?: number | null }> {
   return fetchApi('/qrdrops');
 }
 
@@ -355,14 +356,4 @@ export async function createCheckoutSession(): Promise<{ url: string }> {
   return fetchApi('/checkout', {
     method: 'POST',
   }, true); // requireAuth: true
-}
-
-export async function deductCoins(amount: number): Promise<{ success: boolean; coins: number }> {
-  return fetchApi('/deduct-coins', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ amount }),
-  }, true); // Require authentication
 }

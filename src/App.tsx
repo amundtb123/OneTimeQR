@@ -1188,8 +1188,7 @@ function AppContent() {
             const cleanUrl = `${window.location.origin}/scan/${qr.id}`;
             
             let qrCodeUrl: string;
-            let qrCodeUrl2: string | undefined;
-            
+
             if (qr.qrStyle) {
               // Generate with stored style
               const baseQr = await generateStyledQrCode(cleanUrl, qr.qrStyle);
@@ -1207,56 +1206,9 @@ function AppContent() {
               qrCodeUrl = await createBrandedQrCode(baseQr);
             }
             
-            let qrCodeUrlShare: string | undefined;
-            
-            // Generate share QR (clean link) for Secure Mode and Single QR Mode
-            if (qr.secureMode || qr.singleQrMode) {
-              const shareUrl = `${window.location.origin}/scan/${qr.id}`;
-              
-              if (qr.qrStyle) {
-                const baseShareQr = await generateStyledQrCode(shareUrl, qr.qrStyle);
-                qrCodeUrlShare = await createBrandedQrCode(baseShareQr);
-              } else {
-                const baseShareQr = await QRCode.toDataURL(shareUrl, {
-                  width: 400,
-                  margin: 2,
-                  color: {
-                    dark: '#4F46E5',
-                    light: '#FFFFFF',
-                  },
-                });
-                qrCodeUrlShare = await createBrandedQrCode(baseShareQr);
-              }
-            }
-            
-            // If Secure Mode, generate QR #2 (unlock code)
-            if (qr.secureMode) {
-              const unlockUrl = `${window.location.origin}/scan/${qr.id}?unlock=1`;
-              
-              if (qr.qrStyle) {
-                const baseQr2 = await generateStyledQrCode(unlockUrl, qr.qrStyle);
-                qrCodeUrl2 = await createBrandedQrCode(baseQr2);
-              } else {
-                const baseQr2 = await QRCode.toDataURL(unlockUrl, {
-                  width: 400,
-                  margin: 2,
-                  color: {
-                    dark: '#E8927E', // Use coral color for QR #2
-                    light: '#FFFFFF',
-                  },
-                });
-                qrCodeUrl2 = await createBrandedQrCode(baseQr2);
-              }
-            }
-            
-            const qrDrop = convertToQrDrop(qr, qrCodeUrl);
-            if (qrCodeUrl2) {
-              qrDrop.qrCodeUrl2 = qrCodeUrl2;
-            }
-            if (qrCodeUrlShare) {
-              qrDrop.qrCodeUrlShare = qrCodeUrlShare;
-            }
-            return qrDrop;
+            // Secure Mode and Single QR Mode unlock codes contain keys that are never stored,
+            // so they can only be shown right after creation. The list shows the share link.
+            return convertToQrDrop(qr, qrCodeUrl);
           } catch (error) {
             console.error(`Error generating QR for ${qr.id}:`, error);
             // Return with placeholder QR if generation fails

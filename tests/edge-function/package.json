@@ -7,6 +7,8 @@
     "test": "node build.mjs && node test.mjs"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.2.17"
+    "@electric-sql/pglite": "0.2.17",
+    "esbuild": "0.25.12",
+    "hono": "4.13.14"
   }
 }

@@ -54,7 +54,6 @@ export function DualQrDisplay({ qr1Url, qr2Url, qr1LinkUrl, qr2LinkUrl, qrDropId
       try {
         await navigator.share({
           title: 'QR #1 – Tilgangskode',
-          text: 'Skann denne lenken for å se QR #2',
           url: cleanLink,
         });
         toast.success('Lenke delt');

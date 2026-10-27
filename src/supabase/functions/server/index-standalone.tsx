@@ -160,7 +160,7 @@ async function viewTokenDropId(token: string | undefined): Promise<string | null
 }
 
 // SECURITY: Content, keys and file URLs are only handed out by /open, which issues a
-// short-lived view token. Follow-up calls (/file, /key, /download) must present it.
+// short-lived view token. Follow-up calls (/file, /download) must present it.
 const VIEW_TOKEN_TTL_MS = 15 * 60 * 1000;
 const PASSWORD_MAX_ATTEMPTS = 5;
 const PASSWORD_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
@@ -1070,75 +1070,6 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
   } catch (error) {
     console.error('Error opening QR drop:', error);
     return c.json({ error: 'Failed to open QR drop' }, 500);
-  }
-});
-
-// Get encryption key for standard encrypted files
-// DEPRECATED: /open returns the key. Kept for clients loaded before the simplified scan flow.
-// SECURITY: Requires a view token from /open (or ownership)
-app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
-  try {
-    const id = c.req.param('id');
-
-    // SECURITY: Validate UUID format
-    if (!UUID_REGEX.test(id)) {
-      return c.json({ error: 'Invalid QR drop ID format' }, 400);
-    }
-
-    const qrDrop = await getQrDrop(id);
-
-    if (!qrDrop) {
-      return c.json({ error: 'QR drop not found' }, 404);
-    }
-
-    if (!(await hasViewAccess(c, qrDrop))) {
-      return c.json({ error: 'Open the QR drop first', code: 'VIEW_TOKEN_REQUIRED' }, 403);
-    }
-
-    // Secure Mode and Single QR Mode never store a key on the server
-    if (!qrDrop.encryptionKey) {
-      return c.json({ error: 'Encryption key not found' }, 404);
-    }
-
-    // SECURITY: Don't log QR drop IDs or encryption key operations
-
-    return c.json({ encryptionKey: qrDrop.encryptionKey });
-  } catch (error) {
-    console.error('Error fetching encryption key:', error);
-    return c.json({ error: 'Failed to fetch encryption key' }, 500);
-  }
-});
-
-// Lightweight check endpoint
-// DEPRECATED: GET /qr/:id returns the same. Kept for clients loaded before the simplified scan flow.
-app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
-  try {
-    const id = c.req.param('id');
-    
-    // SECURITY: Validate UUID format
-    if (!UUID_REGEX.test(id)) {
-      return c.json({ error: 'Invalid QR drop ID format' }, 400);
-    }
-    
-    const qrDrop = await getQrDrop(id);
-
-    if (!qrDrop) {
-      return c.json({ error: 'QR drop not found' }, 404);
-    }
-
-    // SECURITY: Don't log QR drop IDs or mode details
-    
-    return c.json({ 
-      secureMode: qrDrop.secureMode || false,
-      singleQrMode: qrDrop.singleQrMode || false,
-      hasPassword: !!qrDrop.password,
-      contentType: qrDrop.contentType,
-      expiresAt: qrDrop.expiresAt,
-      expiryType: qrDrop.expiryType
-    });
-  } catch (error) {
-    console.error('Error checking QR drop:', error);
-    return c.json({ error: `Failed to check QR drop: ${error.message}` }, 500);
   }
 });
 

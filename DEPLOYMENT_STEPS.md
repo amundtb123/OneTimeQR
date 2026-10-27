@@ -21,22 +21,12 @@ Funksjonen som kjører i produksjon er **`src/supabase/functions/server/index-st
 
 Merge til `main`. Netlify bygger og publiserer automatisk.
 
-## Engangssteg: flytting fra KV-tabellen (økt 3, del A)
+## Opprydding etter økt 3
 
-1. Aktiver `pg_cron` under Database → Extensions (for automatisk opprydding hvert 10. minutt).
-2. Kjør `20261028120000_qr_drop_tables.sql` og `20261028120100_qr_drop_cleanup_cron.sql`.
-   Den første kopierer alle gyldige QR-drops fra `kv_store_c3c9181e` til `qr_drops`.
-3. Deploy Edge-funksjonen.
-4. Kjør `select public.copy_kv_qr_drops();` én gang til, så drops laget mellom
-   steg 2 og 3 også kommer med. Den kan trygt kjøres flere ganger.
-
-Sjekk at oppryddingsjobben er planlagt: `select jobname, schedule from cron.job;`
-`kv_store_c3c9181e` brukes ikke lenger av funksjonen og kan tømmes etter 7 dager.
-
-Planlagt opprydding når en uke har gått etter økt 3 (tidligst 2026-11-04): slette
-`kv_store_c3c9181e`, SQL-funksjonene `qrdrop_consume`, `qrdrop_register_password_attempt` og
-`copy_kv_qr_drops`, kolonnen `qr_drops.qr1_scanned_at`, og endepunktene `/qrdrop/:id/check`
-og `/qrdrop/:id/key`, som bare finnes for nettlesere med gammel frontend.
+`20261029120000_drop_kv_store.sql` sletter KV-tabellen `kv_store_c3c9181e` og de gamle
+SQL-funksjonene som brukte den. Den er destruktiv og skal bare kjøres når Edge-funksjonen fra
+økt 3 (del B) er deployet. `pg_cron` må være aktivert (Database → Extensions) for den
+automatiske oppryddingen; sjekk med `select jobname, schedule from cron.job;`
 
 ## 4. Røyktest
 

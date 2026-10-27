@@ -78,7 +78,6 @@ export function QrDetailView({ qrDrop, onScan }: QrDetailViewProps) {
       try {
         await navigator.share({
           title: t('qrDetail.shareFile', { fileName: qrDrop.fileName }),
-          text: t('qrDetail.scanQrToAccess'),
           url: link,
         });
       } catch (error) {

@@ -33,11 +33,9 @@ await db.exec(sqlFile('supabase_migration_idempotency.sql'));
 await db.exec(`grant all on all tables in schema public to anon, authenticated, service_role;
   alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
   alter default privileges in schema public grant execute on functions to public;`);
+// Each migration must be safe to run again right after it was applied
 for (const f of fs.readdirSync(path.join(project, 'supabase/migrations')).sort()) {
   await db.exec(sqlFile(path.join('supabase/migrations', f)));
-}
-// Migrations must be re-runnable
-for (const f of fs.readdirSync(path.join(project, 'supabase/migrations')).sort()) {
   await db.exec(sqlFile(path.join('supabase/migrations', f)));
 }
 
@@ -60,8 +58,8 @@ await db.query(`insert into public.qr_drops (id, content_type, expiry_type, expi
   ($2, 'text', '10m', now() + interval '1 hour', '[]')`, [EXPIRED_DROP, FRESH_DROP]);
 (globalThis.__files ??= new Map()).set('expired/a.bin', Buffer.from('x'));
 await db.query(`insert into public.qr_password_attempts values ($1, 3, now() - interval '1 second')`, [FRESH_DROP]);
-for (const [hash, kind, expires] of [['old-access', 'access', '-1 minute'], ['old-view', 'view', '-1 minute'], ['old-unlock', 'unlock', '-1 minute'], ['fresh-view', 'view', '1 hour']]) {
-  await db.query(`insert into public.qr_tokens values ($1, $2, $3, now() + $4::interval)`, [hash, kind, FRESH_DROP, expires]);
+for (const [hash, expires] of [['old-view-1', '-1 minute'], ['old-view-2', '-1 second'], ['fresh-view', '1 hour']]) {
+  await db.query(`insert into public.qr_tokens values ($1, 'view', $2, now() + $3::interval)`, [hash, FRESH_DROP, expires]);
 }
 await db.query(`insert into public.rate_limits values ('create:old', 5, now() - interval '1 minute')`);
 
@@ -108,8 +106,8 @@ await new Promise((r) => setTimeout(r, 500));
 
 console.log('\nCleanup');
 {
-  const tokens = (await db.query(`select token_hash from public.qr_tokens where token_hash in ('old-access', 'old-view', 'old-unlock', 'fresh-view')`)).rows.map((r) => r.token_hash);
-  check('expired access/view/unlock tokens removed', tokens.join() === 'fresh-view', tokens);
+  const tokens = (await db.query(`select token_hash from public.qr_tokens where token_hash in ('old-view-1', 'old-view-2', 'fresh-view')`)).rows.map((r) => r.token_hash);
+  check('expired view tokens removed', tokens.join() === 'fresh-view', tokens);
   check('expired rate limit removed', (await db.query(`select 1 from public.rate_limits where key = 'create:old'`)).rows.length === 0);
   check('expired password attempt window removed', (await db.query(`select 1 from public.qr_password_attempts where qr_drop_id = $1`, [FRESH_DROP])).rows.length === 0);
   check('expired drop deleted, fresh drop kept', !(await rawDrop(EXPIRED_DROP)) && !!(await rawDrop(FRESH_DROP)));
@@ -129,7 +127,6 @@ console.log('\nS1: password-protected drop');
   check('metadata has no content', m.json.qrDrop.textContent === undefined && m.json.qrDrop.hasTextContent === true, m.json.qrDrop);
   check('metadata has no password hash', m.json.qrDrop.password === true);
 
-  check('/key without view token is 403', (await call('GET', `/qrdrop/${id}/key`)).status === 403);
   check('/file without view token is 403', (await call('GET', `/qr/${id}/file`)).status === 403);
   check('/open without password is 401', (await call('POST', `/qr/${id}/open`, { body: {} })).status === 401);
   check('/open with wrong password is 401', (await call('POST', `/qr/${id}/open`, { body: { password: 'feil' } })).status === 401);
@@ -157,17 +154,14 @@ console.log('\nS1: password brute force');
   check('parallel guesses are capped at 5', n401 === 5, parallel.map((r) => r.status));
 }
 
-console.log('\nS1: encryption key needs view token');
+console.log('\nS1: encryption key only via /open');
 {
   const { id } = await create({ encryptionKey: 'a'.repeat(64) });
-  const other = await create({});
-  const otherOpen = await call('POST', `/qr/${other.id}/open`, { body: {} });
-  check('/key with another drop\'s view token is 403', (await call('GET', `/qrdrop/${id}/key`, { viewToken: otherOpen.json.viewToken })).status === 403);
-  check('/key with forged view token is 403', (await call('GET', `/qrdrop/${id}/key`, { viewToken: crypto.randomUUID() })).status === 403);
-  const opened = await call('POST', `/qr/${id}/open`, { body: {} });
-  const key = await call('GET', `/qrdrop/${id}/key`, { viewToken: opened.json.viewToken });
-  check('/key with own view token returns key', key.status === 200 && key.json.encryptionKey === 'a'.repeat(64), key);
   check('metadata hides encryptionKey', (await meta(id)).json.qrDrop.encryptionKey === undefined);
+  const opened = await call('POST', `/qr/${id}/open`, { body: {} });
+  check('/open returns the key for standard files', opened.json.qrDrop.encryptionKey === 'a'.repeat(64));
+  check('/file with another drop\'s view token is 403', (await call('GET', `/qr/${id}/file`, { viewToken: (await call('POST', `/qr/${(await create({})).id}/open`, { body: {} })).json.viewToken })).status === 403);
+  check('/file with forged view token is 403', (await call('GET', `/qr/${id}/file`, { viewToken: crypto.randomUUID() })).status === 403);
 }
 
 console.log('\nB2 + S1: view limits');
@@ -199,7 +193,7 @@ console.log('\nB2 + S1: view limits');
   for (let i = 0; i < 3; i++) await meta(id6);
   check('metadata does not use up a view', (await meta(id6)).status === 200 && ((await rawDrop(id6)).scanCount || 0) === 0);
   check('old access-token links still work', (await call('GET', `/qr/${id6}?access=${crypto.randomUUID()}`)).status === 200);
-  for (const [method, p] of [['POST', `/qr/${id6}/scan`], ['POST', `/qr/${id6}/access-token`], ['POST', `/qrdrop/${id6}/qr1-scanned`], ['POST', `/qrdrop/${id6}/verify-qr1-for-qr2`]]) {
+  for (const [method, p] of [['POST', `/qr/${id6}/scan`], ['POST', `/qr/${id6}/access-token`], ['POST', `/qrdrop/${id6}/qr1-scanned`], ['POST', `/qrdrop/${id6}/verify-qr1-for-qr2`], ['GET', `/qrdrop/${id6}/check`], ['GET', `/qrdrop/${id6}/key`]]) {
     check(`removed endpoint ${p.split('/').pop()} is 404`, (await call(method, p)).status === 404);
   }
 }
@@ -439,37 +433,6 @@ console.log('\nTables: tokens, files and cleanup');
   check('cleanup deletes it afterwards', !(await rawDrop(once.id)));
 }
 
-console.log('\nMigration from the KV store');
-{
-  const legacy = crypto.randomUUID();
-  const expired = crypto.randomUUID();
-  const later = Date.now() + 3600e3;
-  const put = (key, value) => db.query(`insert into public.kv_store_c3c9181e values ($1, $2)`, [key, JSON.stringify(value)]);
-  await put('qrdrop:' + legacy, {
-    id: legacy, userId: USER_A, contentType: 'file', fileName: 'old.pdf', fileType: 'application/pdf', fileSize: 42, filePath: 'legacy/old.pdf',
-    expiryType: '1h', expiresAt: later, maxScans: '3', scanCount: 1, password: 'hash', ownerTokenHash: 'oth', createdAt: Date.now() - 1000, viewOnly: true,
-  });
-  await put('qrdrop:index:' + legacy, { id: legacy, userId: USER_A, createdAt: Date.now() });
-  await put('qrdrop:' + expired, { id: expired, contentType: 'text', textContent: 'gone', expiryType: '10m', expiresAt: Date.now() - 1000, createdAt: Date.now() - 1e6 });
-  await put('qrdrop:not-a-uuid', { contentType: 'text' });
-
-  const copied = (await db.query(`select public.copy_kv_qr_drops() as n`)).rows[0].n;
-  check('copies unexpired drops only', copied === 1, copied);
-  const row = (await db.query(`select * from public.qr_drops where id = $1`, [legacy])).rows[0];
-  check('fields are mapped', row && row.user_id === USER_A && row.max_scans === 3 && row.scan_count === 1 && row.view_only === true
-    && row.password_hash === 'hash' && row.expires_at.getTime() === later, row);
-  check('legacy filePath becomes a files entry', row?.files?.[0]?.path === 'legacy/old.pdf' && row.files[0].size === 42, row?.files);
-  check('expired KV drop is not copied', !(await rawDrop(expired)));
-  check('copied drop opens through the API', (await meta(legacy)).json?.qrDrop?.fileName === 'old.pdf');
-
-  await db.query(`update public.kv_store_c3c9181e set value = jsonb_set(value, '{scanCount}', '2') where key = $1`, ['qrdrop:' + legacy]);
-  await db.query(`select public.copy_kv_qr_drops()`);
-  check('re-run takes the higher view count', (await rawDrop(legacy)).scanCount === 2);
-  await db.query(`delete from public.qr_drops where id = $1`, [legacy]);
-  await db.query(`select public.copy_kv_qr_drops()`);
-  check('re-run does not bring back a deleted drop', !(await rawDrop(legacy)));
-}
-
 console.log('\nCORS');
 {
   const preflight = (origin) => globalThis.__handler(new Request('http://local/make-server-c3c9181e/qr/x/open', {
@@ -492,8 +455,9 @@ async function asRole(role, sub, sql, params = []) {
 }
 const denied = (r) => !r.ok && /permission denied/.test(r.err);
 {
-  check('anon cannot call qrdrop_consume', !(await asRole('anon', null, `select public.qrdrop_consume('x', 'scan', 0)`)).ok);
-  check('authenticated cannot call qrdrop_register_password_attempt', !(await asRole('authenticated', USER_A, `select public.qrdrop_register_password_attempt('x', 0, 1)`)).ok);
+  check('KV store and its functions are gone', (await db.query(`select to_regclass('public.kv_store_c3c9181e') as t, to_regproc('public.qrdrop_consume') as f`)).rows[0].t === null
+    && (await db.query(`select to_regproc('public.qrdrop_consume') as f, to_regproc('public.copy_kv_qr_drops') as c`)).rows.every((r) => r.f === null && r.c === null));
+  check('only view tokens can be stored', !(await db.query(`insert into public.qr_tokens values ('x', 'access', gen_random_uuid(), now())`).then(() => true, () => false)));
   check('authenticated cannot call deduct_coins', !(await asRole('authenticated', USER_A, `select public.deduct_coins($1, 1)`, [USER_A])).ok);
   check('authenticated cannot call refund_coins', !(await asRole('authenticated', USER_A, `select public.refund_coins($1, 1000)`, [USER_A])).ok);
   check('authenticated cannot call credit_checkout_session', !(await asRole('authenticated', USER_A, `select public.credit_checkout_session('x', $1, 1000, 'e')`, [USER_A])).ok);
@@ -503,12 +467,9 @@ const denied = (r) => !r.ok && /permission denied/.test(r.err);
     check(`authenticated cannot read ${table}`, denied(await asRole('authenticated', USER_A, `select * from public.${table}`)));
   }
   check('authenticated cannot insert a QR drop', denied(await asRole('authenticated', USER_A, `insert into public.qr_drops (id, content_type, expiry_type, expires_at) values (gen_random_uuid(), 'text', '10m', now())`)));
-  for (const fn of [`qr_drop_consume(gen_random_uuid(), 'scan', 0)`, `qr_drop_password_attempt(gen_random_uuid(), 0, 1)`, `cleanup_expired_qr_drops()`, `copy_kv_qr_drops()`]) {
+  for (const fn of [`qr_drop_consume(gen_random_uuid(), 'scan', 0)`, `qr_drop_password_attempt(gen_random_uuid(), 0, 1)`, `cleanup_expired_qr_drops()`]) {
     check(`authenticated cannot call ${fn.split('(')[0]}`, denied(await asRole('authenticated', USER_A, `select public.${fn}`)));
   }
-  check('anon cannot read kv store', ((await asRole('anon', null, `select * from public.kv_store_c3c9181e`)).res?.rows.length ?? 0) === 0);
-  check('authenticated cannot read kv store', ((await asRole('authenticated', USER_A, `select * from public.kv_store_c3c9181e`)).res?.rows.length ?? 0) === 0);
-  check('anon cannot truncate kv store', !(await asRole('anon', null, `truncate public.kv_store_c3c9181e`)).ok);
 
   const upd = await asRole('authenticated', USER_A, `update public.user_profiles set coins = 99999 where id = $1`, [USER_A]);
   const coinsA = (await db.query(`select coins from public.user_profiles where id = $1`, [USER_A])).rows[0].coins;

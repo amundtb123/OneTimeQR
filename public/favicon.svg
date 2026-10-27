@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 28 28">
+  <style>path, rect { fill: #0B0B0B; } @media (prefers-color-scheme: dark) { path, rect { fill: #FFFFFF; } }</style>
+  <path fill-rule="evenodd" d="M0 0h10v10H0zM2 2v6h6V2z" />
+  <rect x="3.5" y="3.5" width="3" height="3" />
+  <path fill-rule="evenodd" d="M14 0h10v10H14zM16 2v6h6V2z" />
+  <rect x="17.5" y="3.5" width="3" height="3" />
+  <path fill-rule="evenodd" d="M0 14h10v10H0zM2 16v6h6v-6z" />
+  <rect x="3.5" y="17.5" width="3" height="3" />
+  <rect x="14" y="14" width="3" height="3" />
+  <rect x="17" y="14" width="3" height="3" />
+  <rect x="14" y="17" width="3" height="3" />
+  <rect x="21" y="17" width="3" height="3" />
+  <rect x="17" y="21" width="3" height="3" />
+  <rect x="21" y="21" width="3" height="3" />
+  <rect x="11.5" y="4" width="1.5" height="1.5" />
+  <rect x="4" y="11.5" width="1.5" height="1.5" />
+</svg>

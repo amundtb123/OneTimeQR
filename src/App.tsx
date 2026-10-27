@@ -141,6 +141,24 @@ function AppContent() {
     }
   }, [currentView]);
 
+  // Scans happen on other devices: refresh the key ring when the person comes back to it
+  useEffect(() => {
+    if (currentView !== 'list' || scanId) return;
+    let last = 0;
+    const refresh = () => {
+      // focus and visibilitychange often fire together; one load is enough
+      if (document.visibilityState !== 'visible' || Date.now() - last < 2000) return;
+      last = Date.now();
+      loadQrDrops();
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [currentView, scanId, user]);
+
   // The success page navigates without popstate, so follow the path
   useEffect(() => {
     const interval = setInterval(() => {

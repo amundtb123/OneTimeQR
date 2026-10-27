@@ -17,16 +17,23 @@ export function downloadImage(src: string, filename: string) {
   document.body.removeChild(link);
 }
 
-// The images a key consists of, in the order they should be handed out
-export function keyImages(qrDrop: QrDrop): Array<{ src: string; file: string }> {
+export type KeyImageKind = 'link' | 'key1' | 'key2' | 'unlock' | 'single';
+
+// The images a key consists of, in the order they should be handed out. Unlock codes only exist
+// right after creation; a key loaded from the server has just the plain link QR.
+export function keyImages(qrDrop: QrDrop): Array<{ src: string; file: string; kind: KeyImageKind }> {
   const name = qrDrop.fileName.replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 40) || 'key';
+  const images: Array<{ src: string; file: string; kind: KeyImageKind }> = [];
+  if (qrDrop.qrCodeUrlShare) images.push({ src: qrDrop.qrCodeUrlShare, file: `onetimeqr-${name}-link.png`, kind: 'link' });
   if (qrDrop.secureMode && qrDrop.qrCodeUrl2) {
-    return [
-      { src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}-key-1.png` },
-      { src: qrDrop.qrCodeUrl2, file: `onetimeqr-${name}-key-2.png` },
-    ];
+    images.push({ src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}-key-1.png`, kind: 'key1' });
+    images.push({ src: qrDrop.qrCodeUrl2, file: `onetimeqr-${name}-key-2.png`, kind: 'key2' });
+  } else if (qrDrop.singleQrMode && qrDrop.qrCodeUrlShare) {
+    images.push({ src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}-unlock.png`, kind: 'unlock' });
+  } else {
+    images.push({ src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}.png`, kind: 'single' });
   }
-  return [{ src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}.png` }];
+  return images;
 }
 
 interface StepReadyProps {
@@ -54,7 +61,7 @@ export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
 
   const download = () => {
     images.forEach((img, i) => setTimeout(() => downloadImage(img.src, img.file), i * 150));
-    toast.success(images.length > 1 ? t('qrDetail.bothQrsDownloaded') : t('qrDetail.qrDownloaded'));
+    toast.success(images.length > 1 ? t('lag.ready.downloaded', { count: images.length }) : t('qrDetail.qrDownloaded'));
   };
 
   return (
@@ -77,16 +84,14 @@ export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
               <span>ONETIMEQR</span>
               <span>{t('lag.preview.sealed')}{qrDrop.maxScans ? ` · ${qrDrop.maxScans}×` : ''}</span>
             </div>
-            {two ? (
-              <div className="lg-ticket-pair">
-                <figure>
-                  <img src={qrDrop.qrCodeUrl} alt={t('lag.ready.key1')} />
-                  <figcaption className="lg-small" style={{ fontWeight: 600 }}>{t('lag.ready.key1')}</figcaption>
-                </figure>
-                <figure>
-                  <img src={qrDrop.qrCodeUrl2} alt={t('lag.ready.key2')} />
-                  <figcaption className="lg-small" style={{ fontWeight: 600 }}>{t('lag.ready.key2')}</figcaption>
-                </figure>
+            {images.length > 1 ? (
+              <div className={`lg-ticket-pair${images.length > 2 ? ' lg-ticket-three' : ''}`}>
+                {images.map((img) => (
+                  <figure key={img.kind}>
+                    <img src={img.src} alt={t(`lag.ready.${img.kind}`)} />
+                    <figcaption className="lg-small" style={{ fontWeight: 600 }}>{t(`lag.ready.${img.kind}`)}</figcaption>
+                  </figure>
+                ))}
               </div>
             ) : (
               <img src={qrDrop.qrCodeUrl} alt={qrDrop.fileName} />

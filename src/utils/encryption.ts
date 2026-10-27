@@ -27,7 +27,6 @@ export function fromB64u(s: string): Uint8Array {
     return Uint8Array.from(decoded, c => c.charCodeAt(0));
   } catch (error) {
     console.error('❌ [B64U] Failed to decode base64url:', {
-      input: s,
       inputLength: s?.length,
       error: error.message
     });
@@ -81,8 +80,6 @@ export function combineKeys(k1Base64Url: string, k2Base64Url: string): Uint8Arra
   console.log('🔑 [COMBINE] Combining keys:', {
     k1Length: k1Base64Url?.length,
     k2Length: k2Base64Url?.length,
-    k1Preview: k1Base64Url?.substring(0, 20) + '...',
-    k2Preview: k2Base64Url?.substring(0, 20) + '...'
   });
   
   try {
@@ -440,7 +437,6 @@ export async function decryptFile(encryptedBlob: Blob, keyHex: string): Promise<
       console.error('❌ [DECRYPT FILE] Invalid key format:', {
         keyLength: keyHex?.length,
         isHex: keyHex ? /^[0-9a-fA-F]+$/.test(keyHex) : false,
-        keyPreview: keyHex?.substring(0, 20) + '...'
       });
       throw new Error(`Invalid key format: expected 64 hex characters, got ${keyHex?.length || 0}`);
     }
@@ -524,30 +520,4 @@ export function createQr1Url(baseUrl: string, fileId: string, k1: string): strin
 export function createQr2Url(baseUrl: string, fileId: string, k2: string): string {
   // k2 is in URL fragment - server never sees it
   return `${baseUrl}/unlock/${fileId}#k2=${k2}`;
-}
-
-/**
- * Extract k1 from URL fragment
- */
-export function extractK1FromUrl(): string | null {
-  const hash = window.location.hash;
-  const match = hash.match(/k1=([^&]+)/);
-  return match ? match[1] : null;
-}
-
-/**
- * Extract k2 from URL fragment
- */
-export function extractK2FromUrl(): string | null {
-  const hash = window.location.hash;
-  const match = hash.match(/k2=([^&]+)/);
-  return match ? match[1] : null;
-}
-
-/**
- * Create a shareable decryption key URL (legacy - for backwards compatibility)
- */
-export function createDecryptionKeyUrl(baseUrl: string, qrId: string, key: string): string {
-  // Legacy: Use simple unlock parameter - server will provide the key
-  return `${baseUrl}/scan/${qrId}?unlock=1`;
 }

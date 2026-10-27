@@ -33,6 +33,11 @@ Merge til `main`. Netlify bygger og publiserer automatisk.
 Sjekk at oppryddingsjobben er planlagt: `select jobname, schedule from cron.job;`
 `kv_store_c3c9181e` brukes ikke lenger av funksjonen og kan tømmes etter 7 dager.
 
+Planlagt opprydding når en uke har gått etter økt 3 (tidligst 2026-11-04): slette
+`kv_store_c3c9181e`, SQL-funksjonene `qrdrop_consume`, `qrdrop_register_password_attempt` og
+`copy_kv_qr_drops`, kolonnen `qr_drops.qr1_scanned_at`, og endepunktene `/qrdrop/:id/check`
+og `/qrdrop/:id/key`, som bare finnes for nettlesere med gammel frontend.
+
 ## 4. Røyktest
 
 - Lag en gratis QR-kode (10 min) uten innlogging og åpne den på mobil

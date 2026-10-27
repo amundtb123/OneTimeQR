@@ -63,7 +63,8 @@ export function QrScanner({ onScan, onClose, qrNumber = '2' }: QrScannerProps) {
         },
         (decodedText) => {
           // Success callback
-          console.log('✅ [QR SCANNER] QR code detected:', decodedText);
+          // SECURITY: Don't log the scanned URL - it carries a key in its fragment
+          console.log('✅ [QR SCANNER] QR code detected');
           console.log('✅ [QR SCANNER] Calling onScan callback...');
           stopScanner();
           try {

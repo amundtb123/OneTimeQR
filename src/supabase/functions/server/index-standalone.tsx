@@ -82,7 +82,6 @@ function dropFromRow(row: any) {
     ownerTokenHash: row.owner_token_hash,
     createdAt: toMs(row.created_at),
     lastOpenedAt: toMs(row.last_opened_at),
-    qr1ScannedAt: toMs(row.qr1_scanned_at),
   };
 }
 
@@ -132,31 +131,28 @@ async function updateQrDrop(id: string, fields: Record<string, unknown>): Promis
   if (error) throw new Error(error.message);
 }
 
-// ---------- Short-lived tokens (table public.qr_tokens, stored as SHA-256) ----------
+// ---------- View tokens (table public.qr_tokens, stored as SHA-256) ----------
 
-type TokenKind = 'access' | 'view' | 'unlock';
-
-async function issueToken(kind: TokenKind, qrDropId: string, ttlMs: number): Promise<string> {
+async function issueViewToken(qrDropId: string): Promise<string> {
   const token = crypto.randomUUID();
   const { error } = await supabase.from('qr_tokens').insert({
     token_hash: await sha256Hex(token),
-    kind,
+    kind: 'view',
     qr_drop_id: qrDropId,
-    expires_at: toIso(Date.now() + ttlMs),
+    expires_at: toIso(Date.now() + VIEW_TOKEN_TTL_MS),
   });
   if (error) throw new Error(error.message);
   return token;
 }
 
-// Returns the drop ID the token was issued for, or null if it is unknown, of another kind or expired.
-// One-time tokens are deleted atomically, so only one request can use them.
-async function redeemToken(kind: TokenKind, token: string | undefined, { consume = false } = {}): Promise<string | null> {
+// Returns the drop ID a view token was issued for, or null if it is unknown or expired
+async function viewTokenDropId(token: string | undefined): Promise<string | null> {
   if (!token || !UUID_REGEX.test(token)) return null;
-  const tokenHash = await sha256Hex(token);
-  const query = consume
-    ? supabase.from('qr_tokens').delete().eq('token_hash', tokenHash).eq('kind', kind).select('qr_drop_id, expires_at')
-    : supabase.from('qr_tokens').select('qr_drop_id, expires_at').eq('token_hash', tokenHash).eq('kind', kind);
-  const { data, error } = await query;
+  const { data, error } = await supabase
+    .from('qr_tokens')
+    .select('qr_drop_id, expires_at')
+    .eq('token_hash', await sha256Hex(token))
+    .eq('kind', 'view');
   if (error) throw new Error(error.message);
   const row = data?.[0];
   if (!row || toMs(row.expires_at)! < Date.now()) return null;
@@ -166,9 +162,6 @@ async function redeemToken(kind: TokenKind, token: string | undefined, { consume
 // SECURITY: Content, keys and file URLs are only handed out by /open, which issues a
 // short-lived view token. Follow-up calls (/file, /key, /download) must present it.
 const VIEW_TOKEN_TTL_MS = 15 * 60 * 1000;
-const ACCESS_TOKEN_TTL_MS = 5 * 60 * 1000;
-const QR1_SCAN_TTL_MS = 5 * 60 * 1000;
-const UNLOCK_TOKEN_TTL_MS = 2 * 60 * 1000;
 const PASSWORD_MAX_ATTEMPTS = 5;
 const PASSWORD_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 
@@ -206,7 +199,7 @@ function isDeletable(qrDrop: any, now = Date.now()): boolean {
 
 // The password hash never leaves the server; clients only need to know whether one is set
 function withoutSecrets(qrDrop: any) {
-  const { password, ownerTokenHash, qr1ScannedAt, ...rest } = qrDrop;
+  const { password, ownerTokenHash, ...rest } = qrDrop;
   return { ...rest, password: password ? true : null };
 }
 
@@ -231,13 +224,9 @@ function publicMetadata(qrDrop: any) {
   return { ...rest, hasTextContent: !!textContent, hasUrlContent: !!urlContent };
 }
 
-function issueViewToken(qrDropId: string): Promise<string> {
-  return issueToken('view', qrDropId, VIEW_TOKEN_TTL_MS);
-}
-
 // Viewers need a view token from /open; owners always have access to their own drops
 async function hasViewAccess(c: any, qrDrop: any): Promise<boolean> {
-  if ((await redeemToken('view', c.req.header('X-View-Token'))) === qrDrop.id) {
+  if ((await viewTokenDropId(c.req.header('X-View-Token'))) === qrDrop.id) {
     return true;
   }
   return isRequestOwner(c, qrDrop);
@@ -996,41 +985,6 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
 
-    const accessToken = c.req.query('access');
-
-    // If NO access token is provided, generate one and return it in JSON
-    if (!accessToken) {
-      // SECURITY: Don't log token generation
-
-      // Generate fresh access token (5 minutes)
-      const token = await issueToken('access', id, ACCESS_TOKEN_TTL_MS);
-
-      // Return the token to the client so they can redirect themselves
-      return c.json({
-        requiresToken: true,
-        accessToken: token
-      });
-    }
-
-    // If access token IS provided, validate it. It is one-time: redeeming deletes it.
-    // SECURITY: Don't log access tokens
-    const tokenDropId = await redeemToken('access', accessToken, { consume: true });
-
-    if (!tokenDropId) {
-      return c.json({
-        error: '🔒 Denne lenken kan ikke deles. Skann QR-koden på nytt for tilgang.',
-        code: 'INVALID_TOKEN'
-      }, 403);
-    }
-
-    // Check if token matches the QR drop ID
-    if (tokenDropId !== id) {
-      return c.json({
-        error: 'Ugyldig tilgangslenke',
-        code: 'INVALID_TOKEN'
-      }, 403);
-    }
-
     const qrDrop = await getQrDrop(id);
 
     if (!qrDrop) {
@@ -1119,29 +1073,8 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
   }
 });
 
-// Generate new access token for QR code
-app.post('/make-server-c3c9181e/qr/:id/access-token', async (c) => {
-  try {
-    const id = c.req.param('id');
-    const qrDrop = await getQrDrop(id);
-
-    if (!qrDrop) {
-      return c.json({ error: 'QR drop not found' }, 404);
-    }
-
-    const accessToken = await issueToken('access', id, ACCESS_TOKEN_TTL_MS);
-
-    return c.json({
-      accessToken,
-      url: `/scan/${id}?access=${accessToken}`
-    });
-  } catch (error) {
-    console.error('Error generating access token:', error);
-    return c.json({ error: 'Failed to generate access token' }, 500);
-  }
-});
-
 // Get encryption key for standard encrypted files
+// DEPRECATED: /open returns the key. Kept for clients loaded before the simplified scan flow.
 // SECURITY: Requires a view token from /open (or ownership)
 app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
   try {
@@ -1177,6 +1110,7 @@ app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
 });
 
 // Lightweight check endpoint
+// DEPRECATED: GET /qr/:id returns the same. Kept for clients loaded before the simplified scan flow.
 app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
   try {
     const id = c.req.param('id');
@@ -1206,117 +1140,6 @@ app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
     console.error('Error checking QR drop:', error);
     return c.json({ error: `Failed to check QR drop: ${error.message}` }, 500);
   }
-});
-
-// Mark QR1 as scanned (for secureMode split-key or singleQrMode)
-// Server stores that QR1 was scanned WITHOUT seeing k1 (zero-knowledge)
-app.post('/make-server-c3c9181e/qrdrop/:id/qr1-scanned', async (c) => {
-  try {
-    const id = c.req.param('id');
-    
-    // SECURITY: Validate UUID format
-    if (!UUID_REGEX.test(id)) {
-      return c.json({ error: 'Invalid QR drop ID format' }, 400);
-    }
-    
-    const qrDrop = await getQrDrop(id);
-    if (!qrDrop) {
-      return c.json({ error: 'QR drop not found' }, 404);
-    }
-    
-    // Only for secureMode or singleQrMode
-    if (!qrDrop.secureMode && !qrDrop.singleQrMode) {
-      return c.json({ error: 'Not a secure mode or single QR mode QR drop' }, 400);
-    }
-    
-    // Store that QR1 was scanned (valid for 5 minutes)
-    // We don't see k1 - it's in the URL fragment which never reaches the server
-    await updateQrDrop(id, { qr1_scanned_at: toIso(Date.now()) });
-
-    // SECURITY: Don't log QR drop IDs
-    
-    return c.json({ 
-      success: true,
-      message: 'QR1 scan recorded (zero-knowledge)'
-    });
-  } catch (error) {
-    console.error('Error recording QR1 scan:', error);
-    return c.json({ error: `Failed to record QR1 scan: ${error.message}` }, 500);
-  }
-});
-
-// Verify QR1 was scanned before allowing QR2 unlock (for secureMode split-key)
-// Returns unlock token if QR1 was scanned, which client uses to verify before combining k1+k2
-app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
-  try {
-    const id = c.req.param('id');
-    
-    // SECURITY: Validate UUID format
-    if (!UUID_REGEX.test(id)) {
-      return c.json({ error: 'Invalid QR drop ID format' }, 400);
-    }
-    
-    const qrDrop = await getQrDrop(id);
-    if (!qrDrop) {
-      return c.json({ error: 'QR drop not found' }, 404);
-    }
-    
-    // Only for secureMode or singleQrMode
-    if (!qrDrop.secureMode && !qrDrop.singleQrMode) {
-      return c.json({ error: 'Not a secure mode or single QR mode QR drop' }, 400);
-    }
-    
-    // Check if QR1 was scanned
-    if (!qrDrop.qr1ScannedAt) {
-      return c.json({ 
-        success: false,
-        qr1Scanned: false,
-        message: 'QR1 must be scanned before QR2'
-      }, 403);
-    }
-    
-    // Check if QR1 scan expired (5 minutes)
-    if (qrDrop.qr1ScannedAt + QR1_SCAN_TTL_MS < Date.now()) {
-      await updateQrDrop(id, { qr1_scanned_at: null });
-      return c.json({ 
-        success: false,
-        qr1Scanned: false,
-        expired: true,
-        message: 'QR1 scan expired (older than 5 minutes)'
-      }, 403);
-    }
-    
-    // QR1 was scanned and is still valid - generate unlock token
-    // This token proves to the client that server verified QR1 was scanned
-    // Client still combines k1+k2 locally (server never sees keys)
-    const unlockToken = await issueToken('unlock', id, UNLOCK_TOKEN_TTL_MS);
-    
-    // SECURITY: Don't log QR drop IDs
-    
-    return c.json({ 
-      success: true,
-      qr1Scanned: true,
-      unlockToken: unlockToken,
-      message: 'QR1 verified - you can now combine k1+k2 locally'
-    });
-  } catch (error) {
-    console.error('Error verifying QR1 for QR2:', error);
-    return c.json({ error: `Failed to verify QR1: ${error.message}` }, 500);
-  }
-});
-
-// Increment scan count
-// DEPRECATED: Views are now counted atomically by /open. Kept as a no-op for older clients.
-app.post('/make-server-c3c9181e/qr/:id/scan', async (c) => {
-  const id = c.req.param('id');
-  if (!UUID_REGEX.test(id)) {
-    return c.json({ error: 'Invalid QR drop ID format' }, 400);
-  }
-  const qrDrop = await getQrDrop(id);
-  if (!qrDrop) {
-    return c.json({ error: 'QR drop not found' }, 404);
-  }
-  return c.json({ success: true, scanCount: qrDrop.scanCount || 0 });
 });
 
 // Get file URL(s) (for file downloads) - supports multiple files

@@ -254,18 +254,12 @@ export async function createQrDrop(metadata: QrDropMetadata) {
   }
 }
 
-export async function getQrDrop(id: string, accessToken?: string): Promise<{ qrDrop: QrDropData }> {
-  const query = accessToken ? `?access=${accessToken}` : '';
-  return fetchApi(`/qr/${id}${query}`);
+// Metadata only (no content); doesn't use up a view
+export async function getQrDrop(id: string): Promise<{ qrDrop: QrDropData }> {
+  return fetchApi(`/qr/${id}`);
 }
 
-export async function generateAccessToken(id: string): Promise<{ accessToken: string; url: string }> {
-  return fetchApi(`/qr/${id}/access-token`, {
-    method: 'POST',
-  });
-}
-
-// View tokens from /open, per QR drop. Required by /file, /key and /download.
+// View tokens from /open, per QR drop. Required by /file and /download.
 const viewTokens = new Map<string, string>();
 
 function viewTokenHeaders(id: string): Record<string, string> {
@@ -291,35 +285,6 @@ export async function openQrDrop(id: string, password?: string): Promise<{
   });
   viewTokens.set(id, result.viewToken);
   return result;
-}
-
-// Encryption key for standard-mode files (requires a prior openQrDrop, or ownership)
-export async function getEncryptionKey(id: string): Promise<{ encryptionKey: string }> {
-  return fetchApi(`/qrdrop/${id}/key`, {
-    headers: viewTokenHeaders(id),
-  });
-}
-
-// Mark QR1 as scanned (for secureMode split-key)
-// Server stores that QR1 was scanned WITHOUT seeing k1 (zero-knowledge)
-export async function markQr1Scanned(id: string): Promise<{ success: boolean; message: string }> {
-  return fetchApi(`/qrdrop/${id}/qr1-scanned`, {
-    method: 'POST',
-  });
-}
-
-// Verify QR1 was scanned before allowing QR2 unlock (for secureMode split-key)
-// Returns unlock token if QR1 was scanned, which client uses to verify before combining k1+k2
-export async function verifyQr1ForQr2(id: string): Promise<{ 
-  success: boolean; 
-  qr1Scanned: boolean; 
-  unlockToken?: string;
-  expired?: boolean;
-  message: string;
-}> {
-  return fetchApi(`/qrdrop/${id}/verify-qr1-for-qr2`, {
-    method: 'POST',
-  });
 }
 
 export async function getFileUrl(id: string): Promise<{ 

@@ -35,75 +35,140 @@ const supabase = createClient(
   supabaseServiceKey ?? ''
 );
 
-// KV store helpers over the kv_store_c3c9181e table
-const kvClient = () => createClient(
-  Deno.env.get('SUPABASE_URL') ?? '',
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-);
-
-const kv = {
-  set: async (key: string, value: any): Promise<void> => {
-    const client = kvClient();
-    const { error } = await client.from('kv_store_c3c9181e').upsert({ key, value });
-    if (error) throw new Error(error.message);
-  },
-  // Insert without overwriting; returns false if the key already exists
-  insert: async (key: string, value: any): Promise<boolean> => {
-    const client = kvClient();
-    const { error } = await client.from('kv_store_c3c9181e').insert({ key, value });
-    if (error?.code === '23505') return false;
-    if (error) throw new Error(error.message);
-    return true;
-  },
-  get: async (key: string): Promise<any> => {
-    const client = kvClient();
-    const { data, error } = await client.from('kv_store_c3c9181e').select('value').eq('key', key).maybeSingle();
-    if (error) throw new Error(error.message);
-    return data?.value;
-  },
-  del: async (key: string): Promise<void> => {
-    const client = kvClient();
-    const { error } = await client.from('kv_store_c3c9181e').delete().eq('key', key);
-    if (error) throw new Error(error.message);
-  },
-  mset: async (keys: string[], values: any[]): Promise<void> => {
-    const client = kvClient();
-    const { error } = await client.from('kv_store_c3c9181e').upsert(keys.map((k, i) => ({ key: k, value: values[i] })));
-    if (error) throw new Error(error.message);
-  },
-  mget: async (keys: string[]): Promise<any[]> => {
-    const client = kvClient();
-    const { data, error } = await client.from('kv_store_c3c9181e').select('value').in('key', keys);
-    if (error) throw new Error(error.message);
-    return data?.map((d) => d.value) ?? [];
-  },
-  mdel: async (keys: string[]): Promise<void> => {
-    const client = kvClient();
-    const { error } = await client.from('kv_store_c3c9181e').delete().in('key', keys);
-    if (error) throw new Error(error.message);
-  },
-  getByPrefix: async (prefix: string): Promise<any[]> => {
-    const client = kvClient();
-    const { data, error } = await client.from('kv_store_c3c9181e').select('key, value').like('key', prefix + '%');
-    if (error) throw new Error(error.message);
-    return data?.map((d) => d.value) ?? [];
-  },
-  getEntriesByPrefix: async (prefix: string): Promise<Array<{ key: string; value: any }>> => {
-    const client = kvClient();
-    const { data, error } = await client.from('kv_store_c3c9181e').select('key, value').like('key', prefix + '%');
-    if (error) throw new Error(error.message);
-    return data ?? [];
-  },
-};
-
 // Initialize storage bucket
 const BUCKET_NAME = 'make-c3c9181e-qrdrop-files';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// ---------- QR drops (table public.qr_drops) ----------
+// The rest of the function works with the camelCase shape the API has always returned.
+
+const toMs = (value: any): number | null => (value == null ? null : new Date(value).getTime());
+const toIso = (ms: number | null | undefined): string | null => (ms == null ? null : new Date(ms).toISOString());
+
+function dropFromRow(row: any) {
+  const files = Array.isArray(row.files) ? row.files : [];
+  const isFileDrop = files.length > 0;
+  const isText = row.content_type === 'text';
+  const content = isText ? row.text_content : row.url_content;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    contentType: row.content_type,
+    title: row.title,
+    // Backwards compatibility fields (first file, or a description of the text/URL)
+    fileName: isFileDrop ? files[0].name : (isText ? 'Tekstmelding' : 'URL-lenke'),
+    fileType: isFileDrop ? files[0].type : (isText ? 'text/plain' : 'text/url'),
+    fileSize: isFileDrop ? files.reduce((sum: number, f: any) => sum + (f.size || 0), 0) : (content?.length || 0),
+    filePath: isFileDrop ? files[0].path : null,
+    files: isFileDrop ? files : undefined,
+    fileCount: isFileDrop ? files.length : undefined,
+    textContent: row.text_content,
+    urlContent: row.url_content,
+    expiryType: row.expiry_type,
+    expiresAt: toMs(row.expires_at),
+    maxScans: row.max_scans,
+    maxDownloads: row.max_downloads,
+    scanCount: row.scan_count,
+    downloadCount: row.download_count,
+    viewOnly: row.view_only,
+    noPreview: row.no_preview,
+    password: row.password_hash, // Hash; stripped by withoutSecrets() before leaving the server
+    qrStyle: row.qr_style,
+    encrypted: row.encrypted,
+    secureMode: row.secure_mode,
+    singleQrMode: row.single_qr_mode,
+    encryptionKey: row.encryption_key,
+    ownerTokenHash: row.owner_token_hash,
+    createdAt: toMs(row.created_at),
+    lastOpenedAt: toMs(row.last_opened_at),
+    qr1ScannedAt: toMs(row.qr1_scanned_at),
+  };
+}
+
+function dropToRow(drop: any) {
+  return {
+    id: drop.id,
+    user_id: drop.userId,
+    owner_token_hash: drop.ownerTokenHash,
+    content_type: drop.contentType,
+    title: drop.title,
+    text_content: drop.textContent,
+    url_content: drop.urlContent,
+    files: (drop.files ?? []).map((f: any) => ({ name: f.name, type: f.type, size: f.size, path: f.path })),
+    expiry_type: drop.expiryType,
+    expires_at: toIso(drop.expiresAt),
+    max_scans: drop.maxScans,
+    max_downloads: drop.maxDownloads,
+    view_only: drop.viewOnly,
+    no_preview: drop.noPreview,
+    password_hash: drop.password,
+    qr_style: drop.qrStyle,
+    encrypted: drop.encrypted,
+    secure_mode: drop.secureMode,
+    single_qr_mode: drop.singleQrMode,
+    encryption_key: drop.encryptionKey,
+    created_at: toIso(drop.createdAt),
+  };
+}
+
+async function getQrDrop(id: string): Promise<any | null> {
+  if (!UUID_REGEX.test(id)) return null;
+  const { data, error } = await supabase.from('qr_drops').select('*').eq('id', id).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? dropFromRow(data) : null;
+}
+
+// Insert without overwriting; returns false if the ID is already taken
+async function insertQrDrop(drop: any): Promise<boolean> {
+  const { error } = await supabase.from('qr_drops').insert(dropToRow(drop));
+  if (error?.code === '23505') return false;
+  if (error) throw new Error(error.message);
+  return true;
+}
+
+async function updateQrDrop(id: string, fields: Record<string, unknown>): Promise<void> {
+  const { error } = await supabase.from('qr_drops').update(fields).eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+// ---------- Short-lived tokens (table public.qr_tokens, stored as SHA-256) ----------
+
+type TokenKind = 'access' | 'view' | 'unlock';
+
+async function issueToken(kind: TokenKind, qrDropId: string, ttlMs: number): Promise<string> {
+  const token = crypto.randomUUID();
+  const { error } = await supabase.from('qr_tokens').insert({
+    token_hash: await sha256Hex(token),
+    kind,
+    qr_drop_id: qrDropId,
+    expires_at: toIso(Date.now() + ttlMs),
+  });
+  if (error) throw new Error(error.message);
+  return token;
+}
+
+// Returns the drop ID the token was issued for, or null if it is unknown, of another kind or expired.
+// One-time tokens are deleted atomically, so only one request can use them.
+async function redeemToken(kind: TokenKind, token: string | undefined, { consume = false } = {}): Promise<string | null> {
+  if (!token || !UUID_REGEX.test(token)) return null;
+  const tokenHash = await sha256Hex(token);
+  const query = consume
+    ? supabase.from('qr_tokens').delete().eq('token_hash', tokenHash).eq('kind', kind).select('qr_drop_id, expires_at')
+    : supabase.from('qr_tokens').select('qr_drop_id, expires_at').eq('token_hash', tokenHash).eq('kind', kind);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  const row = data?.[0];
+  if (!row || toMs(row.expires_at)! < Date.now()) return null;
+  return row.qr_drop_id;
+}
+
 // SECURITY: Content, keys and file URLs are only handed out by /open, which issues a
 // short-lived view token. Follow-up calls (/file, /key, /download) must present it.
 const VIEW_TOKEN_TTL_MS = 15 * 60 * 1000;
+const ACCESS_TOKEN_TTL_MS = 5 * 60 * 1000;
+const QR1_SCAN_TTL_MS = 5 * 60 * 1000;
+const UNLOCK_TOKEN_TTL_MS = 2 * 60 * 1000;
 const PASSWORD_MAX_ATTEMPTS = 5;
 const PASSWORD_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 
@@ -141,7 +206,7 @@ function isDeletable(qrDrop: any, now = Date.now()): boolean {
 
 // The password hash never leaves the server; clients only need to know whether one is set
 function withoutSecrets(qrDrop: any) {
-  const { password, ownerTokenHash, ...rest } = qrDrop;
+  const { password, ownerTokenHash, qr1ScannedAt, ...rest } = qrDrop;
   return { ...rest, password: password ? true : null };
 }
 
@@ -166,20 +231,14 @@ function publicMetadata(qrDrop: any) {
   return { ...rest, hasTextContent: !!textContent, hasUrlContent: !!urlContent };
 }
 
-async function issueViewToken(qrDropId: string): Promise<string> {
-  const token = crypto.randomUUID();
-  await kv.set(`view:${token}`, { qrDropId, expiresAt: Date.now() + VIEW_TOKEN_TTL_MS });
-  return token;
+function issueViewToken(qrDropId: string): Promise<string> {
+  return issueToken('view', qrDropId, VIEW_TOKEN_TTL_MS);
 }
 
 // Viewers need a view token from /open; owners always have access to their own drops
 async function hasViewAccess(c: any, qrDrop: any): Promise<boolean> {
-  const token = c.req.header('X-View-Token');
-  if (token && UUID_REGEX.test(token)) {
-    const tokenData = await kv.get(`view:${token}`);
-    if (tokenData && tokenData.qrDropId === qrDrop.id && tokenData.expiresAt > Date.now()) {
-      return true;
-    }
+  if ((await redeemToken('view', c.req.header('X-View-Token'))) === qrDrop.id) {
+    return true;
   }
   return isRequestOwner(c, qrDrop);
 }
@@ -187,19 +246,19 @@ async function hasViewAccess(c: any, qrDrop: any): Promise<boolean> {
 // Atomically count a scan or download, enforcing limits in the database.
 // Returns the updated QR drop, or null if the limit was already reached.
 async function consumeQrDrop(id: string, kind: 'scan' | 'download'): Promise<any | null> {
-  const { data, error } = await supabase.rpc('qrdrop_consume', { p_id: id, p_kind: kind, p_now: Date.now() });
-  if (error) throw new Error(`qrdrop_consume failed: ${error.message}`);
-  return data;
+  const { data, error } = await supabase.rpc('qr_drop_consume', { p_id: id, p_kind: kind, p_now: Date.now() });
+  if (error) throw new Error(`qr_drop_consume failed: ${error.message}`);
+  return data ? dropFromRow(data) : null;
 }
 
 // Atomically register a password attempt; returns the number of attempts in the current window
 async function registerPasswordAttempt(id: string): Promise<number> {
-  const { data, error } = await supabase.rpc('qrdrop_register_password_attempt', {
+  const { data, error } = await supabase.rpc('qr_drop_password_attempt', {
     p_id: id,
     p_now: Date.now(),
     p_window_ms: PASSWORD_ATTEMPT_WINDOW_MS,
   });
-  if (error) throw new Error(`qrdrop_register_password_attempt failed: ${error.message}`);
+  if (error) throw new Error(`qr_drop_password_attempt failed: ${error.message}`);
   return data;
 }
 
@@ -463,44 +522,37 @@ async function initStorage() {
   }
 }
 
-// Cleanup expired QR drops (runs automatically)
+// Removes files of deleted drops from Storage (the database queues them on delete)
+async function drainStorageDeletionQueue(): Promise<number> {
+  let removed = 0;
+  for (;;) {
+    const { data, error } = await supabase.from('storage_deletion_queue').select('path').limit(100);
+    if (error) throw new Error(error.message);
+    const paths = (data ?? []).map((row: any) => row.path);
+    if (paths.length === 0) return removed;
+
+    const { error: removeError } = await supabase.storage.from(BUCKET_NAME).remove(paths);
+    if (removeError && removeError.message !== 'Object not found') {
+      console.error('Error deleting files:', removeError.message);
+      return removed; // Keep them queued and retry on the next cleanup
+    }
+    const { error: dequeueError } = await supabase.from('storage_deletion_queue').delete().in('path', paths);
+    if (dequeueError) throw new Error(dequeueError.message);
+    removed += paths.length;
+  }
+}
+
+// Cleanup expired QR drops and tokens. pg_cron also runs the SQL part every 10 minutes,
+// so content is deleted even when this function gets no traffic.
 async function cleanupExpired() {
   try {
-    console.log('Running automatic cleanup of expired QR drops...');
-    const indexes = await kv.getByPrefix('qrdrop:index:');
-    const ids = indexes.map((idx: any) => idx.id);
-    
-    const qrDrops = await kv.mget(ids.map((id: string) => `qrdrop:${id}`));
-    const now = Date.now();
-    let deletedCount = 0;
+    const { data: deletedCount, error } = await supabase.rpc('cleanup_expired_qr_drops', { p_view_ttl_ms: VIEW_TOKEN_TTL_MS });
+    if (error) throw new Error(error.message);
+    const removedFiles = await drainStorageDeletionQueue();
 
-    for (const qrDrop of qrDrops) {
-      if (!qrDrop) continue;
-
-      if (isDeletable(qrDrop, now)) {
-        // SECURITY: Don't log QR drop IDs during cleanup
-        await deleteQrDrop(qrDrop.id);
-        deletedCount++;
-      }
-    }
-
-    // Also cleanup expired short-lived tokens and counters (all carry expiresAt)
-    let expiredTokens = 0;
-    for (const prefix of ['access:', 'view:', 'unlock_token:', 'qr1_scanned:', 'pwfail:', 'ratelimit:']) {
-      const entries = await kv.getEntriesByPrefix(prefix);
-      const expiredKeys = entries
-        .filter((entry) => !entry.value?.expiresAt || entry.value.expiresAt < now)
-        .map((entry) => entry.key);
-      // Delete in batches to keep the request URL short
-      for (let i = 0; i < expiredKeys.length; i += 100) {
-        await kv.mdel(expiredKeys.slice(i, i + 100));
-      }
-      expiredTokens += expiredKeys.length;
-    }
-
-    // SECURITY: Minimal logging - only count, no details
-    if (deletedCount > 0 || expiredTokens > 0) {
-      console.log(`Cleanup: ${deletedCount} QR drops, ${expiredTokens} tokens`);
+    // SECURITY: Minimal logging - only counts, no details
+    if (deletedCount > 0 || removedFiles > 0) {
+      console.log(`Cleanup: ${deletedCount} QR drops, ${removedFiles} files`);
     }
     return deletedCount;
   } catch (error) {
@@ -521,49 +573,15 @@ app.get('/make-server-c3c9181e/health', (c) => {
   return c.json({ status: 'ok', service: 'qrdrop' });
 });
 
-// Helper function to delete QR drop
+// Deletes a QR drop; its files are queued by the database and removed right away
 async function deleteQrDrop(id: string) {
-  const qrDrop = await kv.get(`qrdrop:${id}`);
-  
-  if (qrDrop) {
-    // Delete files from storage - support both single file and multiple files
-    const filesToDelete: string[] = [];
-    
-    // Add single file path (backwards compatibility)
-    if (qrDrop.filePath) {
-      filesToDelete.push(qrDrop.filePath);
-    }
-    
-    // Add multiple files if they exist
-    if (qrDrop.files && Array.isArray(qrDrop.files)) {
-      qrDrop.files.forEach((file: any) => {
-        if (file.path && !filesToDelete.includes(file.path)) {
-          filesToDelete.push(file.path);
-        }
-      });
-    }
-    
-    // Delete all files
-    if (filesToDelete.length > 0) {
-      try {
-        const { error } = await supabase.storage
-          .from(BUCKET_NAME)
-          .remove(filesToDelete);
-
-        if (error && error.message !== 'Object not found') {
-          console.error(`Error deleting files:`, error);
-        } else {
-          console.log(`✅ Deleted ${filesToDelete.length} file(s)`);
-        }
-      } catch (error) {
-        console.error(`Error during file deletion:`, error);
-      }
-    }
+  const { error } = await supabase.from('qr_drops').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+  try {
+    await drainStorageDeletionQueue();
+  } catch (error) {
+    console.error('Error deleting files:', error);
   }
-
-  // Delete from KV
-  await kv.del(`qrdrop:${id}`);
-  await kv.del(`qrdrop:index:${id}`);
 }
 
 // Upload files and create QR drop (supports multiple files)
@@ -676,7 +694,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     }
 
     // SECURITY: A client-chosen ID must never replace someone else's drop
-    if (await kv.get(`qrdrop:${id}`)) {
+    if (await getQrDrop(id)) {
       return c.json({ error: 'QR drop ID already in use' }, 409);
     }
 
@@ -785,10 +803,9 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
         createdAt: timestamp,
       };
 
-      if (!(await kv.insert(`qrdrop:${id}`, qrDropData))) {
+      if (!(await insertQrDrop(qrDropData))) {
         throw Object.assign(new Error('QR drop ID already in use'), { status: 409 });
       }
-      await kv.set(`qrdrop:index:${id}`, { id, createdAt: timestamp, userId });
 
       // SECURITY: Don't log user IDs or file counts
 
@@ -884,7 +901,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     }
 
     // SECURITY: A client-chosen ID must never replace someone else's drop
-    if (await kv.get(`qrdrop:${id}`)) {
+    if (await getQrDrop(id)) {
       return c.json({ error: 'QR drop ID already in use' }, 409);
     }
 
@@ -943,11 +960,10 @@ app.post('/make-server-c3c9181e/create', async (c) => {
     };
 
     try {
-      if (!(await kv.insert(`qrdrop:${id}`, qrDropData))) {
+      if (!(await insertQrDrop(qrDropData))) {
         if (cost > 0) await refundCoins(userId!, cost);
         return c.json({ error: 'QR drop ID already in use' }, 409);
       }
-      await kv.set(`qrdrop:index:${id}`, { id, createdAt: timestamp, userId });
     } catch (error) {
       if (cost > 0) await refundCoins(userId!, cost);
       throw error;
@@ -986,15 +1002,8 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
     if (!accessToken) {
       // SECURITY: Don't log token generation
 
-      // Generate fresh access token
-      const token = crypto.randomUUID();
-      const expiresAt = Date.now() + (5 * 60 * 1000); // 5 minutes
-
-      await kv.set(`access:${token}`, {
-        qrDropId: id,
-        expiresAt,
-        createdAt: Date.now(),
-      });
+      // Generate fresh access token (5 minutes)
+      const token = await issueToken('access', id, ACCESS_TOKEN_TTL_MS);
 
       // Return the token to the client so they can redirect themselves
       return c.json({
@@ -1003,10 +1012,11 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
       });
     }
 
-    // If access token IS provided, validate it
-    const tokenData = await kv.get(`access:${accessToken}`);
+    // If access token IS provided, validate it. It is one-time: redeeming deletes it.
+    // SECURITY: Don't log access tokens
+    const tokenDropId = await redeemToken('access', accessToken, { consume: true });
 
-    if (!tokenData) {
+    if (!tokenDropId) {
       return c.json({
         error: '🔒 Denne lenken kan ikke deles. Skann QR-koden på nytt for tilgang.',
         code: 'INVALID_TOKEN'
@@ -1014,18 +1024,14 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
     }
 
     // Check if token matches the QR drop ID
-    if (tokenData.qrDropId !== id) {
+    if (tokenDropId !== id) {
       return c.json({
         error: 'Ugyldig tilgangslenke',
         code: 'INVALID_TOKEN'
       }, 403);
     }
 
-    // Token is valid - delete it immediately (one-time use)
-    await kv.del(`access:${accessToken}`);
-    // SECURITY: Don't log access tokens
-
-    const qrDrop = await kv.get(`qrdrop:${id}`);
+    const qrDrop = await getQrDrop(id);
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
@@ -1057,7 +1063,7 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const password = typeof body?.password === 'string' ? body.password : '';
 
-    let qrDrop = await kv.get(`qrdrop:${id}`);
+    let qrDrop = await getQrDrop(id);
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }
@@ -1083,7 +1089,8 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
       if (!(await verifyPasswordSecure(password, qrDrop.password))) {
         return c.json({ error: 'Invalid password', code: 'INVALID_PASSWORD' }, 401);
       }
-      await kv.del(`pwfail:${id}`);
+      const { error: resetError } = await supabase.from('qr_password_attempts').delete().eq('qr_drop_id', id);
+      if (resetError) throw new Error(resetError.message);
     }
 
     // Owners previewing their own drop don't use up a view
@@ -1116,21 +1123,13 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
 app.post('/make-server-c3c9181e/qr/:id/access-token', async (c) => {
   try {
     const id = c.req.param('id');
-    const qrDrop = await kv.get(`qrdrop:${id}`);
+    const qrDrop = await getQrDrop(id);
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }
 
-    // Generate random access token
-    const accessToken = crypto.randomUUID();
-
-    // Store token with 5 minute expiry
-    await kv.set(`access:${accessToken}`, {
-      qrDropId: id,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + (5 * 60 * 1000) // 5 minutes
-    });
+    const accessToken = await issueToken('access', id, ACCESS_TOKEN_TTL_MS);
 
     return c.json({
       accessToken,
@@ -1153,7 +1152,7 @@ app.get('/make-server-c3c9181e/qrdrop/:id/key', async (c) => {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
 
-    const qrDrop = await kv.get(`qrdrop:${id}`);
+    const qrDrop = await getQrDrop(id);
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
@@ -1187,7 +1186,7 @@ app.get('/make-server-c3c9181e/qrdrop/:id/check', async (c) => {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
     
-    const qrDrop = await kv.get(`qrdrop:${id}`);
+    const qrDrop = await getQrDrop(id);
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
@@ -1220,7 +1219,7 @@ app.post('/make-server-c3c9181e/qrdrop/:id/qr1-scanned', async (c) => {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
     
-    const qrDrop = await kv.get(`qrdrop:${id}`);
+    const qrDrop = await getQrDrop(id);
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }
@@ -1230,17 +1229,9 @@ app.post('/make-server-c3c9181e/qrdrop/:id/qr1-scanned', async (c) => {
       return c.json({ error: 'Not a secure mode or single QR mode QR drop' }, 400);
     }
     
-    // Store that QR1 was scanned (with timestamp for expiry)
+    // Store that QR1 was scanned (valid for 5 minutes)
     // We don't see k1 - it's in the URL fragment which never reaches the server
-    const now = Date.now();
-    const expiryMs = 5 * 60 * 1000; // 5 minutes in milliseconds
-    const qr1ScanData = {
-      qrDropId: id,
-      scannedAt: now,
-      expiresAt: now + expiryMs // 5 minutes expiry
-    };
-    
-    await kv.set(`qr1_scanned:${id}`, qr1ScanData);
+    await updateQrDrop(id, { qr1_scanned_at: toIso(Date.now()) });
 
     // SECURITY: Don't log QR drop IDs
     
@@ -1265,7 +1256,7 @@ app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
     
-    const qrDrop = await kv.get(`qrdrop:${id}`);
+    const qrDrop = await getQrDrop(id);
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }
@@ -1276,9 +1267,7 @@ app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
     }
     
     // Check if QR1 was scanned
-    const qr1ScanData = await kv.get(`qr1_scanned:${id}`);
-
-    if (!qr1ScanData) {
+    if (!qrDrop.qr1ScannedAt) {
       return c.json({ 
         success: false,
         qr1Scanned: false,
@@ -1287,8 +1276,8 @@ app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
     }
     
     // Check if QR1 scan expired (5 minutes)
-    if (qr1ScanData.expiresAt < Date.now()) {
-      await kv.del(`qr1_scanned:${id}`);
+    if (qrDrop.qr1ScannedAt + QR1_SCAN_TTL_MS < Date.now()) {
+      await updateQrDrop(id, { qr1_scanned_at: null });
       return c.json({ 
         success: false,
         qr1Scanned: false,
@@ -1300,14 +1289,7 @@ app.post('/make-server-c3c9181e/qrdrop/:id/verify-qr1-for-qr2', async (c) => {
     // QR1 was scanned and is still valid - generate unlock token
     // This token proves to the client that server verified QR1 was scanned
     // Client still combines k1+k2 locally (server never sees keys)
-    const unlockToken = crypto.randomUUID();
-    const unlockNow = Date.now();
-    const unlockExpiryMs = 2 * 60 * 1000; // 2 minutes to use
-    await kv.set(`unlock_token:${unlockToken}`, {
-      qrDropId: id,
-      createdAt: unlockNow,
-      expiresAt: unlockNow + unlockExpiryMs // 2 minutes to use
-    }); // Note: expireIn parameter not supported by current kv.set implementation
+    const unlockToken = await issueToken('unlock', id, UNLOCK_TOKEN_TTL_MS);
     
     // SECURITY: Don't log QR drop IDs
     
@@ -1330,7 +1312,7 @@ app.post('/make-server-c3c9181e/qr/:id/scan', async (c) => {
   if (!UUID_REGEX.test(id)) {
     return c.json({ error: 'Invalid QR drop ID format' }, 400);
   }
-  const qrDrop = await kv.get(`qrdrop:${id}`);
+  const qrDrop = await getQrDrop(id);
   if (!qrDrop) {
     return c.json({ error: 'QR drop not found' }, 404);
   }
@@ -1350,7 +1332,7 @@ app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
   const fileIndex = c.req.query('index'); // Optional: specific file index
 
   try {
-    const qrDrop = await kv.get(`qrdrop:${id}`);
+    const qrDrop = await getQrDrop(id);
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }
@@ -1412,7 +1394,7 @@ app.post('/make-server-c3c9181e/qr/:id/download', async (c) => {
       return c.json({ error: 'Invalid QR drop ID format' }, 400);
     }
 
-    const qrDrop = await kv.get(`qrdrop:${id}`);
+    const qrDrop = await getQrDrop(id);
 
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
@@ -1447,32 +1429,21 @@ app.get('/make-server-c3c9181e/qrdrops', async (c) => {
     const limit = Math.min(toPositiveInt(c.req.query('limit')) ?? QRDROPS_PAGE_SIZE, QRDROPS_PAGE_SIZE);
     const offset = Math.max(0, parseInt(c.req.query('offset') ?? '0', 10) || 0);
 
-    // Only load the caller's own drops (the index entry carries the owner), newest first
-    const { data: indexes, error } = await kvClient()
-      .from('kv_store_c3c9181e')
-      .select('value')
-      .like('key', 'qrdrop:index:%')
-      .eq('value->>userId', userId);
+    // Only the caller's own drops, newest first
+    const { data, count, error } = await supabase
+      .from('qr_drops')
+      .select('*', { count: 'exact' })
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
     if (error) throw new Error(error.message);
 
-    const ids = (indexes ?? [])
-      .map((row: any) => row.value)
-      .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0))
-      .map((idx: any) => idx.id);
-    const pageIds = ids.slice(offset, offset + limit);
-
-    const qrDrops = pageIds.length > 0 ? await kv.mget(pageIds.map((id: string) => `qrdrop:${id}`)) : [];
-
     // SECURITY: Don't log user IDs or QR drop counts
-    const ownQrDrops = qrDrops
-      .filter((qr: any) => qr && qr.userId === userId)
-      .map(withoutSecrets)
-      .sort((a: any, b: any) => b.createdAt - a.createdAt);
-
+    const total = count ?? 0;
     return c.json({
-      qrDrops: ownQrDrops,
-      total: ids.length,
-      nextOffset: offset + limit < ids.length ? offset + limit : null,
+      qrDrops: (data ?? []).map((row: any) => withoutSecrets(dropFromRow(row))),
+      total,
+      nextOffset: offset + limit < total ? offset + limit : null,
     });
   } catch (error) {
     console.error('❌ Error getting QR drops:', error);
@@ -1497,7 +1468,7 @@ app.delete('/make-server-c3c9181e/qr/:id', async (c) => {
       return c.json({ error: 'Authentication required to delete this QR drop' }, 401);
     }
     
-    const qrDrop = await kv.get(`qrdrop:${id}`);
+    const qrDrop = await getQrDrop(id);
     if (!qrDrop) {
       return c.json({ error: 'QR drop not found' }, 404);
     }

@@ -16,13 +16,19 @@ class Query {
     this.payload = null;
     this.mode = null;
     this.returning = false;
+    this.count = false;
+    this.orderBy = null;
+    this.limitN = null;
+    this.offsetN = null;
   }
-  select(cols = '*') {
-    if (this.op === 'select') this.cols = cols;
+  select(cols = '*', opts = {}) {
+    if (this.op === 'select') { this.cols = cols; this.count = opts.count === 'exact'; }
     else { this.returning = true; this.cols = cols; }
     return this;
   }
-  upsert(p) { this.op = 'upsert'; this.payload = [].concat(p); return this; }
+  order(c, { ascending = true } = {}) { this.orderBy = `${c} ${ascending ? 'asc' : 'desc'}`; return this; }
+  limit(n) { this.limitN = n; return this; }
+  range(from, to) { this.offsetN = from; this.limitN = to - from + 1; return this; }
   insert(p) { this.op = 'insert'; this.payload = [].concat(p); return this; }
   update(p) { this.op = 'update'; this.payload = p; return this; }
   delete() { this.op = 'delete'; return this; }
@@ -52,6 +58,9 @@ class Query {
       let sql;
       if (this.op === 'select') {
         sql = `select ${this.cols} from public.${this.table}` + this.where(params);
+        if (this.orderBy) sql += ` order by ${this.orderBy}`;
+        if (this.limitN !== null) sql += ` limit ${Number(this.limitN)}`;
+        if (this.offsetN !== null) sql += ` offset ${Number(this.offsetN)}`;
       } else if (this.op === 'delete') {
         sql = `delete from public.${this.table}` + this.where(params);
       } else if (this.op === 'update') {
@@ -61,16 +70,20 @@ class Query {
         const cols = Object.keys(this.payload[0]);
         const rows = this.payload.map((row) => '(' + cols.map((k) => { params.push(sqlValue(row[k])); return '$' + params.length; }).join(',') + ')');
         sql = `insert into public.${this.table} (${cols.join(',')}) values ${rows.join(',')}`;
-        if (this.op === 'upsert') sql += ` on conflict (key) do update set value = excluded.value`;
       }
       if (this.op !== 'select' && this.returning) sql += ` returning ${this.cols}`;
       const { rows } = await db().query(sql, params);
+      let count = null;
+      if (this.count) {
+        const countParams = [];
+        count = (await db().query(`select count(*)::int as n from public.${this.table}` + this.where(countParams), countParams)).rows[0].n;
+      }
       if (this.mode === 'single') {
         if (rows.length !== 1) return { data: null, error: { code: 'PGRST116', message: 'no rows' } };
         return { data: rows[0], error: null };
       }
       if (this.mode === 'maybe') return { data: rows[0] ?? null, error: null };
-      return { data: rows, error: null };
+      return { data: rows, count, error: null };
     } catch (e) {
       return { data: null, error: { code: e.code, message: e.message } };
     }

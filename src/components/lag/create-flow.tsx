@@ -139,7 +139,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
           urls: draft.urls,
           expiryType: rules.expiry,
           activatesAt,
-          maxScans: rules.times === 'inf' ? undefined : Number(rules.times),
+          maxScans: rules.times === 'inf' ? undefined : rules.times,
           maxDownloads: draft.maxDownloads ? parseInt(draft.maxDownloads, 10) || undefined : undefined,
           viewOnly: rules.mode === 'view',
           noPreview: draft.noPreview,

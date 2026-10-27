@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../utils/auth-context';
 import { defaultActivationDate, formatActivationDate, fromLocalInputValue, maxActivationDate, toLocalInputValue } from '../../utils/activation';
-import { FREE_EXPIRY, EXPIRY, MODE, TIMES, WHO, loginOnlyWho, type Rules } from './rules';
+import { FREE_EXPIRY, EXPIRY, MAX_TIMES, MODE, TIMES, WHO, loginOnlyWho, timesLabel, type Rules } from './rules';
 import { KeyPreview, PREVIEW_URL, STYLE_PRESETS, type StylePreset } from './key-preview';
 import { QrStylePicker } from '../qr-style-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -40,6 +40,9 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
   const [link, setLink] = useState('');
   const [customOpen, setCustomOpen] = useState(false);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  // An own number of opens: the field stays while it is in use, even if the number matches a preset
+  const [customTimes, setCustomTimes] = useState(!TIMES.includes(draft.rules.times));
+  const [timesInput, setTimesInput] = useState(String(draft.rules.times === 'inf' ? '' : draft.rules.times));
 
   const { rules } = draft;
   const setRules = (changes: Partial<Rules>) => update({ rules: { ...rules, ...changes } });
@@ -98,7 +101,16 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
   const options = () => {
     switch (open) {
       case 'times':
-        return TIMES.map((v) => option(v, t(`lag.rules.times.${v}`), rules.times === v, () => setRules({ times: v })));
+        return [
+          ...TIMES.map((v) => option(String(v), timesLabel(t, v, 'lag.rules.times'), !customTimes && rules.times === v, () => {
+            setCustomTimes(false);
+            setRules({ times: v });
+          })),
+          option('custom', t('lag.rules.times.custom'), customTimes, () => {
+            setCustomTimes(true);
+            setTimesInput(rules.times === 'inf' ? '' : String(rules.times));
+          }),
+        ];
       case 'who':
         return WHO.map((v) => option(v, t(`lag.rules.who.${v}`), rules.who === v, () => setRules({ who: v }), loginOnlyWho(v)));
       case 'opens':
@@ -116,7 +128,7 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
   };
 
   const badges = [
-    t(`lag.preview.badges.times.${rules.times}`),
+    timesLabel(t, rules.times, 'lag.preview.badges.times'),
     rules.who === 'two' && t('lag.preview.badges.two'),
     rules.who === 'password' && t('lag.preview.badges.password'),
     rules.who === 'scan' && t('lag.preview.badges.scan'),
@@ -221,7 +233,7 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
               <span className="lg-small lg-muted">{t('lag.rules.hint')}</span>
             </div>
             <p className="lg-sentence">
-              {t('lag.rules.canOpen')} {token('times', t(`lag.rules.times.${rules.times}`))}{' '}
+              {t('lag.rules.canOpen')} {token('times', timesLabel(t, rules.times, 'lag.rules.times'))}{' '}
               {t('lag.rules.by')} {token('who', t(`lag.rules.who.${rules.who}`))}{' '}
               {token('opens', rules.opensAt ? t('lag.rules.opensAt', { date: opensLabel }) : t('lag.rules.opensNow'))},{' '}
               {token('expiry', t(`lag.rules.expiry.${rules.expiry}`))},{' '}
@@ -234,6 +246,26 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
                 <div className="lg-opts-list">{options()}</div>
                 {open === 'who' && <span className="lg-small lg-muted">{t(`lag.rules.whoNote.${rules.who}`)}</span>}
                 {open === 'opens' && <span className="lg-small lg-muted">{t('lag.rules.opensNote')}</span>}
+              </div>
+            )}
+
+            {customTimes && (
+              <div style={{ maxWidth: 260 }}>
+                <label className="lg-label" htmlFor="lg-times">{t('lag.rules.timesCustom')}</label>
+                <input
+                  id="lg-times"
+                  className="lg-input"
+                  type="number"
+                  min="1"
+                  max={MAX_TIMES}
+                  inputMode="numeric"
+                  value={timesInput}
+                  onChange={(e) => {
+                    setTimesInput(e.target.value);
+                    const n = parseInt(e.target.value, 10);
+                    if (n >= 1) setRules({ times: Math.min(n, MAX_TIMES) });
+                  }}
+                />
               </div>
             )}
 

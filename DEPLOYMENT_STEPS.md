@@ -21,6 +21,18 @@ Funksjonen som kjører i produksjon er **`src/supabase/functions/server/index-st
 
 Merge til `main`. Netlify bygger og publiserer automatisk.
 
+## Engangssteg: flytting fra KV-tabellen (økt 3, del A)
+
+1. Aktiver `pg_cron` under Database → Extensions (for automatisk opprydding hvert 10. minutt).
+2. Kjør `20261028120000_qr_drop_tables.sql` og `20261028120100_qr_drop_cleanup_cron.sql`.
+   Den første kopierer alle gyldige QR-drops fra `kv_store_c3c9181e` til `qr_drops`.
+3. Deploy Edge-funksjonen.
+4. Kjør `select public.copy_kv_qr_drops();` én gang til, så drops laget mellom
+   steg 2 og 3 også kommer med. Den kan trygt kjøres flere ganger.
+
+Sjekk at oppryddingsjobben er planlagt: `select jobname, schedule from cron.job;`
+`kv_store_c3c9181e` brukes ikke lenger av funksjonen og kan tømmes etter 7 dager.
+
 ## 4. Røyktest
 
 - Lag en gratis QR-kode (10 min) uten innlogging og åpne den på mobil

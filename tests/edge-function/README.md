@@ -8,7 +8,9 @@ signature checks by `mock-stripe.mjs`.
 Covers access control (password, view tokens, view/download limits, ownership),
 server-side pricing and atomic coin charging, rate limiting, the Stripe webhook's
 exactly-once crediting, owner-list pagination, CORS, the SQL functions' privileges,
-RLS on `kv_store_c3c9181e` and `user_profiles`, and token cleanup.
+RLS on the `qr_drops` tables, `kv_store_c3c9181e` and `user_profiles`, cleanup of expired
+drops, tokens and files, and the one-time copy of drops from the KV store.
+(`pg_cron` is not available in PGlite; the cleanup function it schedules is tested directly.)
 
 Runs in GitHub Actions on every pull request (`.github/workflows/edge-function-tests.yml`).
 

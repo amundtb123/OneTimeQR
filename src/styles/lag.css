@@ -34,9 +34,7 @@
 .lg-header { background: var(--lg-surface); border-bottom: 1px solid var(--lg-line); position: relative; z-index: 10; }
 .lg-header-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; min-height: 68px; }
 .lg-header-left { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
-.lg-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; letter-spacing: -0.02em; background: none; border: 0; padding: 0; cursor: pointer; }
-.lg-mark { width: 22px; height: 22px; background: var(--lg-blue); display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; box-sizing: border-box; }
-.lg-mark span:nth-child(1), .lg-mark span:nth-child(4) { background: #fff; }
+.lg-brand { display: flex; align-items: center; gap: 10px; color: var(--lg-ink); font-weight: 800; font-size: 18px; letter-spacing: -0.02em; background: none; border: 0; padding: 0; cursor: pointer; }
 .lg-nav { display: flex; gap: 22px; font-size: 15px; font-weight: 500; }
 .lg-nav button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 22px 0 20px; cursor: pointer; color: var(--lg-ink-3); }
 .lg-nav button[aria-current="page"] { color: var(--lg-ink); border-bottom-color: var(--lg-ink); }

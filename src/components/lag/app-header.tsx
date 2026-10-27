@@ -5,6 +5,7 @@ import { AuthButton } from '../auth-button';
 import { LanguageSwitcher } from '../language-switcher';
 import { CoinShop } from '../coin-shop';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { QrMark } from './qr-mark';
 
 type Section = 'create' | 'keyring' | null;
 
@@ -25,7 +26,7 @@ export function AppHeader({ section, keyCount, showNav, onNavigate }: AppHeaderP
       <div className="lg-wrap lg-header-row">
         <div className="lg-header-left">
           <button type="button" className="lg-brand" onClick={() => onNavigate('create')}>
-            <span className="lg-mark" aria-hidden="true"><span /><span /><span /><span /></span>
+            <QrMark />
             {t('common.appName')}
           </button>
           {showNav && (

@@ -259,7 +259,7 @@ async function registerPasswordAttempt(id: string): Promise<number> {
 }
 
 // SECURITY (S3): Prices are decided here, never by the client.
-// Must stay in sync with calculateCoinCost() in src/components/upload-section.tsx.
+// Must stay in sync with calculateCoinCost() in src/utils/create-drop.ts.
 const EXPIRY_DURATIONS_MS: Record<string, number> = {
   '10m': 10 * 60 * 1000,
   '30m': 30 * 60 * 1000,

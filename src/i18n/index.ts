@@ -1,5 +1,6 @@
 import i18next from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { lagStrings } from './lag';
 
 const STORAGE_KEY = 'onetimeqr_language';
 
@@ -27,6 +28,7 @@ const initialLanguage = detectSystemLanguage();
 const resources = {
   en: {
     translation: {
+      ...lagStrings.en,
       common: {
         appName: 'OneTimeQR',
         tagline: 'QR as the key',
@@ -377,6 +379,7 @@ const resources = {
   },
   no: {
     translation: {
+      ...lagStrings.no,
       common: {
         appName: 'OneTimeQR',
         tagline: 'QR som nøkkel',

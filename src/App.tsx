@@ -2,18 +2,16 @@ import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './utils/auth-context';
 import { useTranslation } from 'react-i18next';
 import { DecorativeBackground } from './components/decorative-background';
-import { NordicLogo } from './components/nordic-logo';
-import { AuthButton } from './components/auth-button';
-import { UploadSection } from './components/upload-section';
-import { QrList } from './components/qr-list';
 import { ScanView } from './components/scan-view';
-import { QrDetailView } from './components/qr-detail-view';
 import { SuccessPage } from './components/success-page';
 import { LegalPage } from './components/legal-page';
 import { HowItWorksPage } from './components/how-it-works-page';
+import { AppHeader } from './components/lag/app-header';
+import { CreateFlow } from './components/lag/create-flow';
+import { StepReady } from './components/lag/step-ready';
+import { Keyring } from './components/lag/keyring';
 import { getAllQrDrops, deleteQrDrop, type QrDropData } from './utils/api-client';
 import { toast, Toaster } from 'sonner@2.0.3';
-import { LanguageSwitcher } from './components/language-switcher';
 import { keyPartsFromHash, rememberKeyParts, purgeStaleKeyParts } from './utils/key-handover';
 
 export interface QrDrop {
@@ -64,6 +62,8 @@ function convertToQrDrop(data: QrDropData, qrCodeUrl: string): QrDrop {
     password: data.password || undefined,
     createdAt: new Date(data.createdAt),
     expiredAt: data.expiredAt ? new Date(data.expiredAt) : undefined,
+    secureMode: data.secureMode || undefined,
+    singleQrMode: data.singleQrMode || undefined,
     qrCodeUrl,
   };
 }
@@ -80,7 +80,7 @@ function AppContent() {
   const { user, loading: authLoading } = useAuth();
   const { t } = useTranslation();
   const [qrDrops, setQrDrops] = useState<QrDrop[]>([]);
-  const [currentView, setCurrentView] = useState<'upload' | 'list' | 'scan' | 'detail' | 'success' | 'legal' | 'how-it-works'>('upload');
+  const [currentView, setCurrentView] = useState<'upload' | 'list' | 'ready' | 'success' | 'legal' | 'how-it-works'>('upload');
   const [selectedQrDrop, setSelectedQrDrop] = useState<QrDrop | null>(null);
   const [isLoading, setIsLoading] = useState(false); // Start as false, will be set to true when actually loading
   const [scanId, setScanId] = useState<string | null>(null);
@@ -155,9 +155,9 @@ function AppContent() {
   }, [currentView]);
 
   // Reload QR drops when user changes (login/logout)
-  // Don't reload if we're in detail view (might have just created a QR drop)
+  // Don't reload on the "ready" step (might have just created a QR drop)
   useEffect(() => {
-    if (!authLoading && !scanId && currentView !== 'detail') {
+    if (!authLoading && !scanId && currentView !== 'ready') {
       loadQrDrops();
     }
   }, [user, authLoading, scanId]);
@@ -270,11 +270,8 @@ function AppContent() {
   const handleQrCreated = async (newQrDrop: QrDrop) => {
     setQrDrops([newQrDrop, ...qrDrops]);
     setSelectedQrDrop(newQrDrop);
-    setCurrentView('detail');
-    toast.success(t('app.qrCreated'));
-    
-    // Scroll til toppen av siden
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setCurrentView('ready');
+    window.scrollTo({ top: 0 });
     
     // Reload QR drops after a short delay to ensure backend has indexed the new QR drop
     // This ensures the list stays in sync with the backend
@@ -304,174 +301,91 @@ function AppContent() {
     }
   };
 
-  const handleScan = (qrDrop: QrDrop) => {
-    setSelectedQrDrop(qrDrop);
-    setCurrentView('scan');
+  const navigate = (section: 'create' | 'keyring') => {
+    if (scanId || window.location.pathname !== '/') window.history.pushState({}, '', '/');
+    setScanId(null);
+    setCurrentView(section === 'create' ? 'upload' : 'list');
+    window.scrollTo({ top: 0 });
   };
 
-  const handleScanComplete = () => {
-    // Reload QR drops to get updated stats
-    loadQrDrops();
-  };
-
-  const handleDetail = (qrDrop: QrDrop) => {
-    setSelectedQrDrop(qrDrop);
-    setCurrentView('detail');
-  };
+  // The create flow and the key ring use the new look; scan, terms and the rest keep theirs for now
+  const newLook = !scanId && ['upload', 'list', 'ready'].includes(currentView);
 
   return (
-    <div className="min-h-screen relative">
-      <DecorativeBackground />
-      
-      {/* Header */}
-      <header className="relative z-10 bg-white/90 backdrop-blur-sm border-b border-[#D5C5BD]">
-        <div className="max-w-5xl mx-auto">
-          {/* Top row: Logo + Title + Auth */}
-          <div className="px-4 py-3 sm:py-4">
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => {
-                  setCurrentView('upload');
-                  window.history.pushState({}, '', '/');
-                  window.dispatchEvent(new PopStateEvent('popstate'));
-                }}
-                className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
-                aria-label="Go to home"
-              >
-                <NordicLogo className="w-10 h-10 sm:w-12 sm:h-12" />
-                <div>
-                  <h1 className="text-[#3F3F3F]">{t('common.appName')}</h1>
-                  <p className="text-[#5B5B5B] text-xs sm:text-sm">{t('common.tagline')}</p>
-                </div>
-              </button>
-              
-              <div className="flex items-center gap-3">
-                {!scanId && <AuthButton />}
-                <LanguageSwitcher />
-              </div>
-            </div>
-          </div>
-          
-          {/* Bottom row: Navigation Tabs */}
-          {!scanId && (
-            <div className="border-t border-[#D5C5BD]/50">
-              <nav className="flex px-4">
-                <button
-                  onClick={() => {
-                    setCurrentView('upload');
-                    window.history.pushState({}, '', '/');
-                  }}
-                  className={`flex-1 sm:flex-none sm:px-8 py-3 border-b-2 transition-all duration-200 ${
-                    currentView === 'upload'
-                      ? 'border-[#5D8CC9] text-[#5D8CC9]'
-                      : 'border-transparent text-[#5B5B5B] hover:text-[#3F3F3F] hover:border-[#D5C5BD]'
-                  }`}
-                >
-                  {t('common.upload')}
-                </button>
-                <button
-                  onClick={() => {
-                    setCurrentView('list');
-                    // Keep URL as is for list view
-                  }}
-                  className={`flex-1 sm:flex-none sm:px-8 py-3 border-b-2 transition-all duration-200 ${
-                    currentView === 'list'
-                      ? 'border-[#5D8CC9] text-[#5D8CC9]'
-                      : 'border-transparent text-[#5B5B5B] hover:text-[#3F3F3F] hover:border-[#D5C5BD]'
-                  }`}
-                >
-                  <span className="hidden sm:inline">{t('common.myQrs')} ({qrDrops.length})</span>
-                  <span className="sm:hidden">{t('common.myQrs')} ({qrDrops.length})</span>
-                </button>
-              </nav>
-            </div>
-          )}
-        </div>
-      </header>
+    <div className="lg-app relative">
+      {!newLook && <DecorativeBackground />}
 
-      {/* Main Content */}
-      <main className="relative z-10 max-w-5xl mx-auto px-4 py-8">
-        {scanId ? (
-          // Public scan page
-          <ScanView
-            key={`${scanId}:${keyArrivals}`}
-            qrDropId={scanId}
-            isDirectScan={true}
-            onBack={() => {
-              window.location.href = '/';
-            }}
-          />
-        ) : (
-          <>
-            {currentView === 'success' && (
-              <SuccessPage />
-            )}
-            
-            {currentView === 'upload' && (
-              <UploadSection onQrCreated={handleQrCreated} />
-            )}
-            
-            {currentView === 'list' && (
-              <QrList 
-                qrDrops={qrDrops} 
-                onDelete={handleDelete}
-                onScan={handleScan}
-                onActivationChanged={handleActivationChanged}
-                isLoading={isLoading}
-              />
-            )}
-            
-            {currentView === 'scan' && (selectedQrDrop || scanId) && (
-              <ScanView 
-                qrDropId={selectedQrDrop?.id || scanId || ''}
-                isPreview={!!selectedQrDrop}
-                isDirectScan={!selectedQrDrop && !!scanId}
-                onBack={() => {
-                  setCurrentView('list');
-                  handleScanComplete();
-                }}
-              />
-            )}
-            
-            {currentView === 'detail' && selectedQrDrop && (
-              <QrDetailView 
-                qrDrop={selectedQrDrop}
-                onActivationChanged={handleActivationChanged}
-                onScan={() => {
-                  setCurrentView('scan');
-                }}
-              />
-            )}
-            
-            {currentView === 'legal' && (
-              <LegalPage 
-                onBack={() => {
-                  setCurrentView('upload');
-                  window.history.pushState({}, '', '/');
-                }}
-              />
-            )}
-            
-            {currentView === 'how-it-works' && (
-              <HowItWorksPage 
-                onBack={() => {
-                  setCurrentView('upload');
-                  window.history.pushState({}, '', '/');
-                }}
-              />
-            )}
-          </>
-        )}
-      </main>
+      <AppHeader
+        section={scanId ? null : currentView === 'list' ? 'keyring' : ['upload', 'ready'].includes(currentView) ? 'create' : null}
+        keyCount={qrDrops.length}
+        showNav={!scanId}
+        onNavigate={navigate}
+      />
+
+      {currentView === 'upload' && !scanId && <CreateFlow onQrCreated={handleQrCreated} />}
+
+      {currentView === 'ready' && !scanId && selectedQrDrop && (
+        <StepReady qrDrop={selectedQrDrop} onNew={() => navigate('create')} onKeyring={() => navigate('keyring')} />
+      )}
+
+      {currentView === 'list' && !scanId && (
+        <Keyring
+          qrDrops={qrDrops}
+          isLoading={isLoading || authLoading}
+          onDelete={handleDelete}
+          onActivationChanged={handleActivationChanged}
+          onCreate={() => navigate('create')}
+        />
+      )}
+
+      {!newLook && (
+        <main className="relative z-10 max-w-5xl mx-auto px-4 py-8">
+          {scanId ? (
+            // Public scan page
+            <ScanView
+              key={`${scanId}:${keyArrivals}`}
+              qrDropId={scanId}
+              isDirectScan={true}
+              onBack={() => {
+                window.location.href = '/';
+              }}
+            />
+          ) : (
+            <>
+              {currentView === 'success' && <SuccessPage />}
+
+              {currentView === 'legal' && <LegalPage onBack={() => navigate('create')} />}
+
+              {currentView === 'how-it-works' && <HowItWorksPage onBack={() => navigate('create')} />}
+            </>
+          )}
+        </main>
+      )}
+
+      {!scanId && (
+        <footer className="lg-footer relative z-10">
+          <div className="lg-wrap">
+            <nav aria-label={t('nav.terms')}>
+              <button type="button" onClick={() => { window.history.pushState({}, '', '/how-it-works'); setCurrentView('how-it-works'); window.scrollTo({ top: 0 }); }}>
+                {t('nav.howItWorks')}
+              </button>
+              <button type="button" onClick={() => { window.history.pushState({}, '', '/terms'); setCurrentView('legal'); window.scrollTo({ top: 0 }); }}>
+                {t('nav.terms')}
+              </button>
+            </nav>
+          </div>
+        </footer>
+      )}
       <Toaster 
         position="bottom-center"
         toastOptions={{
           style: {
-            background: '#ffffff',
-            color: '#3F3F3F',
-            border: '1px solid #D5C5BD',
-            borderRadius: '1rem',
-            boxShadow: '0 8px 24px rgba(63, 63, 63, 0.12)',
+            background: '#FFFFFF',
+            color: '#0B0B0B',
+            border: '1px solid #0B0B0B',
+            borderRadius: 0,
+            boxShadow: 'none',
+            fontFamily: "'Inter Tight', system-ui, sans-serif",
           },
         }}
       />

@@ -139,6 +139,7 @@ const en = {
       opened: 'Opened · shown in your key ring',
       invalidAt: 'Invalid · at the latest {{date}}',
       toKeyring: 'See it in the key ring →',
+      leaveConfirm: 'You have not downloaded the keys. They are shown only here and cannot be fetched again. Leave anyway?',
     },
     short: {
       times: { one: 'once', n: '{{count}} times', inf: 'unlimited' },
@@ -327,6 +328,7 @@ const no: Strings = {
       opened: 'Åpnet · vises i nøkkelringen',
       invalidAt: 'Ugyldig · senest {{date}}',
       toKeyring: 'Se den i nøkkelringen →',
+      leaveConfirm: 'Du har ikke lastet ned nøklene. De vises bare her og kan ikke hentes frem igjen. Vil du likevel gå videre?',
     },
     short: {
       times: { one: '1 gang', n: '{{count}} ganger', inf: 'ubegrenset' },

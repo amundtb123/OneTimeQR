@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner@2.0.3';
 import type { QrDrop } from '../../App';
@@ -36,6 +36,10 @@ export function keyImages(qrDrop: QrDrop): Array<{ src: string; file: string; ki
   return images;
 }
 
+// Set while step 3 shows unlock codes that haven't been saved. They exist only on this page,
+// so App asks through this before it navigates away.
+export const leaveReadyGuard: { current: null | (() => boolean) } = { current: null };
+
 interface StepReadyProps {
   qrDrop: QrDrop;
   onNew: () => void;
@@ -49,6 +53,22 @@ export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
   const two = !!(qrDrop.secureMode && qrDrop.qrCodeUrl2);
   const images = keyImages(qrDrop);
   const message = t('lag.ready.shareMessage', { url });
+  const keysOnlyNow = images.some((img) => img.kind === 'key1' || img.kind === 'unlock');
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!keysOnlyNow || saved) return;
+    leaveReadyGuard.current = () => window.confirm(t('lag.ready.leaveConfirm'));
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      leaveReadyGuard.current = null;
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [keysOnlyNow, saved, t]);
 
   const copy = async () => {
     if (await copyToClipboard(url)) {
@@ -61,6 +81,7 @@ export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
 
   const download = () => {
     images.forEach((img, i) => setTimeout(() => downloadImage(img.src, img.file), i * 150));
+    setSaved(true);
     toast.success(images.length > 1 ? t('lag.ready.downloaded', { count: images.length }) : t('qrDetail.qrDownloaded'));
   };
 
@@ -113,7 +134,7 @@ export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
               <a className="lg-btn" href={`sms:?&body=${encodeURIComponent(message)}`}>{t('lag.ready.sms')}</a>
               <a className="lg-btn" href={`mailto:?subject=${encodeURIComponent(t('lag.ready.emailSubject'))}&body=${encodeURIComponent(message)}`}>{t('lag.ready.email')}</a>
               <button type="button" className="lg-btn" onClick={download}>{t('lag.ready.download')}</button>
-              <button type="button" className="lg-btn" onClick={() => window.print()}>{t('lag.ready.print')}</button>
+              <button type="button" className="lg-btn" onClick={() => { window.print(); setSaved(true); }}>{t('lag.ready.print')}</button>
             </div>
           </section>
 

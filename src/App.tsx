@@ -8,7 +8,7 @@ import { LegalPage } from './components/legal-page';
 import { HowItWorksPage } from './components/how-it-works-page';
 import { AppHeader } from './components/lag/app-header';
 import { CreateFlow } from './components/lag/create-flow';
-import { StepReady } from './components/lag/step-ready';
+import { StepReady, leaveReadyGuard } from './components/lag/step-ready';
 import { Keyring } from './components/lag/keyring';
 import { getAllQrDrops, deleteQrDrop, type QrDropData } from './utils/api-client';
 import { toast, Toaster } from 'sonner@2.0.3';
@@ -320,6 +320,7 @@ function AppContent() {
   };
 
   const navigate = (section: 'create' | 'keyring') => {
+    if (leaveReadyGuard.current && !leaveReadyGuard.current()) return;
     if (scanId || window.location.pathname !== '/') window.history.pushState({}, '', '/');
     setScanId(null);
     setCurrentView(section === 'create' ? 'upload' : 'list');
@@ -384,10 +385,10 @@ function AppContent() {
         <footer className="lg-footer relative z-10">
           <div className="lg-wrap">
             <nav aria-label={t('nav.terms')}>
-              <button type="button" onClick={() => { window.history.pushState({}, '', '/how-it-works'); setCurrentView('how-it-works'); window.scrollTo({ top: 0 }); }}>
+              <button type="button" onClick={() => { if (leaveReadyGuard.current && !leaveReadyGuard.current()) return; window.history.pushState({}, '', '/how-it-works'); setCurrentView('how-it-works'); window.scrollTo({ top: 0 }); }}>
                 {t('nav.howItWorks')}
               </button>
-              <button type="button" onClick={() => { window.history.pushState({}, '', '/terms'); setCurrentView('legal'); window.scrollTo({ top: 0 }); }}>
+              <button type="button" onClick={() => { if (leaveReadyGuard.current && !leaveReadyGuard.current()) return; window.history.pushState({}, '', '/terms'); setCurrentView('legal'); window.scrollTo({ top: 0 }); }}>
                 {t('nav.terms')}
               </button>
             </nav>

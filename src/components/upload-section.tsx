@@ -10,7 +10,6 @@ import {
   generateEncryptionKey, 
   encryptData, 
   encryptFile, 
-  createDecryptionKeyUrl,
   splitKey,
   encryptTextWithSplitKey,
   encryptFileWithSplitKey,

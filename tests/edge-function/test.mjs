@@ -84,10 +84,7 @@ async function call(method, p, { body, token, viewToken, form, ip, headers: extr
   try { json = await res.json(); } catch {}
   return { status: res.status, json };
 }
-async function meta(id, opts) {
-  const t = await call('GET', `/qr/${id}`, opts);
-  return call('GET', `/qr/${id}?access=${t.json.accessToken}`, opts);
-}
+const meta = (id, opts) => call('GET', `/qr/${id}`, opts);
 async function create(extra = {}, opts = {}) {
   const r = await call('POST', '/create', {
     ...opts,
@@ -198,9 +195,13 @@ console.log('\nB2 + S1: view limits');
   await expireNow(id5);
   check('time-expired: open 410', (await call('POST', `/qr/${id5}/open`, { body: {} })).status === 410);
 
-  const { id: id6 } = await create({});
-  await call('POST', `/qr/${id6}/scan`);
-  check('deprecated /scan no longer counts', ((await rawDrop(id6)).scanCount || 0) === 0);
+  const { id: id6 } = await create({ maxScans: 1 });
+  for (let i = 0; i < 3; i++) await meta(id6);
+  check('metadata does not use up a view', (await meta(id6)).status === 200 && ((await rawDrop(id6)).scanCount || 0) === 0);
+  check('old access-token links still work', (await call('GET', `/qr/${id6}?access=${crypto.randomUUID()}`)).status === 200);
+  for (const [method, p] of [['POST', `/qr/${id6}/scan`], ['POST', `/qr/${id6}/access-token`], ['POST', `/qrdrop/${id6}/qr1-scanned`], ['POST', `/qrdrop/${id6}/verify-qr1-for-qr2`]]) {
+    check(`removed endpoint ${p.split('/').pop()} is 404`, (await call(method, p)).status === 404);
+  }
 }
 
 console.log('\nS1: files and downloads');
@@ -417,12 +418,6 @@ console.log('\nTables: tokens, files and cleanup');
   const opened = await call('POST', `/qr/${id}/open`, { body: {} });
   const stored = (await db.query(`select token_hash from public.qr_tokens where qr_drop_id = $1 and kind = 'view'`, [id])).rows;
   check('view token is stored only as a hash', stored.length === 1 && stored[0].token_hash !== opened.json.viewToken && stored[0].token_hash.length === 64);
-  const t = await call('GET', `/qr/${id}`);
-  check('access token works once', (await call('GET', `/qr/${id}?access=${t.json.accessToken}`)).status === 200
-    && (await call('GET', `/qr/${id}?access=${t.json.accessToken}`)).status === 403);
-  const other = await create({});
-  const t2 = await call('GET', `/qr/${other.id}`);
-  check('access token for another drop is 403', (await call('GET', `/qr/${id}?access=${t2.json.accessToken}`)).status === 403);
 
   const form = new FormData();
   form.append('file', new Blob([new Uint8Array(10)]), 'a.bin');

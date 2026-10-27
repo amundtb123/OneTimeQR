@@ -328,8 +328,8 @@ function AppContent() {
     window.scrollTo({ top: 0 });
   };
 
-  // The create flow and the key ring use the new look; scan, terms and the rest keep theirs for now
-  const newLook = !scanId && ['upload', 'list', 'ready'].includes(currentView);
+  // The create flow, the key ring and the terms use the new look; scan and the rest keep theirs for now
+  const newLook = !scanId && ['upload', 'list', 'ready', 'legal'].includes(currentView);
 
   return (
     <div className="lg-app relative">
@@ -347,6 +347,8 @@ function AppContent() {
       {currentView === 'ready' && !scanId && selectedQrDrop && (
         <StepReady qrDrop={selectedQrDrop} onNew={() => navigate('create')} onKeyring={() => navigate('keyring')} />
       )}
+
+      {currentView === 'legal' && !scanId && <LegalPage />}
 
       {currentView === 'list' && !scanId && (
         <Keyring
@@ -373,8 +375,6 @@ function AppContent() {
           ) : (
             <>
               {currentView === 'success' && <SuccessPage />}
-
-              {currentView === 'legal' && <LegalPage onBack={() => navigate('create')} />}
 
               {currentView === 'how-it-works' && <HowItWorksPage onBack={() => navigate('create')} />}
             </>

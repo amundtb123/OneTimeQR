@@ -337,6 +337,86 @@ console.log('\nS3: server-side pricing');
   check('debug /test-coins endpoint is gone', (await call('GET', '/test-coins', { token: 'tok-P' })).status === 404);
 }
 
+console.log('\nScheduled release');
+{
+  const DAY = 864e5;
+  const inDays = (d) => new Date(Date.now() + d * DAY).toISOString();
+  const rawTimes = async (id) => {
+    const row = (await db.query(`select activates_at, expires_at from public.qr_drops where id = $1`, [id])).rows[0];
+    return { activatesAt: row.activates_at?.getTime() ?? null, expiresAt: row.expires_at.getTime() };
+  };
+  const activateNow = (id) => db.query(`update public.qr_drops set activates_at = now() - interval '1 second' where id = $1`, [id]);
+
+  const anonScheduled = await call('POST', '/create', { body: { contentType: 'text', textContent: 'x', expiryType: '10m', activatesAt: inDays(1) } });
+  check('scheduling is a paid feature (anonymous 401)', anonScheduled.status === 401 && anonScheduled.json.code === 'LOGIN_REQUIRED', anonScheduled);
+  for (const [label, value] of [['in the past', inDays(-1)], ['more than 3 months ahead', inDays(93)], ['junk', 'tomorrow']]) {
+    const r = await call('POST', '/create', { ...paid, body: { contentType: 'text', textContent: 'x', expiryType: '10m', activatesAt: value } });
+    check(`activation date ${label} is 400`, r.status === 400 && r.json.code === 'INVALID_ACTIVATION_DATE', r);
+  }
+
+  await setCoins(USER_P, 10);
+  const scheduledAt = Date.parse(inDays(30));
+  const priced = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'hemmelig', expiryType: '24h', password: 'pw', activatesAt: new Date(scheduledAt).toISOString() } });
+  check('schedule + password + 24h costs 3 coins', priced.status === 200 && priced.json.coinsCharged === 3, priced.json);
+  const id = priced.json.id;
+  const times = await rawTimes(id);
+  check('activation date is stored', times.activatesAt === scheduledAt, times);
+  check('lifetime counts from activation', times.expiresAt === scheduledAt + DAY, times);
+
+  const m = await meta(id);
+  check('metadata works before activation and shows the date', m.status === 200 && m.json.qrDrop.activatesAt === scheduledAt && m.json.qrDrop.textContent === undefined, m.json);
+  const early = await call('POST', `/qr/${id}/open`, { body: { password: 'pw' } });
+  check('/open before activation is 403 NOT_YET_ACTIVE', early.status === 403 && early.json.code === 'NOT_YET_ACTIVE' && early.json.activatesAt === scheduledAt && !early.json.qrDrop, early);
+  check('wrong password is not even checked before activation', (await call('POST', `/qr/${id}/open`, { body: { password: 'feil' } })).status === 403
+    && (await db.query(`select 1 from public.qr_password_attempts where qr_drop_id = $1`, [id])).rows.length === 0);
+  check('no view is used before activation', (await rawDrop(id)).scanCount === 0);
+  check('the database refuses a scan before activation too', (await db.query(`select public.qr_drop_consume($1, 'scan', $2) as r`, [id, Date.now()])).rows[0].r === null);
+  const ownerEarly = await call('POST', `/qr/${id}/open`, { token: 'tok-P', body: { password: 'pw' } });
+  check('owner can preview before activation', ownerEarly.status === 200 && ownerEarly.json.qrDrop.textContent === 'hemmelig', ownerEarly);
+  check('owner preview does not use a view', (await rawDrop(id)).scanCount === 0);
+  check('scheduled drop is not cleaned up', (await db.query(`select public.cleanup_expired_qr_drops() as n`), !!(await rawDrop(id))));
+
+  // Changing the date
+  const change = (body, opts = { token: 'tok-P' }) => call('POST', `/qr/${id}/activation`, { ...opts, body });
+  check('change without auth is 401', (await change({ activatesAt: inDays(10) }, {})).status === 401);
+  check('change by another user is 403', (await change({ activatesAt: inDays(10) }, { token: 'tok-B' })).status === 403);
+  check('change to a date more than 3 months ahead is 400', (await change({ activatesAt: inDays(93) })).status === 400);
+  check('change without activatesAt is 400', (await change({})).status === 400);
+  const coinsBefore = await coinsOf(USER_P);
+  const newAt = Date.parse(inDays(10));
+  const moved = await change({ activatesAt: new Date(newAt).toISOString() });
+  const movedTimes = await rawTimes(id);
+  check('owner can move the date', moved.status === 200 && moved.json.qrDrop.activatesAt === newAt && movedTimes.activatesAt === newAt, moved);
+  check('lifetime moves with the date', movedTimes.expiresAt === newAt + DAY, movedTimes);
+  check('moving the date is free', (await coinsOf(USER_P)) === coinsBefore);
+  check('moved response hides the password hash', moved.json.qrDrop.password === true);
+  const releasedBefore = Date.now();
+  const released = await change({ activatesAt: null });
+  const releasedTimes = await rawTimes(id);
+  check('owner can release right away', released.status === 200 && releasedTimes.activatesAt === null && releasedTimes.expiresAt >= releasedBefore + DAY && releasedTimes.expiresAt <= Date.now() + DAY, releasedTimes);
+  check('released drop opens for others', (await call('POST', `/qr/${id}/open`, { body: { password: 'pw' } })).status === 200);
+  check('an open drop cannot be scheduled again', (await change({ activatesAt: inDays(5) })).status === 409);
+  const unscheduled = await create({}, { token: 'tok-A' });
+  check('a drop created without a date cannot be scheduled later', (await call('POST', `/qr/${unscheduled.id}/activation`, { token: 'tok-A', body: { activatesAt: inDays(5) } })).status === 409);
+
+  // Every mode is gated the same way, since content only leaves via /open
+  for (const mode of [{ secureMode: true }, { singleQrMode: true }]) {
+    const r = await call('POST', '/create', { ...paid, body: { contentType: 'bundle', ...mode, textContentCiphertext: '{"c":1}', expiryType: '10m', activatesAt: inDays(1) } });
+    const label = Object.keys(mode)[0];
+    check(`${label}: /open before activation is 403`, r.status === 200 && (await call('POST', `/qr/${r.json.id}/open`, { body: {} })).status === 403, r);
+    await activateNow(r.json.id);
+    const opened = await call('POST', `/qr/${r.json.id}/open`, { body: {} });
+    check(`${label}: opens once the date has passed`, opened.status === 200 && opened.json.qrDrop.textContent === '{"c":1}', opened);
+  }
+  const form = new FormData();
+  form.append('file', new Blob([Buffer.alloc(10)]), 'a.png');
+  form.append('metadata', JSON.stringify({ contentType: 'file', expiryType: '10m', activatesAt: inDays(1) }));
+  const upload = await call('POST', '/upload', { ...paid, form });
+  check('file drop: scheduled upload costs 1 coin', upload.status === 200 && upload.json.coinsCharged === 1, upload);
+  check('file drop: /open before activation is 403', (await call('POST', `/qr/${upload.json.id}/open`, { body: {} })).status === 403);
+  check('file drop: /file before activation is 403', (await call('GET', `/qr/${upload.json.id}/file`)).status === 403);
+}
+
 console.log('\nClient-chosen IDs');
 {
   const victim = await create({ textContent: 'original' });

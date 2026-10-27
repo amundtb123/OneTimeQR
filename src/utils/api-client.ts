@@ -80,6 +80,7 @@ export interface QrDropMetadata {
   urlContent?: string; // JSON string for multiple URLs
   expiryType: string;
   expiryDate?: Date;
+  activatesAt?: string; // ISO date: opens then (at most 3 months ahead); omitted = right away
   maxScans?: number;
   maxDownloads?: number;
   viewOnly: boolean;
@@ -110,6 +111,7 @@ export interface QrDropData {
   urlContent?: string; // JSON string for multiple URLs
   expiryType: string;
   expiresAt: number | null;
+  activatesAt?: number | null; // Scheduled release: only the owner can open it before this
   maxScans: number | null;
   maxDownloads: number | null;
   scanCount: number;
@@ -305,6 +307,15 @@ export async function incrementDownloadCount(id: string): Promise<{ success: boo
     method: 'POST',
     headers: viewTokenHeaders(id),
   });
+}
+
+// Moves a scheduled drop's release date, or opens it right away with null (owner only)
+export async function setActivationDate(id: string, activatesAt: Date | null): Promise<{ success: boolean; qrDrop: QrDropData }> {
+  return fetchApi(`/qr/${id}/activation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activatesAt: activatesAt ? activatesAt.toISOString() : null }),
+  }, true);
 }
 
 export async function getAllQrDrops(): Promise<{ qrDrops: QrDropData[]; total?: number; nextOffset?: number | null }> {

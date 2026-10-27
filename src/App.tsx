@@ -27,6 +27,7 @@ export interface QrDrop {
   urlContent?: string; // For url type (JSON string of array for multiple URLs)
   expiryType: string;
   expiryDate?: Date;
+  activatesAt?: Date; // Scheduled release: recipients can open it from this date
   maxScans?: number;
   maxDownloads?: number;
   scanCount: number;
@@ -54,6 +55,7 @@ function convertToQrDrop(data: QrDropData, qrCodeUrl: string): QrDrop {
     urlContent: data.urlContent || undefined,
     expiryType: data.expiryType,
     expiryDate: data.expiresAt ? new Date(data.expiresAt) : undefined,
+    activatesAt: data.activatesAt ? new Date(data.activatesAt) : undefined,
     maxScans: data.maxScans || undefined,
     maxDownloads: data.maxDownloads || undefined,
     scanCount: data.scanCount,
@@ -286,6 +288,11 @@ function AppContent() {
     }, 1000); // 1 second delay to allow backend to index
   };
 
+  const handleActivationChanged = (id: string, changes: { activatesAt?: Date; expiryDate?: Date }) => {
+    setQrDrops((drops) => drops.map((qr) => (qr.id === id ? { ...qr, ...changes } : qr)));
+    setSelectedQrDrop((qr) => (qr?.id === id ? { ...qr, ...changes } : qr));
+  };
+
   const handleDelete = async (id: string) => {
     try {
       await deleteQrDrop(id);
@@ -409,6 +416,7 @@ function AppContent() {
                 qrDrops={qrDrops} 
                 onDelete={handleDelete}
                 onScan={handleScan}
+                onActivationChanged={handleActivationChanged}
                 isLoading={isLoading}
               />
             )}
@@ -428,6 +436,7 @@ function AppContent() {
             {currentView === 'detail' && selectedQrDrop && (
               <QrDetailView 
                 qrDrop={selectedQrDrop}
+                onActivationChanged={handleActivationChanged}
                 onScan={() => {
                   setCurrentView('scan');
                 }}

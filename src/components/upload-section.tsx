@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, X, Plus, Image, FileText, LinkIcon, Clock, Shield, Eye, Lock, Info, ChevronDown, Crown, EyeOff, Key, Smartphone } from 'lucide-react';
+import { Upload, X, Plus, Image, FileText, LinkIcon, Clock, CalendarClock, Shield, Eye, Lock, Info, ChevronDown, Crown, EyeOff, Key, Smartphone } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useTranslation } from 'react-i18next';
 import type { QrDrop } from '../App';
@@ -29,6 +29,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collap
 import { QrStylePicker, type QrStyle } from './qr-style-picker';
 import { useAuth } from '../utils/auth-context';
 import { CoinShop } from './coin-shop';
+import { defaultActivationDate, fromLocalInputValue, isValidActivationDate, maxActivationDate, toLocalInputValue } from '../utils/activation';
 
 const defaultQrStyle: QrStyle = {
   dotsColor: '#5D8CC9',
@@ -65,6 +66,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
   
   // Common settings
   const [expiryType, setExpiryType] = useState('10m');
+  const [scheduleRelease, setScheduleRelease] = useState(false);
+  const [activationInput, setActivationInput] = useState(''); // datetime-local value, local time
   const [maxScans, setMaxScans] = useState<string>('');
   const [maxDownloads, setMaxDownloads] = useState<string>('');
   const [viewOnly, setViewOnly] = useState(false);
@@ -240,6 +243,11 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
     if (usePassword) {
       cost += 1;
     }
+
+    // Scheduled release (+1 coin: the content is stored until it opens)
+    if (scheduleRelease) {
+      cost += 1;
+    }
     
     // Check file size beyond free limit (+1 coin per 2 MB extra)
     if (totalFileSize > freeSizeLimit) {
@@ -298,6 +306,12 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
     // Check if Secure Mode or Single QR Mode requires login
     if ((secureMode || singleQrMode) && !user) {
       toast.error(t('upload.secureModeRequiresLogin'));
+      return;
+    }
+
+    const activatesAt = scheduleRelease ? fromLocalInputValue(activationInput) : null;
+    if (scheduleRelease && !isValidActivationDate(activatesAt)) {
+      toast.error(t('activation.invalid'));
       return;
     }
 
@@ -439,6 +453,7 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           : (urls.length > 0 ? JSON.stringify(urls) : undefined),
         expiryType,
         expiryDate: expiryDate ? expiryDate.toISOString() : undefined, // Convert Date to ISO string for JSON
+        activatesAt: activatesAt ? activatesAt.toISOString() : undefined, // Server checks it is within 3 months
         maxScans: maxScans ? parseInt(maxScans) : undefined,
         maxDownloads: maxDownloads ? parseInt(maxDownloads) : undefined,
         viewOnly,
@@ -680,7 +695,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           textContent: textContent.trim() || undefined,
           urlContent: urls.length > 0 ? JSON.stringify(urls) : undefined,
           expiryType,
-          expiryDate,
+          // The server's times: with a release date the lifetime starts then
+          expiryDate: response.qrDrop?.expiresAt ? new Date(response.qrDrop.expiresAt) : expiryDate,
+          activatesAt: response.qrDrop?.activatesAt ? new Date(response.qrDrop.activatesAt) : undefined,
           maxScans: maxScans ? parseInt(maxScans) : undefined,
           maxDownloads: maxDownloads ? parseInt(maxDownloads) : undefined,
           scanCount: 0,
@@ -729,7 +746,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           textContent: textContent.trim() || undefined,
           urlContent: urls.length > 0 ? JSON.stringify(urls) : undefined,
           expiryType,
-          expiryDate,
+          // The server's times: with a release date the lifetime starts then
+          expiryDate: response.qrDrop?.expiresAt ? new Date(response.qrDrop.expiresAt) : expiryDate,
+          activatesAt: response.qrDrop?.activatesAt ? new Date(response.qrDrop.activatesAt) : undefined,
           maxScans: maxScans ? parseInt(maxScans) : undefined,
           maxDownloads: maxDownloads ? parseInt(maxDownloads) : undefined,
           scanCount: 0,
@@ -780,7 +799,9 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
           textContent: textContent.trim() || undefined,
           urlContent: urls.length > 0 ? JSON.stringify(urls) : undefined,
           expiryType,
-          expiryDate,
+          // The server's times: with a release date the lifetime starts then
+          expiryDate: response.qrDrop?.expiresAt ? new Date(response.qrDrop.expiresAt) : expiryDate,
+          activatesAt: response.qrDrop?.activatesAt ? new Date(response.qrDrop.activatesAt) : undefined,
           maxScans: maxScans ? parseInt(maxScans) : undefined,
           maxDownloads: maxDownloads ? parseInt(maxDownloads) : undefined,
           scanCount: 0,
@@ -802,6 +823,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
       setUrls([]);
       setCurrentUrl('');
       setExpiryType('10m');
+      setScheduleRelease(false);
+      setActivationInput('');
       setMaxScans('');
       setMaxDownloads('');
       setViewOnly(false);
@@ -824,6 +847,8 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
         toast.error(t('upload.insufficientCoinsShort'));
       } else if (error?.code === 'RATE_LIMITED') {
         toast.error(t('upload.rateLimited'));
+      } else if (error?.code === 'INVALID_ACTIVATION_DATE') {
+        toast.error(t('activation.invalid'));
       } else {
         const errorMessage = error?.message || t('upload.createQrError');
         toast.error(errorMessage);
@@ -1131,6 +1156,42 @@ export function UploadSection({ onQrCreated }: UploadSectionProps) {
                 <p className="text-[#4A6FA5] text-sm">
                   {t('upload.scanExpiryNote')}
                 </p>
+              </div>
+            )}
+
+            {/* Scheduled release: works with every mode, since content only leaves the server on open */}
+            {user && (
+              <div className="mt-4 p-4 rounded-xl border" style={{ backgroundColor: '#E8DCD4', borderColor: '#D5C5BD' }}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CalendarClock className="size-4 text-[#4A6FA5] flex-shrink-0" />
+                    <Label htmlFor="schedule-release" className="text-[#3F3F3F]">{t('activation.label')}</Label>
+                    <span className="text-xs text-indigo-600">{t('activation.cost')}</span>
+                  </div>
+                  <Switch
+                    id="schedule-release"
+                    checked={scheduleRelease}
+                    onCheckedChange={(checked) => {
+                      setScheduleRelease(checked);
+                      if (checked && !activationInput) setActivationInput(toLocalInputValue(defaultActivationDate()));
+                    }}
+                  />
+                </div>
+                <p className="text-[#5B5B5B] text-sm mt-2">{t('activation.description')}</p>
+                {scheduleRelease && (
+                  <div className="mt-3">
+                    <Label htmlFor="activation-date" className="text-[#3F3F3F] text-sm">{t('activation.dateLabel')}</Label>
+                    <Input
+                      id="activation-date"
+                      type="datetime-local"
+                      value={activationInput}
+                      min={toLocalInputValue(new Date())}
+                      max={toLocalInputValue(maxActivationDate())}
+                      onChange={(e) => setActivationInput(e.target.value)}
+                      className="mt-1 bg-white"
+                    />
+                  </div>
+                )}
               </div>
             )}
           </SoftCard>

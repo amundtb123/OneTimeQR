@@ -67,6 +67,7 @@ function dropFromRow(row: any) {
     urlContent: row.url_content,
     expiryType: row.expiry_type,
     expiresAt: toMs(row.expires_at),
+    activatesAt: toMs(row.activates_at),
     maxScans: row.max_scans,
     maxDownloads: row.max_downloads,
     scanCount: row.scan_count,
@@ -97,6 +98,7 @@ function dropToRow(drop: any) {
     files: (drop.files ?? []).map((f: any) => ({ name: f.name, type: f.type, size: f.size, path: f.path })),
     expiry_type: drop.expiryType,
     expires_at: toIso(drop.expiresAt),
+    activates_at: toIso(drop.activatesAt),
     max_scans: drop.maxScans,
     max_downloads: drop.maxDownloads,
     view_only: drop.viewOnly,
@@ -190,6 +192,11 @@ function getExpiryReason(qrDrop: any, now = Date.now()): string | null {
   return null;
 }
 
+// Scheduled drops can only be opened by their owner until activatesAt
+function isNotYetActive(qrDrop: any, now = Date.now()): boolean {
+  return !!qrDrop.activatesAt && qrDrop.activatesAt > now;
+}
+
 // A used-up drop is kept until the last viewer's token has expired, so an ongoing view can finish
 function isDeletable(qrDrop: any, now = Date.now()): boolean {
   if (qrDrop.expiresAt && qrDrop.expiresAt < now) return true;
@@ -262,13 +269,17 @@ const EXPIRY_DURATIONS_MS: Record<string, number> = {
   'scan': 7 * 24 * 60 * 60 * 1000, // Scan-once drops live at most 7 days
 };
 const FREE_EXPIRY_MS = EXPIRY_DURATIONS_MS['10m'];
+// Scheduled release: at most 3 months ahead, +1 coin because the content is stored that much longer
+const MAX_ACTIVATION_DELAY_MS = 92 * 24 * 60 * 60 * 1000;
+const SCHEDULE_COIN_COST = 1;
 const FREE_FILE_BYTES = 1 * 1024 * 1024;
 const BYTES_PER_EXTRA_COIN = 2 * 1024 * 1024;
 // Files arrive encrypted (IV + auth tag), slightly larger than the originals the client prices
 const ENCRYPTION_OVERHEAD_ALLOWANCE = 1024;
 
-function calculateCoinCost(options: { hasPassword: boolean; fileSizes: number[]; expiryType: string }): number {
+function calculateCoinCost(options: { hasPassword: boolean; fileSizes: number[]; expiryType: string; scheduled: boolean }): number {
   let cost = options.hasPassword ? 1 : 0;
+  if (options.scheduled) cost += SCHEDULE_COIN_COST;
 
   const totalBytes = options.fileSizes.reduce((sum, size) => sum + Math.max(0, size - ENCRYPTION_OVERHEAD_ALLOWANCE), 0);
   if (totalBytes > FREE_FILE_BYTES) {
@@ -288,19 +299,35 @@ function toPositiveInt(value: unknown): number | null {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+// A requested activation time in ms: null for "open right away", undefined if it is not
+// a valid time in the future (at most MAX_ACTIVATION_DELAY_MS ahead)
+function parseActivatesAt(value: unknown, now = Date.now()): number | null | undefined {
+  if (value === undefined || value === null || value === '') return null;
+  const ms = typeof value === 'number' ? value : Date.parse(String(value));
+  if (!Number.isFinite(ms) || ms <= now || ms > now + MAX_ACTIVATION_DELAY_MS) return undefined;
+  return ms;
+}
+
+function invalidActivationResponse(c: any) {
+  return c.json({ error: 'Activation date must be in the future and at most 3 months ahead', code: 'INVALID_ACTIVATION_DATE' }, 400);
+}
+
 // Rejects options the creator isn't allowed to pick, or returns the price (0 = free)
-function priceQrDrop(c: any, userId: string | null, metadata: any, fileSizes: number[]): { cost: number } | Response {
+// and when the drop opens (null = right away)
+function priceQrDrop(c: any, userId: string | null, metadata: any, fileSizes: number[]): { cost: number; activatesAt: number | null } | Response {
   if (!(metadata.expiryType in EXPIRY_DURATIONS_MS)) {
     return c.json({ error: 'Invalid expiry type' }, 400);
   }
+  const activatesAt = parseActivatesAt(metadata.activatesAt);
+  if (activatesAt === undefined) return invalidActivationResponse(c);
   if ((metadata.secureMode || metadata.singleQrMode) && !userId) {
     return c.json({ error: 'Log in to use Secure Mode', code: 'LOGIN_REQUIRED' }, 401);
   }
-  const cost = calculateCoinCost({ hasPassword: !!metadata.password, fileSizes, expiryType: metadata.expiryType });
+  const cost = calculateCoinCost({ hasPassword: !!metadata.password, fileSizes, expiryType: metadata.expiryType, scheduled: activatesAt !== null });
   if (cost > 0 && !userId) {
     return c.json({ error: 'Log in to use paid features', code: 'LOGIN_REQUIRED', coinCost: cost }, 401);
   }
-  return { cost };
+  return { cost, activatesAt };
 }
 
 // Atomically takes coins from the user. Returns the new balance, or null if they can't afford it.
@@ -689,7 +716,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
 
     const price = priceQrDrop(c, userId, metadata, files.map((file) => file.size));
     if (price instanceof Response) return price;
-    const { cost } = price;
+    const { cost, activatesAt } = price;
 
     let coinBalance: number | null = null;
     if (cost > 0) {
@@ -773,8 +800,10 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
         textContent: textContentToStore,
         urlContent: urlContentToStore,
         expiryType: metadata.expiryType,
-        // SECURITY: Lifetime follows the paid-for expiry type, not a client-supplied date
-        expiresAt: timestamp + EXPIRY_DURATIONS_MS[metadata.expiryType],
+        // SECURITY: Lifetime follows the paid-for expiry type, not a client-supplied date.
+        // It starts when the drop opens.
+        expiresAt: (activatesAt ?? timestamp) + EXPIRY_DURATIONS_MS[metadata.expiryType],
+        activatesAt,
         maxScans: toPositiveInt(metadata.maxScans),
         maxDownloads: toPositiveInt(metadata.maxDownloads),
         scanCount: 0,
@@ -896,7 +925,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
 
     const price = priceQrDrop(c, userId, metadata, []);
     if (price instanceof Response) return price;
-    const { cost } = price;
+    const { cost, activatesAt } = price;
     // Done before charging so a hashing failure can't cost coins
     const passwordHash = metadata.password ? await hashPasswordSecure(metadata.password) : null;
 
@@ -929,8 +958,10 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       textContent: textContentToStore,
       urlContent: urlContentToStore,
       expiryType: metadata.expiryType,
-      // SECURITY: Lifetime follows the paid-for expiry type, not a client-supplied date
-      expiresAt: timestamp + EXPIRY_DURATIONS_MS[metadata.expiryType],
+      // SECURITY: Lifetime follows the paid-for expiry type, not a client-supplied date.
+      // It starts when the drop opens.
+      expiresAt: (activatesAt ?? timestamp) + EXPIRY_DURATIONS_MS[metadata.expiryType],
+      activatesAt,
       maxScans: toPositiveInt(metadata.maxScans),
       maxDownloads: toPositiveInt(metadata.maxDownloads),
       scanCount: 0,
@@ -1029,6 +1060,12 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
       return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
     }
 
+    // Owners can preview a scheduled drop; everyone else waits (and can't guess the password yet)
+    const isOwner = await isRequestOwner(c, qrDrop);
+    if (isNotYetActive(qrDrop) && !isOwner) {
+      return c.json({ error: 'QR drop is not active yet', code: 'NOT_YET_ACTIVE', activatesAt: qrDrop.activatesAt }, 403);
+    }
+
     if (qrDrop.password) {
       if (!password) {
         return c.json({ error: 'Password required', code: 'PASSWORD_REQUIRED' }, 401);
@@ -1048,7 +1085,7 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
     }
 
     // Owners previewing their own drop don't use up a view
-    if (!(await isRequestOwner(c, qrDrop))) {
+    if (!isOwner) {
       const consumed = await consumeQrDrop(id, 'scan');
       if (!consumed) {
         // Another viewer used the last view between our read and the atomic update
@@ -1167,6 +1204,51 @@ app.post('/make-server-c3c9181e/qr/:id/download', async (c) => {
   } catch (error) {
     console.error('Error incrementing download count:', error);
     return c.json({ error: 'Failed to increment download count' }, 500);
+  }
+});
+
+// Change or cancel the release date of a scheduled drop (logged-in owner only).
+// Body: { activatesAt: ISO date | null }, where null opens it right away. The lifetime
+// moves along with it. Drops that are already open can't be scheduled again.
+app.post('/make-server-c3c9181e/qr/:id/activation', async (c) => {
+  try {
+    const id = c.req.param('id');
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid QR drop ID format' }, 400);
+    }
+
+    const userId = await getRequestUserId(c);
+    if (!userId) {
+      return c.json({ error: 'Authentication required' }, 401);
+    }
+
+    const qrDrop = await getQrDrop(id);
+    if (!qrDrop || getExpiryReason(qrDrop)) {
+      return c.json({ error: 'QR drop not found' }, 404);
+    }
+    if (qrDrop.userId !== userId) {
+      return c.json({ error: 'Unauthorized: You can only change your own QR drops' }, 403);
+    }
+    if (!isNotYetActive(qrDrop)) {
+      return c.json({ error: 'QR drop is already active', code: 'ALREADY_ACTIVE' }, 409);
+    }
+
+    const body = await c.req.json().catch(() => null);
+    if (!body || !('activatesAt' in body)) {
+      return c.json({ error: 'activatesAt is required' }, 400);
+    }
+    const now = Date.now();
+    const activatesAt = parseActivatesAt(body.activatesAt, now);
+    if (activatesAt === undefined) return invalidActivationResponse(c);
+
+    const lifetimeMs = qrDrop.expiresAt - qrDrop.activatesAt;
+    const expiresAt = (activatesAt ?? now) + lifetimeMs;
+    await updateQrDrop(id, { activates_at: toIso(activatesAt), expires_at: toIso(expiresAt) });
+
+    return c.json({ success: true, qrDrop: withoutSecrets({ ...qrDrop, activatesAt, expiresAt }) });
+  } catch (error) {
+    console.error('Error changing activation date:', error);
+    return c.json({ error: 'Failed to change activation date' }, 500);
   }
 });
 

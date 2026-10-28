@@ -40,6 +40,7 @@ export interface QrDrop {
   qrCodeUrl2?: string; // QR #2 for Secure Mode (unlock code)
   qrCodeUrlShare?: string; // QR for sharing (clean link without code) - used in Secure Mode and Single QR Mode
   keyUrl?: string; // Single QR Mode: the link with the key, only known right after creation
+  keyInQrOnly?: boolean; // Single QR Mode where the key is only in the QR code, only known right after creation
 }
 
 function convertToQrDrop(data: QrDropData, qrCodeUrl: string): QrDrop {

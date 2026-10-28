@@ -6,7 +6,7 @@ import { defaultActivationDate, formatActivationDate, toLocalInputValue } from '
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 export type Times = number | 'inf'; // How many opens; 'inf' = no limit
-export type Who = 'code' | 'password' | 'two';
+export type Who = 'code' | 'qr' | 'password' | 'two'; // qr: the link only leads to the lock, the key is in the QR code
 export type Expiry = '10m' | '30m' | '1h' | '24h' | '7d';
 export type Mode = 'download' | 'view';
 
@@ -20,13 +20,13 @@ export interface Rules {
 
 export const TIMES: Times[] = [1, 5, 10, 25, 50, 'inf'];
 export const MAX_TIMES = 1000;
-export const WHO: Who[] = ['code', 'password', 'two'];
+export const WHO: Who[] = ['code', 'qr', 'password', 'two'];
 export const EXPIRY: Expiry[] = ['10m', '30m', '1h', '24h', '7d'];
 export const MODE: Mode[] = ['download', 'view'];
 
 // Without an account only the free rules can be picked
 export const FREE_EXPIRY: Expiry = '10m';
-export const loginOnlyWho = (who: Who) => who !== 'code';
+export const loginOnlyWho = (who: Who) => who === 'password' || who === 'two';
 
 export type TemplateId = 'once' | 'secret' | 'two' | 'gift' | 'many' | 'authenticity';
 
@@ -85,6 +85,7 @@ export function dropRuleLine(t: Translate, qrDrop: QrDrop): string {
   const parts: string[] = [];
   parts.push(timesLabel(t, qrDrop.maxScans || 'inf', 'lag.short.times'));
   if (qrDrop.secureMode) parts.push(t('lag.short.who.two'));
+  else if (qrDrop.keyInQrOnly) parts.push(t('lag.short.who.qr'));
   else if (qrDrop.password) parts.push(t('lag.short.who.password'));
   else parts.push(t('lag.short.who.code'));
   if (qrDrop.viewOnly) parts.push(t('lag.short.viewOnly'));

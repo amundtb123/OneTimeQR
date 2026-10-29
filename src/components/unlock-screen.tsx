@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { SoftCard } from './soft-card';
 import { NordicButton } from './nordic-button';
 import { QrScanner } from './qr-scanner-html5';
-import { parseKeyUrl, type KeyParts } from '../utils/key-handover';
+import { parseKeyUrl, isKeyCode, type KeyParts } from '../utils/key-handover';
 import { formatTimeLeft, useNow } from '../utils/time-left';
 import { toast } from 'sonner@2.0.3';
 import jsQR from 'jsqr';
@@ -23,6 +23,7 @@ export function UnlockScreen({ qrDropId, singleQrMode, keyParts, expiresAt, onKe
   const { t } = useTranslation();
   const [showScanner, setShowScanner] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [codeInput, setCodeInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const now = useNow(!!expiresAt);
 
@@ -53,6 +54,18 @@ export function UnlockScreen({ qrDropId, singleQrMode, keyParts, expiresAt, onKe
         toast.success(t('unlockScreen.qr1Scanned'));
       }
       onKeyParts(scanned.parts);
+    }
+  };
+
+  // A key sent apart from the link: the bare code, or a whole key link pasted in
+  const handleCodeSubmit = () => {
+    const code = codeInput.trim();
+    if (isKeyCode(code)) {
+      onKeyParts({ k1: code });
+    } else if (parseKeyUrl(code)) {
+      handleQrScanned(code);
+    } else {
+      toast.error(t('unlockScreen.invalidKeyCode'));
     }
   };
 
@@ -210,6 +223,33 @@ export function UnlockScreen({ qrDropId, singleQrMode, keyParts, expiresAt, onKe
               {t('unlockScreen.sameDeviceHint')}
             </p>
           </div>
+
+          {singleQrMode && (
+            <form
+              className="mt-6 text-left"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleCodeSubmit();
+              }}
+            >
+              <label htmlFor="key-code" className="block text-[#3F3F3F] text-sm mb-2">{t('unlockScreen.keyCodeLabel')}</label>
+              <div className="flex gap-2">
+                <input
+                  id="key-code"
+                  value={codeInput}
+                  onChange={(e) => setCodeInput(e.target.value)}
+                  placeholder={t('unlockScreen.keyCodePlaceholder')}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="flex-1 min-w-0 rounded-xl border px-3 py-2 text-sm"
+                  style={{ borderColor: '#D5C5BD', backgroundColor: '#FFFFFF' }}
+                />
+                <NordicButton type="submit" variant="coral" disabled={!codeInput.trim()}>
+                  {t('unlockScreen.keyCodeButton')}
+                </NordicButton>
+              </div>
+            </form>
+          )}
 
           <p className="text-[#5B5B5B] text-xs mt-4">
             {t('unlockScreen.neverStoredUnencrypted')}

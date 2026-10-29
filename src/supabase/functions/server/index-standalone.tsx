@@ -320,10 +320,7 @@ function priceQrDrop(c: any, userId: string | null, metadata: any, fileSizes: nu
   }
   const activatesAt = parseActivatesAt(metadata.activatesAt);
   if (activatesAt === undefined) return invalidActivationResponse(c);
-  // One sealed key (the key travels in the link) is the default and free; two keys need an account
-  if (metadata.secureMode && !userId) {
-    return c.json({ error: 'Log in to use Secure Mode', code: 'LOGIN_REQUIRED' }, 401);
-  }
+  // Sealed keys are free, also a split key (link + QR code). Only coins need an account.
   const cost = calculateCoinCost({ hasPassword: !!metadata.password, fileSizes, expiryType: metadata.expiryType, scheduled: activatesAt !== null });
   if (cost > 0 && !userId) {
     return c.json({ error: 'Log in to use paid features', code: 'LOGIN_REQUIRED', coinCost: cost }, 401);

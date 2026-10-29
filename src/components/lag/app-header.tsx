@@ -14,9 +14,10 @@ interface AppHeaderProps {
   keyCount: number;
   showNav: boolean;
   onNavigate: (section: 'create' | 'keyring') => void;
+  onHome: () => void; // The logo: back to the first step from anywhere
 }
 
-export function AppHeader({ section, keyCount, showNav, onNavigate }: AppHeaderProps) {
+export function AppHeader({ section, keyCount, showNav, onNavigate, onHome }: AppHeaderProps) {
   const { t } = useTranslation();
   const { user, coins } = useAuth();
   const [shopOpen, setShopOpen] = useState(false);
@@ -25,7 +26,7 @@ export function AppHeader({ section, keyCount, showNav, onNavigate }: AppHeaderP
     <header className="lg-header">
       <div className="lg-wrap lg-header-row">
         <div className="lg-header-left">
-          <button type="button" className="lg-brand" onClick={() => onNavigate('create')}>
+          <button type="button" className="lg-brand" onClick={onHome}>
             <QrMark />
             {t('common.appName')}
           </button>

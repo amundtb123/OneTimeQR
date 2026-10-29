@@ -1,6 +1,7 @@
 // Creates a QR drop: encrypts the content, sends it to the server and renders the QR codes.
-// Every drop is sealed: the key is made here and never sent. One key travels in the link's
-// fragment (Single QR Mode); two keys are split between two QR codes (Secure Mode).
+// Every drop is sealed: the key is made here and never sent. One key (Single QR Mode) travels
+// in the link's fragment or as a code sent separately; a split key (Secure Mode) is shared
+// between the link and a QR code, or between two QR codes.
 import type { QrDrop } from '../App';
 import type { QrStyle } from '../components/qr-style-picker';
 import { uploadFile, createQrDrop } from './api-client';
@@ -27,9 +28,15 @@ export interface DropRequest {
   noPreview: boolean;
   password?: string;
   qrStyle: QrStyle;
-  twoKeys: boolean; // QR 1 and QR 2 must both be scanned; otherwise one key in the link
-  keyInQrOnly?: boolean; // One key, only in the QR code: the shared link leads to the lock
+  keys: KeyDelivery;
 }
+
+// How the key reaches the recipient:
+// link     one key, in the link and its QR code
+// linkQr   split key: half in the link, half in a QR code; both are needed
+// separate one key, as a code sent apart from the link; the link only leads to the lock
+// twoQr    split key over two QR codes
+export type KeyDelivery = 'link' | 'linkQr' | 'separate' | 'twoQr';
 
 // QR 2 is always black on white with square corners so every scanner reads it
 export const unlockQrStyle: QrStyle = {
@@ -78,9 +85,8 @@ async function renderQr(url: string, style: QrStyle): Promise<string> {
 }
 
 export async function createDrop(req: DropRequest, fallbackName: string): Promise<{ qrDrop: QrDrop; coinsCharged: number }> {
-  const secureMode = req.twoKeys;
-  const singleQrMode = !req.twoKeys;
-  const keyInQrOnly = singleQrMode && !!req.keyInQrOnly;
+  const secureMode = req.keys === 'linkQr' || req.keys === 'twoQr';
+  const singleQrMode = !secureMode;
   const text = req.textContent.trim();
   const title = req.title.trim();
   const expiryMinutes = EXPIRY_MINUTES[req.expiryType] ?? 10;
@@ -153,14 +159,22 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
   let qrCodeUrl: string;
   let qrCodeUrl2: string | undefined;
   let keyUrl: string | undefined;
+  let keyCode: string | undefined;
   const qrCodeUrlShare = await renderQr(shareUrl, req.qrStyle); // Leads to the lock only
-  if (splitKeys) {
+  if (splitKeys && req.keys === 'linkQr') {
+    // The link carries K1 and the only QR code carries K2
+    keyUrl = createQr1Url(window.location.origin, response.id, splitKeys.k1);
+    qrCodeUrl = await renderQr(createQr2Url(window.location.origin, response.id, splitKeys.k2), req.qrStyle);
+  } else if (splitKeys) {
     qrCodeUrl = await renderQr(createQr1Url(window.location.origin, response.id, splitKeys.k1), req.qrStyle);
     qrCodeUrl2 = await renderQr(createQr2Url(window.location.origin, response.id, splitKeys.k2), unlockQrStyle);
+  } else if (req.keys === 'separate') {
+    // Just the key, without the drop's id: worthless without the link
+    keyCode = singleKey;
+    qrCodeUrl = qrCodeUrlShare;
   } else {
-    const singleKeyUrl = createQr1Url(window.location.origin, response.id, singleKey!);
-    qrCodeUrl = await renderQr(singleKeyUrl, req.qrStyle);
-    if (!keyInQrOnly) keyUrl = singleKeyUrl; // Otherwise the key leaves this page only as the QR image
+    keyUrl = createQr1Url(window.location.origin, response.id, singleKey!);
+    qrCodeUrl = await renderQr(keyUrl, req.qrStyle);
   }
 
   const totalSize =
@@ -190,7 +204,8 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
     qrCodeUrl2,
     qrCodeUrlShare,
     keyUrl,
-    keyInQrOnly: keyInQrOnly || undefined,
+    keyCode,
+    keyDelivery: req.keys,
   };
 
   return { qrDrop, coinsCharged: response.coinsCharged ?? 0 };

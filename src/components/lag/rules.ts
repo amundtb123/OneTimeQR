@@ -1,6 +1,6 @@
 // The rules of a key, as the "Lag" flow shows them: one sentence with a few choices.
 // Every key is sealed: one key travels in the link or as a separate code (singleQrMode); a split key
-// is shared between the link and a QR code, or two QR codes (secureMode).
+// is shared between two QR codes (secureMode).
 import type { QrDrop } from '../../App';
 import { defaultActivationDate, formatActivationDate, toLocalInputValue } from '../../utils/activation';
 import type { KeyDelivery } from '../../utils/create-drop';
@@ -8,7 +8,7 @@ import type { KeyDelivery } from '../../utils/create-drop';
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 export type Times = number | 'inf'; // How many opens; 'inf' = no limit
-export type Who = 'code' | 'qr' | 'separate' | 'password' | 'two';
+export type Who = 'code' | 'separate' | 'password' | 'two';
 export type Expiry = '10m' | '30m' | '1h' | '24h' | '7d';
 export type Mode = 'download' | 'view';
 
@@ -22,10 +22,10 @@ export interface Rules {
 
 export const TIMES: Times[] = [1, 5, 10, 25, 50, 'inf'];
 export const MAX_TIMES = 1000;
-export const WHO: Who[] = ['code', 'qr', 'separate', 'password', 'two'];
+export const WHO: Who[] = ['code', 'separate', 'password', 'two'];
 
 // How each choice hands out the key (password: one key in the link, plus the password)
-export const KEYS_BY_WHO: Record<Who, KeyDelivery> = { code: 'link', qr: 'linkQr', separate: 'separate', password: 'link', two: 'twoQr' };
+export const KEYS_BY_WHO: Record<Who, KeyDelivery> = { code: 'link', separate: 'separate', password: 'link', two: 'twoQr' };
 export const EXPIRY: Expiry[] = ['10m', '30m', '1h', '24h', '7d'];
 export const MODE: Mode[] = ['download', 'view'];
 
@@ -76,7 +76,7 @@ export function timesLabel(t: Translate, times: Times, prefix: string): string {
 
 export const templateById = (id: TemplateId) => TEMPLATES.find((tpl) => tpl.id === id)!;
 
-// "1 gang · den som har koden · 24 timer"
+// "1 gang · lenke eller QR-kode · 24 timer"
 export function shortRuleLine(t: Translate, rules: Rules, language: string): string {
   const parts = [timesLabel(t, rules.times, 'lag.short.times'), t(`lag.short.who.${rules.who}`)];
   if (rules.opensAt) parts.push(t('lag.short.opens', { date: formatActivationDate(new Date(rules.opensAt), language) }));
@@ -89,8 +89,7 @@ export function shortRuleLine(t: Translate, rules: Rules, language: string): str
 export function dropRuleLine(t: Translate, qrDrop: QrDrop): string {
   const parts: string[] = [];
   parts.push(timesLabel(t, qrDrop.maxScans || 'inf', 'lag.short.times'));
-  if (qrDrop.keyDelivery === 'linkQr') parts.push(t('lag.short.who.qr'));
-  else if (qrDrop.keyDelivery === 'separate') parts.push(t('lag.short.who.separate'));
+  if (qrDrop.keyDelivery === 'separate') parts.push(t('lag.short.who.separate'));
   else if (qrDrop.secureMode) parts.push(t('lag.short.who.two'));
   else if (qrDrop.password) parts.push(t('lag.short.who.password'));
   else parts.push(t('lag.short.who.code'));

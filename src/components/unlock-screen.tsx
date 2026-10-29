@@ -42,6 +42,10 @@ export function UnlockScreen({ qrDropId, singleQrMode, keyParts, expiresAt, onKe
 
   const handleQrScanned = (data: string) => {
     setShowScanner(false);
+    if (singleQrMode && isKeyCode(data.trim())) {
+      onKeyParts({ k1: data.trim() }); // A key code QR: just the key, for the drop this link leads to
+      return;
+    }
     const scanned = parseKeyUrl(data);
     if (!scanned) {
       toast.error(t('unlockScreen.invalidQr'));

@@ -66,6 +66,7 @@
 .lg-card { background: var(--lg-surface); border: 1px solid var(--lg-line); padding: 28px; display: flex; flex-direction: column; gap: 16px; }
 .lg-card-strong { border: 2px solid var(--lg-ink); }
 .lg-cols { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+.lg-cols.lg-pair { align-items: center; }
 .lg-col-main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
 .lg-col-side { flex: 1 1 340px; min-width: 0; }
 .lg-col-half { flex: 1 1 400px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }

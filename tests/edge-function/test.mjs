@@ -335,6 +335,20 @@ console.log('\nS3: server-side pricing');
   const bigOk = await upload(6 * MB, 'tok-P', { maxScans: 100 });
   check('large file with 100 opens is allowed', bigOk.status === 200 && bigOk.json.coinsCharged === 1, bigOk);
   check('anonymous 2 MB file is rejected', (await upload(2 * MB, undefined)).status >= 400);
+  const uploadFiles = (sizes, token) => {
+    const form = new FormData();
+    sizes.forEach((bytes, i) => form.append(i === 0 ? 'file' : `file${i}`, new Blob([new Uint8Array(bytes)]), `a${i}.bin`));
+    form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', maxScans: 1 }));
+    return call('POST', '/upload', { form, token });
+  };
+  const tooBig = await upload(22 * MB, 'tok-P', { maxScans: 1 });
+  check('upload over 21 MB is refused before it is read (413)', tooBig.status === 413 && tooBig.json.code === 'UPLOAD_TOO_LARGE', tooBig);
+  const declaredTooBig = await globalThis.__handler(new Request('http://local/make-server-c3c9181e/upload', { method: 'POST', headers: { 'Content-Length': String(1024 * MB), 'Content-Type': 'multipart/form-data; boundary=x' }, body: 'x' }));
+  check('declared 1 GB upload is refused at once (413)', declaredTooBig.status === 413);
+  const overTotal = await uploadFiles([10 * MB, Math.round(10.4 * MB)], 'tok-P');
+  check('two files over 20 MB in all is 400', overTotal.status === 400 && /Total file size/.test(overTotal.json?.error), overTotal);
+  const anonTotal = await uploadFiles([Math.round(0.6 * MB), Math.round(0.6 * MB)], undefined);
+  check('anonymous files over 1 MB in all is 400', anonTotal.status === 400 && /Total file size/.test(anonTotal.json?.error), anonTotal);
 
   await setCoins(USER_P, 5);
   globalThis.__failStorageUpload = true;

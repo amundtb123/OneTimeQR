@@ -601,10 +601,45 @@ async function deleteQrDrop(id: string) {
   }
 }
 
+// Largest upload a request may carry: 20 MB of files plus room for encryption, form fields and boundaries
+const MAX_UPLOAD_REQUEST_BYTES = 21 * 1024 * 1024;
+
+// Reads the request body, but stops as soon as it grows beyond maxBytes (null = too large),
+// so an oversized upload never ends up in memory
+async function readBodyCapped(req: Request, maxBytes: number): Promise<Uint8Array | null> {
+  if (Number(req.headers.get('Content-Length')) > maxBytes) return null;
+  const reader = req.body?.getReader();
+  if (!reader) return new Uint8Array();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return body;
+}
+
 // Upload files and create QR drop (supports multiple files)
 app.post('/make-server-c3c9181e/upload', async (c) => {
   try {
-    const formData = await c.req.formData();
+    // SECURITY: Refuse oversized uploads before reading them
+    const body = await readBodyCapped(c.req.raw, MAX_UPLOAD_REQUEST_BYTES);
+    if (!body) {
+      return c.json({ error: 'Upload is too large. Maximum size is 20 MB.', code: 'UPLOAD_TOO_LARGE' }, 413);
+    }
+    const formData = await new Response(body, { headers: { 'Content-Type': c.req.header('Content-Type') ?? '' } }).formData();
     const metadata = JSON.parse(formData.get('metadata') as string);
 
     // SECURITY: Don't log full metadata - may contain sensitive data
@@ -645,8 +680,9 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     }
 
     // SECURITY: Validate file sizes on server side
-    const MAX_FILE_SIZE = userId ? 20 * 1024 * 1024 : 1 * 1024 * 1024; // 20 MB or 1 MB
-    const MAX_TOTAL_SIZE = userId ? 100 * 1024 * 1024 : 5 * 1024 * 1024; // 100 MB or 5 MB total
+    // The limits the app shows: 20 MB in all when logged in, 1 MB without an account
+    const MAX_FILE_SIZE = userId ? 20 * 1024 * 1024 : FREE_FILE_BYTES;
+    const MAX_TOTAL_SIZE = MAX_FILE_SIZE;
     
     // Limits apply to the original size; files arrive slightly larger because they are encrypted
     let totalSize = 0;

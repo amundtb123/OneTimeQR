@@ -158,12 +158,16 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
   let qrCodeUrl: string;
   let qrCodeUrl2: string | undefined;
   let keyUrl: string | undefined;
+  let key1Url: string | undefined;
+  let key2Url: string | undefined;
   let keyCode: string | undefined;
   let keyCodeQr: string | undefined;
   const qrCodeUrlShare = await renderQr(shareUrl, req.qrStyle); // Leads to the lock only
   if (splitKeys) {
-    qrCodeUrl = await renderQr(createQr1Url(window.location.origin, response.id, splitKeys.k1), req.qrStyle);
-    qrCodeUrl2 = await renderQr(createQr2Url(window.location.origin, response.id, splitKeys.k2), unlockQrStyle);
+    key1Url = createQr1Url(window.location.origin, response.id, splitKeys.k1);
+    key2Url = createQr2Url(window.location.origin, response.id, splitKeys.k2);
+    qrCodeUrl = await renderQr(key1Url, req.qrStyle);
+    qrCodeUrl2 = await renderQr(key2Url, unlockQrStyle);
   } else if (req.keys === 'separate') {
     // Just the key, without the drop's id: worthless without the link. Its QR code holds the bare code.
     keyCode = singleKey;
@@ -201,6 +205,8 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
     qrCodeUrl2,
     qrCodeUrlShare,
     keyUrl,
+    key1Url,
+    key2Url,
     keyCode,
     keyCodeQr,
     keyDelivery: req.keys,

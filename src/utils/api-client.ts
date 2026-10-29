@@ -328,8 +328,9 @@ export async function deleteQrDrop(id: string): Promise<{ success: boolean }> {
   });
 }
 
-export async function createCheckoutSession(): Promise<{ url: string }> {
+export async function createCheckoutSession(pkg: string): Promise<{ url: string }> {
   return fetchApi('/checkout', {
     method: 'POST',
+    body: JSON.stringify({ package: pkg }),
   }, true); // requireAuth: true
 }

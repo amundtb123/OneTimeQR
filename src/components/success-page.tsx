@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle, Coins, ArrowLeft } from 'lucide-react';
+import { CheckCircle, Wallet, ArrowLeft } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { useAuth } from '../utils/auth-context';
 import { useTranslation } from 'react-i18next';
+import { saldoKr } from '../utils/create-drop';
 
 export function SuccessPage() {
   const { user, coins, refreshCoins, loading: authLoading, session } = useAuth();
@@ -106,11 +107,11 @@ export function SuccessPage() {
                 console.log('📝 Profile might not exist or RLS issue, trying to create...');
                 const { error: insertError } = await supabase
                   .from('user_profiles')
-                  .insert({ id: user.id, coins: 0 });
+                  .insert({ id: user.id }); // The database gives it the start balance
                 if (insertError) {
                   console.error('❌ Failed to create profile:', insertError);
                 } else {
-                  console.log('✅ Created profile with 0 coins');
+                  console.log('✅ Created profile');
                   // Force refresh to update coins state
                   await refreshCoins();
                 }
@@ -220,11 +221,11 @@ export function SuccessPage() {
                   console.log('📝 Profile might not exist or RLS issue, trying to create...');
                   const { error: insertError } = await supabase
                     .from('user_profiles')
-                    .insert({ id: user.id, coins: 0 });
+                    .insert({ id: user.id }); // The database gives it the start balance
                   if (insertError) {
                     console.error('❌ Failed to create profile:', insertError);
                   } else {
-                    console.log('✅ Created profile with 0 coins');
+                    console.log('✅ Created profile');
                     // Force refresh to update coins state
                     await refreshCoins();
                   }
@@ -289,9 +290,7 @@ export function SuccessPage() {
     ? 'Logg inn' 
     : isRefreshing 
       ? null // Will show loading message instead
-      : coins !== null 
-        ? coins 
-        : 0; // Show 0 instead of "—"
+      : t('coins.kr', { kr: saldoKr(coins ?? 0) }); // Show 0 kr instead of "—"
 
   const isComplete = !isRefreshing && coins !== null && user;
 
@@ -301,7 +300,7 @@ export function SuccessPage() {
         {/* Waiting message at top */}
         {isRefreshing && (
           <p className="text-sm text-gray-500 mb-6">
-            {t('success.waitingForCoins') || 'Venter på at coins skal oppdateres...'}
+            {t('success.waitingForCoins')}
           </p>
         )}
 
@@ -320,21 +319,16 @@ export function SuccessPage() {
         {/* Coins display - always show a number */}
         <div className="bg-indigo-50 rounded-lg p-6 mb-6">
           <div className="flex items-center justify-center gap-3 mb-2">
-            <Coins className="size-6 text-indigo-600" />
-            <p className="text-sm text-gray-600">{t('coins.yourCoins')}</p>
+            <Wallet className="size-6 text-indigo-600" />
+            <p className="text-sm text-gray-600">{t('coins.balance')}</p>
           </div>
           {isRefreshing ? (
             <p className="text-3xl font-bold text-indigo-600 animate-pulse">
-              {coins !== null ? coins : 0}
+              {t('coins.kr', { kr: saldoKr(coins ?? 0) })}
             </p>
           ) : (
             <p className="text-3xl font-bold text-indigo-600">
               {coinsDisplay}
-            </p>
-          )}
-          {isComplete && (
-            <p className="text-sm text-indigo-600 mt-2 font-medium">
-              Ny total: {coins} coins
             </p>
           )}
         </div>

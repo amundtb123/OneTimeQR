@@ -1,8 +1,5 @@
 import { useState, useRef } from 'react';
-import { Shield, Key, Scan, Loader2, Clock, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { SoftCard } from './soft-card';
-import { NordicButton } from './nordic-button';
 import { QrScanner } from './qr-scanner-html5';
 import { parseKeyUrl, isKeyCode, type KeyParts } from '../utils/key-handover';
 import { formatTimeLeft, useNow } from '../utils/time-left';
@@ -17,51 +14,47 @@ interface UnlockScreenProps {
   onKeyParts: (parts: KeyParts) => void; // Called with the key part(s) from a scanned QR code
 }
 
-// Asks for the QR code(s) holding the decryption key. Scanning happens here (camera or image
-// upload); combining the parts and opening the drop is up to the parent.
+// Asks for the QR key(s) holding the decryption key. Scanning happens here (camera or image
+// upload, or the QR key pasted as text); combining the parts and opening the drop is up to the parent.
 export function UnlockScreen({ qrDropId, singleQrMode, keyParts, expiresAt, onKeyParts }: UnlockScreenProps) {
   const { t } = useTranslation();
   const [showScanner, setShowScanner] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [showCodeInput, setShowCodeInput] = useState(false);
   const [codeInput, setCodeInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const now = useNow(!!expiresAt);
 
-  // Secure Mode needs both parts; which one is missing decides what to ask for
+  // Two QR keys: which one is missing decides what to ask for
   const needsQr2 = !singleQrMode && !!keyParts.k1;
   const prompt = singleQrMode
-    ? t('unlockScreen.scanSingleQr')
+    ? t('lag.unlock.scanOne')
     : needsQr2
-      ? t('unlockScreen.scanQr2')
+      ? t('lag.unlock.scanKey2')
       : keyParts.k2
-        ? t('unlockScreen.qr2ScannedScanQr1')
-        : t('unlockScreen.scanQr1First');
-  const scanButtonLabel = singleQrMode
-    ? t('unlockScreen.scanSingleQrButton')
-    : needsQr2 ? t('unlockScreen.scanQr2Button') : t('unlockScreen.scanQr1Button');
+        ? t('lag.unlock.scanKey1')
+        : t('lag.unlock.scanBoth');
 
   const handleQrScanned = (data: string) => {
     setShowScanner(false);
     if (singleQrMode && isKeyCode(data.trim())) {
-      onKeyParts({ k1: data.trim() }); // A key code QR: just the key, for the drop this link leads to
+      onKeyParts({ k1: data.trim() }); // A QR key holds just the key, for the drop this link leads to
       return;
     }
     const scanned = parseKeyUrl(data);
-    if (!scanned) {
-      toast.error(t('unlockScreen.invalidQr'));
+    if (!scanned || (!scanned.parts.k1 && !scanned.parts.k2)) {
+      toast.error(t('lag.unlock.notAKey'));
     } else if (scanned.id !== qrDropId.toLowerCase()) {
-      toast.error(t('unlockScreen.wrongQrCode'));
-    } else if (!scanned.parts.k1 && !scanned.parts.k2) {
-      toast.error(t('unlockScreen.noKeyInQr'));
+      toast.error(t('lag.unlock.otherFile'));
     } else {
       if (!singleQrMode && scanned.parts.k1 && !keyParts.k2) {
-        toast.success(t('unlockScreen.qr1Scanned'));
+        toast.success(t('lag.unlock.key1Scanned'));
       }
       onKeyParts(scanned.parts);
     }
   };
 
-  // A key sent apart from the link: the bare code, or a whole key link pasted in
+  // The QR key as text, or a whole link pasted in
   const handleCodeSubmit = () => {
     const code = codeInput.trim();
     if (isKeyCode(code)) {
@@ -69,7 +62,7 @@ export function UnlockScreen({ qrDropId, singleQrMode, keyParts, expiresAt, onKe
     } else if (parseKeyUrl(code)) {
       handleQrScanned(code);
     } else {
-      toast.error(t('unlockScreen.invalidKeyCode'));
+      toast.error(t('lag.unlock.notAKey'));
     }
   };
 
@@ -101,7 +94,7 @@ export function UnlockScreen({ qrDropId, singleQrMode, keyParts, expiresAt, onKe
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      toast.error(t('unlockScreen.onlyImages'));
+      toast.error(t('lag.unlock.onlyImages'));
       return;
     }
 
@@ -109,7 +102,7 @@ export function UnlockScreen({ qrDropId, singleQrMode, keyParts, expiresAt, onKe
     try {
       handleQrScanned(await decodeQrFromImage(file));
     } catch {
-      toast.error(t('unlockScreen.couldNotReadImage'));
+      toast.error(t('lag.unlock.noQrInImage'));
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -127,139 +120,52 @@ export function UnlockScreen({ qrDropId, singleQrMode, keyParts, expiresAt, onKe
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#F7F2EE' }}>
-      <div className="max-w-md w-full">
-        <SoftCard className="text-center">
-          {/* Icon */}
-          <div
-            className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6"
-            style={{
-              background: 'linear-gradient(135deg, #E8927E, #E1C7BA)',
+    <div style={{ maxWidth: 440, margin: '8px auto' }}>
+      <section className="lg-card" style={{ gap: 14 }}>
+        <div className="lg-stack" style={{ gap: 6 }}>
+          <div className="lg-eyebrow">{t('lag.unlock.sealed')}</div>
+          <h1 className="lg-h2" style={{ margin: 0, fontSize: 28 }}>{t('lag.unlock.title')}</h1>
+          <p className="lg-muted" style={{ margin: 0 }}>{prompt}</p>
+          {expiresAt && <p className="lg-small lg-muted" style={{ margin: 0 }}>{formatTimeLeft(t, expiresAt, now)}</p>}
+        </div>
+
+        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+
+        <button type="button" className="lg-btn lg-btn-primary" onClick={() => setShowScanner(true)} disabled={isUploading}>
+          {t('lag.unlock.scan')}
+        </button>
+        <button type="button" className="lg-btn" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+          {isUploading ? t('lag.unlock.reading') : t('lag.unlock.upload')}
+        </button>
+
+        {showCodeInput ? (
+          <form
+            className="lg-linkbox"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCodeSubmit();
             }}
           >
-            <Shield className="size-10 text-white" />
-          </div>
+            <input
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value)}
+              placeholder={t('lag.unlock.pastePlaceholder')}
+              aria-label={t('lag.unlock.pastePlaceholder')}
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+              style={{ flexGrow: 1, minWidth: 0, border: 0, padding: '14px 16px', fontFamily: 'var(--lg-mono)', fontSize: 14, background: 'transparent' }}
+            />
+            <button type="submit" disabled={!codeInput.trim()}>{t('lag.unlock.open')}</button>
+          </form>
+        ) : (
+          <button type="button" className="lg-link lg-small" style={{ alignSelf: 'flex-start' }} onClick={() => setShowCodeInput(true)}>
+            {t('lag.unlock.pasteToggle')}
+          </button>
+        )}
 
-          {/* Heading */}
-          <h1 className="text-[#3F3F3F] mb-3">{t('unlockScreen.unlockFile')}</h1>
-          <p className="text-[#5B5B5B] mb-8">{prompt}</p>
-
-          {/* Instructions */}
-          <div
-            className="rounded-xl p-4 mb-6 text-left"
-            style={{
-              backgroundColor: '#F5E5E1',
-              borderColor: '#D5C5BD'
-            }}
-          >
-            <div className="flex items-start gap-3">
-              <Key className="size-5 text-[#E8927E] flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-[#3F3F3F] text-sm mb-2">{t('unlockScreen.secureModeActive')}</h3>
-                <p className="text-[#5B5B5B] text-sm">
-                  {t('unlockScreen.secureModeDesc')}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Expiry Countdown */}
-          {expiresAt && (
-            <div
-              className="rounded-xl p-4 mb-6 text-left"
-              style={{
-                backgroundColor: '#F5E5E1',
-                borderColor: '#D5C5BD'
-              }}
-            >
-              <div className="flex items-start gap-3">
-                <Clock className="size-5 text-[#E8927E] flex-shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="text-[#3F3F3F] text-sm mb-2">{t('unlockScreen.expiryDate')}</h3>
-                  <p className="text-[#5B5B5B] text-sm">
-                    {formatTimeLeft(t, expiresAt, now)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-
-          <div className="space-y-3">
-            <NordicButton
-              variant="coral"
-              size="lg"
-              onClick={() => setShowScanner(true)}
-              disabled={isUploading}
-              className="w-full shadow-lg"
-            >
-              <Scan className="size-5 mr-2" />
-              {scanButtonLabel}
-            </NordicButton>
-            <NordicButton
-              variant="blue"
-              size="lg"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
-              className="w-full shadow-lg"
-            >
-              {isUploading ? (
-                <>
-                  <Loader2 className="size-5 mr-2 animate-spin" />
-                  {t('unlockScreen.decodingImage')}
-                </>
-              ) : (
-                <>
-                  <Upload className="size-5 mr-2" />
-                  {t('unlockScreen.uploadQrImage')}
-                </>
-              )}
-            </NordicButton>
-            <p className="text-[#5B5B5B] text-xs text-center mt-2">
-              {t('unlockScreen.sameDeviceHint')}
-            </p>
-          </div>
-
-          {singleQrMode && (
-            <form
-              className="mt-6 text-left"
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleCodeSubmit();
-              }}
-            >
-              <label htmlFor="key-code" className="block text-[#3F3F3F] text-sm mb-2">{t('unlockScreen.keyCodeLabel')}</label>
-              <div className="flex gap-2">
-                <input
-                  id="key-code"
-                  value={codeInput}
-                  onChange={(e) => setCodeInput(e.target.value)}
-                  placeholder={t('unlockScreen.keyCodePlaceholder')}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="flex-1 min-w-0 rounded-xl border px-3 py-2 text-sm"
-                  style={{ borderColor: '#D5C5BD', backgroundColor: '#FFFFFF' }}
-                />
-                <NordicButton type="submit" variant="coral" disabled={!codeInput.trim()}>
-                  {t('unlockScreen.keyCodeButton')}
-                </NordicButton>
-              </div>
-            </form>
-          )}
-
-          <p className="text-[#5B5B5B] text-xs mt-4">
-            {t('unlockScreen.neverStoredUnencrypted')}
-          </p>
-        </SoftCard>
-      </div>
+        <p className="lg-small lg-muted" style={{ margin: 0 }}>{t('lag.unlock.privacy')}</p>
+      </section>
     </div>
   );
 }

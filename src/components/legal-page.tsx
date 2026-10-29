@@ -64,7 +64,7 @@ const SECTIONS: Section[] = [
       tx('Du velger selv reglene for hver nøkkel:', 'You choose the rules for each key:'),
       {
         list: [
-          tx('Hvem: den som har lenken eller QR-koden, den som har lenken og nøkkelkoden, den som har lenken og passordet, eller den som har begge QR-kodene', 'Who: whoever has the link or the QR code, whoever has the link and the key code, whoever has the link and the password, or whoever has both QR codes'),
+          tx('Hvem: den som har lenken, den som har lenken og QR-nøkkelen, den som har lenken og passordet, eller den som har begge QR-nøklene', 'Who: whoever has the link, whoever has the link and the QR key, whoever has the link and the password, or whoever has both QR keys'),
           tx('Antall åpninger: fra 1 til 1000, eller ubegrenset', 'Number of opens: from 1 to 1000, or unlimited'),
           tx('Utløpstid: 10 minutter, 30 minutter, 1 time, 24 timer eller 7 dager', 'Expiry: 10 minutes, 30 minutes, 1 hour, 24 hours or 7 days'),
           tx('Planlagt åpning: inntil 3 måneder frem i tid. Utløpstiden regnes fra åpningsdatoen', 'Scheduled opening: up to 3 months ahead. The expiry counts from the opening date'),
@@ -100,7 +100,7 @@ const SECTIONS: Section[] = [
         list: [
           tx('maks 1 MB', 'up to 1 MB'),
           tx('maks 10 minutter', 'up to 10 minutes'),
-          tx('bare «den som har lenken eller QR-koden» og «den som har lenken og nøkkelkoden»', 'only "whoever has the link or the QR code" and "whoever has the link and the key code"'),
+          tx('bare «den som har lenken» og «den som har lenken og QR-nøkkelen»', 'only "whoever has the link" and "whoever has the link and the QR key"'),
         ],
       },
       tx(

@@ -76,7 +76,7 @@ export function timesLabel(t: Translate, times: Times, prefix: string): string {
 
 export const templateById = (id: TemplateId) => TEMPLATES.find((tpl) => tpl.id === id)!;
 
-// "1 gang · lenke eller QR-kode · 24 timer"
+// "1 gang · lenke · 24 timer"
 export function shortRuleLine(t: Translate, rules: Rules, language: string): string {
   const parts = [timesLabel(t, rules.times, 'lag.short.times'), t(`lag.short.who.${rules.who}`)];
   if (rules.opensAt) parts.push(t('lag.short.opens', { date: formatActivationDate(new Date(rules.opensAt), language) }));

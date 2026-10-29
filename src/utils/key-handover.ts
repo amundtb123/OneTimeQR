@@ -23,6 +23,9 @@ const ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 // Storage keys used by earlier versions of the scan flow
 const LEGACY_PREFIXES = ['k1_', 'qr1_timestamp_', 'k2_temp_', 'k2_timestamp_', 'qr1_scanned_', 'qr1_api_called_', 'master_'];
 
+// A key sent apart from the link: 32 bytes as base64url
+export const isKeyCode = (text: string) => KEY_PART_REGEX.test(text);
+
 export function keyPartsFromHash(hash: string): KeyParts {
   const params = new URLSearchParams(hash.replace(/^#/, ''));
   const parts: KeyParts = {};

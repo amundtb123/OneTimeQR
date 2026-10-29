@@ -3,7 +3,7 @@ import { ArrowLeft, Key, Shield, Info, Mail } from 'lucide-react';
 import { Button } from './ui/button';
 import { NordicLogo } from './nordic-logo';
 
-export function HowItWorksPage({ onBack }: { onBack: () => void }) {
+export function HowItWorksPage({ onBack, onHome }: { onBack: () => void; onHome: () => void }) {
   const { t, i18n } = useTranslation();
   const isNorwegian = i18n.language === 'no';
 
@@ -15,7 +15,9 @@ export function HowItWorksPage({ onBack }: { onBack: () => void }) {
           <Button variant="ghost" onClick={onBack} className="p-2">
             <ArrowLeft className="size-5" />
           </Button>
-          <NordicLogo />
+          <button type="button" onClick={onHome} aria-label={t('common.appName')} className="cursor-pointer">
+            <NordicLogo />
+          </button>
           <h1 className="text-2xl font-bold text-[#3F3F3F]">
             {isNorwegian ? 'Hvordan det fungerer' : 'How it works'}
           </h1>

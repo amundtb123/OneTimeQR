@@ -6,7 +6,7 @@ import type { QrStyle } from '../qr-style-picker';
 import { useAuth } from '../../utils/auth-context';
 import { fromLocalInputValue, isValidActivationDate } from '../../utils/activation';
 import { calculateCoinCost, createDrop, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT } from '../../utils/create-drop';
-import { loginOnlyWho, templateById, type Rules, type TemplateId } from './rules';
+import { KEYS_BY_WHO, loginOnlyWho, templateById, type Rules, type TemplateId } from './rules';
 import { STYLE_PRESETS, type StylePreset } from './key-preview';
 import { StepStart, type PastedContent } from './step-start';
 import { StepRules } from './step-rules';
@@ -145,8 +145,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
           noPreview: draft.noPreview,
           password: rules.who === 'password' ? draft.password : undefined,
           qrStyle: draft.style,
-          twoKeys: rules.who === 'two',
-          keyInQrOnly: rules.who === 'qr',
+          keys: KEYS_BY_WHO[rules.who],
         },
         t('upload.sharedContent'),
       );

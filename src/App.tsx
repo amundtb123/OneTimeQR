@@ -13,6 +13,7 @@ import { Keyring } from './components/lag/keyring';
 import { getAllQrDrops, deleteQrDrop, type QrDropData } from './utils/api-client';
 import { toast, Toaster } from 'sonner@2.0.3';
 import { keyPartsFromHash, rememberKeyParts, purgeStaleKeyParts } from './utils/key-handover';
+import type { KeyDelivery } from './utils/create-drop';
 
 export interface QrDrop {
   id: string;
@@ -39,8 +40,9 @@ export interface QrDrop {
   singleQrMode?: boolean; // Single QR Mode flag (single QR with K1)
   qrCodeUrl2?: string; // QR #2 for Secure Mode (unlock code)
   qrCodeUrlShare?: string; // QR for sharing (clean link without code) - used in Secure Mode and Single QR Mode
-  keyUrl?: string; // Single QR Mode: the link with the key, only known right after creation
-  keyInQrOnly?: boolean; // Single QR Mode where the key is only in the QR code, only known right after creation
+  keyUrl?: string; // The link with the key (or with K1 of a split key), only known right after creation
+  keyCode?: string; // The key to send apart from the link, only known right after creation
+  keyDelivery?: KeyDelivery; // How the key was handed out, only known right after creation
 }
 
 function convertToQrDrop(data: QrDropData, qrCodeUrl: string): QrDrop {
@@ -87,6 +89,7 @@ function AppContent() {
   const [isLoading, setIsLoading] = useState(false); // Start as false, will be set to true when actually loading
   const [scanId, setScanId] = useState<string | null>(null);
   const [keyArrivals, setKeyArrivals] = useState(0); // Restarts ScanView when a QR key arrives in the same tab
+  const [homeVisits, setHomeVisits] = useState(0); // Restarts the create flow at step 1 when the logo is clicked
   const [isLoadingQrDrops, setIsLoadingQrDrops] = useState(false); // Prevent multiple simultaneous loads
   
   // Remove key parts left over from earlier scans
@@ -322,11 +325,17 @@ function AppContent() {
   };
 
   const navigate = (section: 'create' | 'keyring') => {
-    if (leaveReadyGuard.current && !leaveReadyGuard.current()) return;
+    if (leaveReadyGuard.current && !leaveReadyGuard.current()) return false;
     if (scanId || window.location.pathname !== '/') window.history.pushState({}, '', '/');
     setScanId(null);
     setCurrentView(section === 'create' ? 'upload' : 'list');
     window.scrollTo({ top: 0 });
+    return true;
+  };
+
+  // The logo: the first step of the create flow, from anywhere
+  const goHome = () => {
+    if (navigate('create')) setHomeVisits((n) => n + 1);
   };
 
   // The create flow, the key ring and the terms use the new look; scan and the rest keep theirs for now
@@ -341,9 +350,10 @@ function AppContent() {
         keyCount={qrDrops.length}
         showNav={!scanId}
         onNavigate={navigate}
+        onHome={goHome}
       />
 
-      {currentView === 'upload' && !scanId && <CreateFlow onQrCreated={handleQrCreated} />}
+      {currentView === 'upload' && !scanId && <CreateFlow key={homeVisits} onQrCreated={handleQrCreated} />}
 
       {currentView === 'ready' && !scanId && selectedQrDrop && (
         <StepReady qrDrop={selectedQrDrop} onNew={() => navigate('create')} onKeyring={() => navigate('keyring')} />
@@ -377,7 +387,7 @@ function AppContent() {
             <>
               {currentView === 'success' && <SuccessPage />}
 
-              {currentView === 'how-it-works' && <HowItWorksPage onBack={() => navigate('create')} />}
+              {currentView === 'how-it-works' && <HowItWorksPage onBack={() => navigate('create')} onHome={goHome} />}
             </>
           )}
         </main>

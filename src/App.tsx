@@ -40,8 +40,9 @@ export interface QrDrop {
   singleQrMode?: boolean; // Single QR Mode flag (single QR with K1)
   qrCodeUrl2?: string; // QR #2 for Secure Mode (unlock code)
   qrCodeUrlShare?: string; // QR for sharing (clean link without code) - used in Secure Mode and Single QR Mode
-  keyUrl?: string; // The link with the key (or with K1 of a split key), only known right after creation
+  keyUrl?: string; // The link with the key, only known right after creation
   keyCode?: string; // The key to send apart from the link, only known right after creation
+  keyCodeQr?: string; // The same key as a QR code
   keyDelivery?: KeyDelivery; // How the key was handed out, only known right after creation
 }
 

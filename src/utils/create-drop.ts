@@ -60,18 +60,24 @@ export const EXPIRY_MINUTES: Record<string, number> = {
   '7d': 7 * 24 * 60,
 };
 
-// Same rules as the server: password +1, scheduled release +1, +1 per 2 MB over 1 MB,
-// +1 per started 24 hours beyond the free 10 minutes
-export function calculateCoinCost(opts: { totalFileSize: number; expiryType: string; password: boolean; scheduled: boolean }): number {
-  let cost = 0;
-  if (opts.password) cost += 1;
-  if (opts.scheduled) cost += 1;
-  if (opts.totalFileSize > FREE_SIZE_LIMIT) {
-    cost += Math.ceil((opts.totalFileSize - FREE_SIZE_LIMIT) / (2 * 1024 * 1024));
-  }
+// The balance counts Pluss keys. Must match PLUSS_PRICE_ORE and SALDO_PACKAGES on the server.
+export const PLUSS_PRICE_KR = 5;
+export const SALDO_PACKAGES = [
+  { id: 'saldo50', kr: 50 },
+  { id: 'saldo100', kr: 100 },
+] as const;
+export const saldoKr = (coins: number) => coins * PLUSS_PRICE_KR;
+
+// Every open of a large file is downloaded again, so it can be opened at most this many times
+export const LARGE_FILE_SIZE = 5 * 1024 * 1024;
+export const MAX_OPENS_LARGE_FILE = 100;
+
+// Same rule as the server: a key that goes beyond the free one (1 MB, 10 minutes, the link or
+// link + QR key) is a Pluss key and costs 1 from the balance, whatever it adds
+export function calculateCoinCost(opts: { totalFileSize: number; expiryType: string; password: boolean; scheduled: boolean; twoKeys: boolean }): number {
   const minutes = EXPIRY_MINUTES[opts.expiryType] ?? 10;
-  if (minutes > 10) cost += Math.ceil((minutes - 10) / 60 / 24);
-  return cost;
+  const pluss = opts.password || opts.scheduled || opts.twoKeys || opts.totalFileSize > FREE_SIZE_LIMIT || minutes > 10;
+  return pluss ? 1 : 0;
 }
 
 const toBase64Url = (bytes: Uint8Array) =>

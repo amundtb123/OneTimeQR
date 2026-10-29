@@ -8,6 +8,8 @@ import { KeyPreview, PREVIEW_URL, STYLE_PRESETS, type StylePreset } from './key-
 import { QrStylePicker } from '../qr-style-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { draftCost, type Draft } from './create-flow';
+import { CoinShop } from '../coin-shop';
+import { MAX_OPENS_LARGE_FILE, PLUSS_PRICE_KR, saldoKr } from '../../utils/create-drop';
 
 type Token = 'times' | 'who' | 'opens' | 'expiry' | 'mode';
 
@@ -71,14 +73,16 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     }
   };
 
-  const { cost, needsLogin } = draftCost(draft);
+  const { cost, needsLogin, largeFile, tooManyOpens } = draftCost(draft);
+  const maxTimes = largeFile ? MAX_OPENS_LARGE_FILE : MAX_TIMES;
+  const [shopOpen, setShopOpen] = useState(false);
   const blockedByLogin = !user && needsLogin;
   const notEnough = !!user && cost > 0 && coins !== null && coins < cost;
   const opensDate = rules.opensAt ? fromLocalInputValue(rules.opensAt) : null;
   const opensLabel = opensDate ? formatActivationDate(opensDate, i18n.language) : '';
 
-  // A choice that costs coins or needs an account is marked for people who aren't logged in
-  const loginTag = (needed: boolean) => (!user && needed ? <small>{t('lag.rules.loginOnly')}</small> : null);
+  // A choice that makes it a Pluss key is marked
+  const plussTag = (pluss: boolean) => (pluss ? <small>{t('lag.rules.pluss')}</small> : null);
 
   const token = (key: Token, label: string) => (
     <button
@@ -91,10 +95,10 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     </button>
   );
 
-  const option = (key: string, label: string, pressed: boolean, pick: () => void, needsAccount = false) => (
+  const option = (key: string, label: string, pressed: boolean, pick: () => void, pluss = false) => (
     <button key={key} type="button" className="lg-opt" aria-pressed={pressed} onClick={() => { pick(); setOpen(null); }}>
       {label}
-      {loginTag(needsAccount)}
+      {plussTag(pluss)}
     </button>
   );
 
@@ -102,7 +106,8 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     switch (open) {
       case 'times':
         return [
-          ...TIMES.map((v) => option(String(v), timesLabel(t, v, 'lag.rules.times'), !customTimes && rules.times === v, () => {
+          // A large file is downloaded again on every open, so it can't be opened without limit
+          ...TIMES.filter((v) => !largeFile || v !== 'inf').map((v) => option(String(v), timesLabel(t, v, 'lag.rules.times'), !customTimes && rules.times === v, () => {
             setCustomTimes(false);
             setRules({ times: v });
           })),
@@ -256,13 +261,13 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
                   className="lg-input"
                   type="number"
                   min="1"
-                  max={MAX_TIMES}
+                  max={maxTimes}
                   inputMode="numeric"
                   value={timesInput}
                   onChange={(e) => {
                     setTimesInput(e.target.value);
                     const n = parseInt(e.target.value, 10);
-                    if (n >= 1) setRules({ times: Math.min(n, MAX_TIMES) });
+                    if (n >= 1) setRules({ times: Math.min(n, maxTimes) });
                   }}
                 />
               </div>
@@ -336,10 +341,17 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
           </div>
 
           <div className="lg-price">
-            <strong>{cost === 0 ? t('lag.preview.free') : t('lag.preview.cost', { count: cost })}</strong>
-            {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { count: coins })}</span>}
+            <strong>{cost === 0 ? t('lag.preview.free') : t('lag.preview.pluss', { kr: PLUSS_PRICE_KR })}</strong>
+            {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: saldoKr(coins) })}</span>}
           </div>
-          {notEnough && <span className="lg-warn">{t('lag.preview.notEnough')}</span>}
+          {cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.plussNote')}</span>}
+          {tooManyOpens && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: MAX_OPENS_LARGE_FILE })}</span>}
+          {notEnough && (
+            <span className="lg-warn">
+              {t('lag.preview.notEnough')}{' '}
+              <button type="button" className="lg-link" onClick={() => setShopOpen(true)}>{t('nav.buyCoins')}</button>
+            </span>
+          )}
 
           <label className="lg-check" style={{ fontSize: 14, alignItems: 'flex-start' }}>
             <input id="lg-terms" type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} style={{ marginTop: 1 }} />
@@ -357,7 +369,7 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
               <span className="lg-xs lg-muted" style={{ textAlign: 'center' }}>{t('lag.preview.loginToPay')}</span>
             </>
           ) : (
-            <button type="button" className="lg-btn lg-btn-primary" disabled={creating || !acceptedTerms || notEnough} onClick={onCreate}>
+            <button type="button" className="lg-btn lg-btn-primary" disabled={creating || !acceptedTerms || notEnough || tooManyOpens} onClick={onCreate}>
               {creating ? t('lag.preview.creating') : t('lag.preview.create')}
             </button>
           )}
@@ -367,13 +379,13 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
 
       <div className="lg-bar">
         <div className="lg-stack" style={{ gap: 0 }}>
-          <strong style={{ fontSize: 16 }}>{cost === 0 ? t('lag.preview.free') : t('lag.preview.cost', { count: cost })}</strong>
-          {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { count: coins })}</span>}
+          <strong style={{ fontSize: 16 }}>{cost === 0 ? t('lag.preview.free') : t('lag.preview.pluss', { kr: PLUSS_PRICE_KR })}</strong>
+          {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: saldoKr(coins) })}</span>}
         </div>
         <button
           type="button"
           className="lg-btn lg-btn-primary"
-          disabled={creating || (!blockedByLogin && notEnough)}
+          disabled={creating || (!blockedByLogin && (notEnough || tooManyOpens))}
           onClick={() => {
             if (blockedByLogin) {
               signInWithGoogle().catch(() => toast.error(t('common.loginError')));
@@ -399,6 +411,15 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
           </DialogHeader>
           <QrStylePicker style={draft.style} onChange={(style) => update({ style, preset: 'custom' })} qrUrl={PREVIEW_URL} />
           <button type="button" className="lg-btn lg-btn-ink" onClick={() => setCustomOpen(false)}>{t('lag.preview.done')}</button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={shopOpen} onOpenChange={setShopOpen}>
+        <DialogContent className="bg-white" style={{ borderRadius: 0 }}>
+          <DialogHeader>
+            <DialogTitle>{t('nav.buyCoins')}</DialogTitle>
+          </DialogHeader>
+          <CoinShop />
         </DialogContent>
       </Dialog>
     </main>

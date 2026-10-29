@@ -260,6 +260,7 @@ async function registerPasswordAttempt(id: string): Promise<number> {
 
 // SECURITY (S3): Prices are decided here, never by the client.
 // Must stay in sync with calculateCoinCost() in src/utils/create-drop.ts.
+// A key is free, or a Pluss key: 1 from the balance (= 5 kr), whatever it adds beyond the free one.
 const EXPIRY_DURATIONS_MS: Record<string, number> = {
   '10m': 10 * 60 * 1000,
   '30m': 30 * 60 * 1000,
@@ -269,29 +270,25 @@ const EXPIRY_DURATIONS_MS: Record<string, number> = {
   'scan': 7 * 24 * 60 * 60 * 1000, // Scan-once drops live at most 7 days
 };
 const FREE_EXPIRY_MS = EXPIRY_DURATIONS_MS['10m'];
-// Scheduled release: at most 3 months ahead, +1 coin because the content is stored that much longer
+// Scheduled release: at most 3 months ahead
 const MAX_ACTIVATION_DELAY_MS = 92 * 24 * 60 * 60 * 1000;
-const SCHEDULE_COIN_COST = 1;
 const FREE_FILE_BYTES = 1 * 1024 * 1024;
-const BYTES_PER_EXTRA_COIN = 2 * 1024 * 1024;
+// Every open of a large file is downloaded again, so it can be opened at most this many times
+const LARGE_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_OPENS_LARGE_FILE = 100;
 // Files arrive encrypted (IV + auth tag), slightly larger than the originals the client prices
 const ENCRYPTION_OVERHEAD_ALLOWANCE = 1024;
 
-function calculateCoinCost(options: { hasPassword: boolean; fileSizes: number[]; expiryType: string; scheduled: boolean }): number {
-  let cost = options.hasPassword ? 1 : 0;
-  if (options.scheduled) cost += SCHEDULE_COIN_COST;
+const contentBytes = (fileSizes: number[]) =>
+  fileSizes.reduce((sum, size) => sum + Math.max(0, size - ENCRYPTION_OVERHEAD_ALLOWANCE), 0);
 
-  const totalBytes = options.fileSizes.reduce((sum, size) => sum + Math.max(0, size - ENCRYPTION_OVERHEAD_ALLOWANCE), 0);
-  if (totalBytes > FREE_FILE_BYTES) {
-    cost += Math.ceil((totalBytes - FREE_FILE_BYTES) / BYTES_PER_EXTRA_COIN);
-  }
-
-  const extraMs = EXPIRY_DURATIONS_MS[options.expiryType] - FREE_EXPIRY_MS;
-  if (extraMs > 0) {
-    cost += Math.ceil(extraMs / EXPIRY_DURATIONS_MS['24h']);
-  }
-
-  return cost;
+function calculateCoinCost(options: { hasPassword: boolean; fileSizes: number[]; expiryType: string; scheduled: boolean; twoKeys: boolean }): number {
+  const pluss = options.hasPassword
+    || options.scheduled
+    || options.twoKeys
+    || contentBytes(options.fileSizes) > FREE_FILE_BYTES
+    || EXPIRY_DURATIONS_MS[options.expiryType] > FREE_EXPIRY_MS;
+  return pluss ? 1 : 0;
 }
 
 function toPositiveInt(value: unknown): number | null {
@@ -320,8 +317,14 @@ function priceQrDrop(c: any, userId: string | null, metadata: any, fileSizes: nu
   }
   const activatesAt = parseActivatesAt(metadata.activatesAt);
   if (activatesAt === undefined) return invalidActivationResponse(c);
-  // Sealed keys are free, also a split key (link + QR code). Only coins need an account.
-  const cost = calculateCoinCost({ hasPassword: !!metadata.password, fileSizes, expiryType: metadata.expiryType, scheduled: activatesAt !== null });
+  if (contentBytes(fileSizes) > LARGE_FILE_BYTES) {
+    const maxScans = toPositiveInt(metadata.maxScans);
+    if (!maxScans || maxScans > MAX_OPENS_LARGE_FILE) {
+      return c.json({ error: `Large files can be opened at most ${MAX_OPENS_LARGE_FILE} times`, code: 'TOO_MANY_OPENS', maxOpens: MAX_OPENS_LARGE_FILE }, 400);
+    }
+  }
+  // Only Pluss keys need an account
+  const cost = calculateCoinCost({ hasPassword: !!metadata.password, fileSizes, expiryType: metadata.expiryType, scheduled: activatesAt !== null, twoKeys: metadata.secureMode === true });
   if (cost > 0 && !userId) {
     return c.json({ error: 'Log in to use paid features', code: 'LOGIN_REQUIRED', coinCost: cost }, 401);
   }
@@ -598,10 +601,45 @@ async function deleteQrDrop(id: string) {
   }
 }
 
+// Largest upload a request may carry: 20 MB of files plus room for encryption, form fields and boundaries
+const MAX_UPLOAD_REQUEST_BYTES = 21 * 1024 * 1024;
+
+// Reads the request body, but stops as soon as it grows beyond maxBytes (null = too large),
+// so an oversized upload never ends up in memory
+async function readBodyCapped(req: Request, maxBytes: number): Promise<Uint8Array | null> {
+  if (Number(req.headers.get('Content-Length')) > maxBytes) return null;
+  const reader = req.body?.getReader();
+  if (!reader) return new Uint8Array();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return body;
+}
+
 // Upload files and create QR drop (supports multiple files)
 app.post('/make-server-c3c9181e/upload', async (c) => {
   try {
-    const formData = await c.req.formData();
+    // SECURITY: Refuse oversized uploads before reading them
+    const body = await readBodyCapped(c.req.raw, MAX_UPLOAD_REQUEST_BYTES);
+    if (!body) {
+      return c.json({ error: 'Upload is too large. Maximum size is 20 MB.', code: 'UPLOAD_TOO_LARGE' }, 413);
+    }
+    const formData = await new Response(body, { headers: { 'Content-Type': c.req.header('Content-Type') ?? '' } }).formData();
     const metadata = JSON.parse(formData.get('metadata') as string);
 
     // SECURITY: Don't log full metadata - may contain sensitive data
@@ -642,8 +680,9 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     }
 
     // SECURITY: Validate file sizes on server side
-    const MAX_FILE_SIZE = userId ? 20 * 1024 * 1024 : 1 * 1024 * 1024; // 20 MB or 1 MB
-    const MAX_TOTAL_SIZE = userId ? 100 * 1024 * 1024 : 5 * 1024 * 1024; // 100 MB or 5 MB total
+    // The limits the app shows: 20 MB in all when logged in, 1 MB without an account
+    const MAX_FILE_SIZE = userId ? 20 * 1024 * 1024 : FREE_FILE_BYTES;
+    const MAX_TOTAL_SIZE = MAX_FILE_SIZE;
     
     // Limits apply to the original size; files arrive slightly larger because they are encrypted
     let totalSize = 0;
@@ -1323,6 +1362,13 @@ app.delete('/make-server-c3c9181e/qr/:id', async (c) => {
   }
 });
 
+// The balance counts Pluss keys; each is worth PLUSS_PRICE_ORE. Must match src/utils/create-drop.ts.
+const PLUSS_PRICE_ORE = 500;
+const SALDO_PACKAGES: Record<string, { coins: number }> = {
+  saldo50: { coins: 10 },
+  saldo100: { coins: 20 },
+};
+
 // Stripe Checkout - Create session
 app.post('/make-server-c3c9181e/checkout', async (c) => {
   try {
@@ -1359,6 +1405,12 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
       }
     }
 
+    const body = await c.req.json().catch(() => ({}));
+    const pkg = SALDO_PACKAGES[body?.package as string];
+    if (!pkg) {
+      return c.json({ error: 'Unknown package', code: 'UNKNOWN_PACKAGE' }, 400);
+    }
+
     // Create Stripe Checkout session
     // Apple Pay and Google Pay are automatically available when supported
     const session = await stripe.checkout.sessions.create({
@@ -1368,10 +1420,10 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
           price_data: {
             currency: 'nok',
             product_data: {
-              name: '50 Coins',
-              description: 'Kjøp 50 coins for OneTimeQR',
+              name: `OneTimeQR-saldo ${pkg.coins * PLUSS_PRICE_ORE / 100} kr`,
+              description: `${pkg.coins} Pluss-nøkler à ${PLUSS_PRICE_ORE / 100} kr`,
             },
-            unit_amount: 2900, // 29 NOK in øre
+            unit_amount: pkg.coins * PLUSS_PRICE_ORE,
           },
           quantity: 1,
         },
@@ -1383,7 +1435,7 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
       metadata: {
         userId: user.id,
         userEmail: user.email || '',
-        coins: '50',
+        coins: String(pkg.coins),
       },
       // Enable automatic payment methods (Apple Pay, Google Pay)
       payment_method_options: {

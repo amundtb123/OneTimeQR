@@ -6,6 +6,7 @@ import { LanguageSwitcher } from '../language-switcher';
 import { CoinShop } from '../coin-shop';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { QrMark } from './qr-mark';
+import { saldoKr } from '../../utils/create-drop';
 
 type Section = 'create' | 'keyring' | null;
 
@@ -44,7 +45,7 @@ export function AppHeader({ section, keyCount, showNav, onNavigate, onHome }: Ap
         <div className="lg-header-right">
           {showNav && user && (
             <button type="button" className="lg-coins" onClick={() => setShopOpen(true)} title={t('nav.buyCoins')}>
-              {t('nav.coins', { count: coins ?? 0 })}
+              {t('nav.coins', { kr: saldoKr(coins ?? 0) })}
             </button>
           )}
           <LanguageSwitcher />

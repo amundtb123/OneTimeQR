@@ -71,15 +71,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('❌ Error message:', error.message);
         console.error('❌ Error details:', JSON.stringify(error, null, 2));
         
-        // If profile doesn't exist, create it with 0 coins
+        // If profile doesn't exist, create it; the database gives it the start balance
         if (error.code === 'PGRST116') {
-          console.log('📝 Creating new user profile with 0 coins...');
-          const { error: insertError } = await supabase
+          console.log('📝 Creating new user profile...');
+          const { data: created, error: insertError } = await supabase
             .from('user_profiles')
-            .insert({ id: userId, coins: 0 });
+            .insert({ id: userId })
+            .select('coins')
+            .single();
           if (!insertError) {
-            setCoins(0);
-            console.log('✅ Created profile with 0 coins');
+            setCoins(created?.coins ?? 0);
+            console.log('✅ Created profile');
           } else {
             console.error('❌ Error creating profile:', insertError);
             console.error('❌ Insert error details:', JSON.stringify(insertError, null, 2));
@@ -281,12 +283,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.error('❌ Error in refreshCoins timeout:', error);
             if (error.code === 'PGRST116') {
               // Profile doesn't exist, create it
-              const { error: insertError } = await supabase
+              const { data: created, error: insertError } = await supabase
                 .from('user_profiles')
-                .insert({ id: user.id, coins: 0 });
+                .insert({ id: user.id })
+                .select('coins')
+                .single();
               if (!insertError) {
-                setCoins(0);
-                console.log('✅ Created profile with 0 coins in refreshCoins');
+                setCoins(created?.coins ?? 0);
+                console.log('✅ Created profile in refreshCoins');
               }
             }
           } else if (data) {

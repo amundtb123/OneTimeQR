@@ -5,7 +5,7 @@ import type { QrDrop } from '../../App';
 import type { QrStyle } from '../qr-style-picker';
 import { useAuth } from '../../utils/auth-context';
 import { fromLocalInputValue, isValidActivationDate } from '../../utils/activation';
-import { calculateCoinCost, createDrop, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT } from '../../utils/create-drop';
+import { calculateCoinCost, createDrop, saldoKr, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT, LARGE_FILE_SIZE, MAX_OPENS_LARGE_FILE } from '../../utils/create-drop';
 import { KEYS_BY_WHO, loginOnlyWho, templateById, type Rules, type TemplateId } from './rules';
 import { STYLE_PRESETS, type StylePreset } from './key-preview';
 import { StepStart, type PastedContent } from './step-start';
@@ -47,8 +47,11 @@ export function draftCost(draft: Draft) {
     expiryType: draft.rules.expiry,
     password: draft.rules.who === 'password',
     scheduled: !!draft.rules.opensAt,
+    twoKeys: draft.rules.who === 'two',
   });
-  return { cost, totalFileSize, needsLogin: cost > 0 || loginOnlyWho(draft.rules.who) || totalFileSize > FREE_SIZE_LIMIT };
+  const largeFile = totalFileSize > LARGE_FILE_SIZE;
+  const tooManyOpens = largeFile && (draft.rules.times === 'inf' || draft.rules.times > MAX_OPENS_LARGE_FILE);
+  return { cost, totalFileSize, largeFile, tooManyOpens, needsLogin: cost > 0 || loginOnlyWho(draft.rules.who) || totalFileSize > FREE_SIZE_LIMIT };
 }
 
 interface CreateFlowProps {
@@ -99,10 +102,14 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
       toast.error(t('lag.errors.terms'));
       return;
     }
-    const { cost, totalFileSize } = draftCost(draft);
+    const { cost, totalFileSize, tooManyOpens } = draftCost(draft);
     const maxSize = user ? MAX_SIZE_LOGGED_IN : FREE_SIZE_LIMIT;
     if (totalFileSize > maxSize) {
       toast.error(t('upload.fileSizeExceeded', { maxSize: user ? '20 MB' : '1 MB', loginPrompt: user ? '' : t('upload.loginPrompt') }));
+      return;
+    }
+    if (tooManyOpens) {
+      toast.error(t('lag.errors.tooManyOpens', { max: MAX_OPENS_LARGE_FILE }));
       return;
     }
     if (!user && (cost > 0 || loginOnlyWho(rules.who))) {
@@ -124,7 +131,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
         return;
       }
       if (coins < cost) {
-        toast.error(t('upload.insufficientCoins', { required: cost, current: coins }));
+        toast.error(t('lag.preview.notEnough'));
         return;
       }
     }
@@ -151,7 +158,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
       );
       if (coinsCharged > 0) {
         await refreshCoins();
-        toast.success(t('upload.coinsDeducted', { amount: coinsCharged }));
+        toast.success(t('lag.preview.charged', { kr: saldoKr(coinsCharged) }));
       }
       setDraft(emptyDraft(!!user));
       setAcceptedTerms(false);
@@ -162,9 +169,10 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
       if (error?.status === 401) toast.error(t('upload.mustBeLoggedIn'));
       else if (error?.code === 'INSUFFICIENT_COINS') {
         await refreshCoins();
-        toast.error(t('upload.insufficientCoinsShort'));
+        toast.error(t('lag.preview.notEnough'));
       } else if (error?.code === 'RATE_LIMITED') toast.error(t('upload.rateLimited'));
       else if (error?.code === 'INVALID_ACTIVATION_DATE') toast.error(t('activation.invalid'));
+      else if (error?.code === 'TOO_MANY_OPENS') toast.error(t('lag.errors.tooManyOpens', { max: MAX_OPENS_LARGE_FILE }));
       else toast.error(error?.message || t('upload.createQrError'));
     } finally {
       setCreating(false);

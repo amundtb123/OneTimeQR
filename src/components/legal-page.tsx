@@ -104,37 +104,29 @@ const SECTIONS: Section[] = [
         ],
       },
       tx(
-        'Logger du inn med Google, kan du dele inntil 20 MB, velge lengre utløpstid, passord, to QR-koder og planlagt åpning. Noen av disse koster Coins.',
-        'If you log in with Google, you can share up to 20 MB and choose longer expiry, a password, two QR codes and scheduled opening. Some of these cost Coins.',
+        'Logger du inn med Google, kan du lage Pluss-nøkler: inntil 20 MB, lengre utløpstid, passord, to QR-nøkler og fast åpningsdato. En Pluss-nøkkel koster 5 kr. Nye kontoer får 15 kr i startsaldo.',
+        'If you log in with Google, you can make Pluss keys: up to 20 MB, longer expiry, a password, two QR keys and a set opening date. A Pluss key costs 5 kr. New accounts get 15 kr to start with.',
       ),
+      tx('Filer over 5 MB kan åpnes maks 100 ganger.', 'Files over 5 MB can be opened at most 100 times.'),
       tx('Vi kan endre disse grensene.', 'We may change these limits.'),
     ],
   },
   {
     id: 'coins',
-    title: tx('Coins og betaling', 'Coins and payment'),
+    title: tx('Saldo og betaling', 'Balance and payment'),
     body: [
-      tx('Per nå koster 50 Coins 29 NOK. En nøkkel koster:', '50 Coins currently cost 29 NOK. A key costs:'),
+      tx('Du fyller på saldoen med 50 eller 100 kr. En Pluss-nøkkel koster 5 kr uansett hva den bruker av Pluss, og trekkes fra saldoen når du lager den. Prisen vises før du lager nøkkelen.', 'You top up your balance with 50 or 100 kr. A Pluss key costs 5 kr whatever Pluss features it uses, and is taken from your balance when you create it. The price is shown before you create the key.'),
       {
         list: [
-          tx('1 Coin for passord', '1 Coin for a password'),
-          tx('1 Coin for planlagt åpning', '1 Coin for scheduled opening'),
-          tx('1 Coin per påbegynte 2 MB over 1 MB', '1 Coin per started 2 MB above 1 MB'),
-          tx('1 Coin per påbegynte døgn utover 10 minutter', '1 Coin per started day beyond 10 minutes'),
-        ],
-      },
-      tx('Prisen vises før du lager nøkkelen.', 'The price is shown before you create the key.'),
-      {
-        list: [
-          tx('Coins er ikke valuta og kan ikke veksles inn i penger', 'Coins are not currency and cannot be exchanged for money'),
-          tx('Coins refunderes ikke', 'Coins are not refunded'),
-          tx('Priser og hva Coins kan brukes til kan endres', 'Prices and what Coins can be used for may change'),
-          tx('Coins legges til etter vellykket betaling, men vi garanterer ikke umiddelbar levering', 'Coins are added after a successful payment, but we do not guarantee immediate delivery'),
+          tx('Saldoen kan bare brukes til nøkler i OneTimeQR og kan ikke tas ut som penger', 'The balance can only be used for keys in OneTimeQR and cannot be withdrawn as money'),
+          tx('Saldo refunderes ikke', 'The balance is not refunded'),
+          tx('Priser og hva som er Pluss kan endres', 'Prices and what counts as Pluss may change'),
+          tx('Saldoen oppdateres etter vellykket betaling, men vi garanterer ikke umiddelbar levering', 'The balance is updated after a successful payment, but we do not guarantee immediate delivery'),
         ],
       },
       tx(
-        'Ved kjøp av Coins samtykker du til at leveringen starter med en gang, og at angreretten dermed bortfaller for denne digitale ytelsen.',
-        'When buying Coins, you consent to delivery starting right away, and that the right of withdrawal therefore lapses for this digital service.',
+        'Ved påfylling samtykker du til at leveringen starter med en gang, og at angreretten dermed bortfaller for denne digitale ytelsen.',
+        'When topping up, you consent to delivery starting right away, and that the right of withdrawal therefore lapses for this digital service.',
       ),
       tx(
         'Betalinger behandles av Stripe. Vi ser eller lagrer aldri kortopplysninger, og er ikke ansvarlige for avviste kort, feil hos Stripe eller tilbakeføringer.',
@@ -149,7 +141,7 @@ const SECTIONS: Section[] = [
       tx('Vi samler inn så lite som mulig:', 'We collect as little as possible:'),
       {
         list: [
-          tx('Konto: logger du inn med Google, får vi bruker-ID og e-postadressen din, og vi lagrer saldoen din av Coins', 'Account: if you log in with Google, we get your user ID and email address, and we store your Coins balance'),
+          tx('Konto: logger du inn med Google, får vi bruker-ID og e-postadressen din, og vi lagrer saldoen din', 'Account: if you log in with Google, we get your user ID and email address, and we store your balance'),
           tx('Nøkler: det som står under «Kryptering og hva vi kan se», til nøkkelen slettes', 'Keys: what is described under "Encryption and what we can see", until the key is deleted'),
           tx('Misbruksvern: for å begrense hvor mange nøkler som lages, lagrer vi en hash av IP-adressen, ikke selve adressen', 'Abuse protection: to limit how many keys are created, we store a hash of the IP address, not the address itself'),
           tx('Betaling: Stripe behandler betalingen og deler med oss om den gikk gjennom', 'Payment: Stripe processes the payment and tells us whether it went through'),

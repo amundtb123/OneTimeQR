@@ -279,7 +279,7 @@ console.log('\nS3: server-side pricing');
   const anonLong = await call('POST', '/create', { body: { contentType: 'text', textContent: 'x', expiryType: '24h' } });
   check('anonymous 24h drop is 401', anonLong.status === 401, anonLong);
   const anonSecure = await call('POST', '/create', { body: { contentType: 'bundle', secureMode: true, textContentCiphertext: '{"c":1}', clientId: crypto.randomUUID(), expiryType: '10m' } });
-  check('anonymous split key (10 min) is allowed and free', anonSecure.status === 200 && anonSecure.json.coinsCharged === 0, anonSecure);
+  check('anonymous two QR keys is 401 (Pluss)', anonSecure.status === 401 && anonSecure.json.code === 'LOGIN_REQUIRED', anonSecure);
   const anonSealed = await call('POST', '/create', { body: { contentType: 'bundle', singleQrMode: true, textContentCiphertext: '{"c":1}', clientId: crypto.randomUUID(), expiryType: '10m' } });
   check('anonymous one sealed key (10 min) is allowed and free', anonSealed.status === 200 && anonSealed.json.coinsCharged === 0, anonSealed);
   const anonSealedLong = await call('POST', '/create', { body: { contentType: 'bundle', singleQrMode: true, textContentCiphertext: '{"c":1}', expiryType: '24h' } });
@@ -298,22 +298,26 @@ console.log('\nS3: server-side pricing');
   check('user without coins gets 402 INSUFFICIENT_COINS', broke.status === 402 && broke.json.code === 'INSUFFICIENT_COINS' && broke.json.coinCost === 1, broke);
   check('nothing is stored when payment fails', !(await rawDrop(clientId)));
 
+  // A Pluss key costs 1 from the balance, whatever it adds beyond the free key
   await setCoins(USER_P, 10);
   const bought = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType: '7d', password: 'p' } });
-  check('password + 7 days costs 8 coins', bought.status === 200 && bought.json.coinsCharged === 8 && bought.json.coins === 2, bought.json);
-  check('balance is 2 after paying 8 of 10', (await coinsOf(USER_P)) === 2);
-  const priced = { '30m': 1, '1h': 1, '24h': 1, 'scan': 7 };
+  check('password + 7 days is one Pluss key', bought.status === 200 && bought.json.coinsCharged === 1 && bought.json.coins === 9, bought.json);
+  check('balance is 9 after paying 1 of 10', (await coinsOf(USER_P)) === 9);
+  await setCoins(USER_P, 10);
+  const twoKeys = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'bundle', secureMode: true, textContentCiphertext: '{"c":1}', clientId: crypto.randomUUID(), expiryType: '10m' } });
+  check('two QR keys is one Pluss key', twoKeys.status === 200 && twoKeys.json.coinsCharged === 1, twoKeys.json);
+  const priced = { '30m': 1, '1h': 1, '24h': 1, 'scan': 1 };
   for (const [expiryType, cost] of Object.entries(priced)) {
     await setCoins(USER_P, 100);
     const r = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType } });
     check(`expiry ${expiryType} costs ${cost}`, r.json?.coinsCharged === cost && (await coinsOf(USER_P)) === 100 - cost, r.json);
   }
 
-  // Files: 1 MB free, then 1 coin per started 2 MB (encrypted size minus a small allowance)
-  const upload = (bytes, token) => {
+  // Files: 1 MB free, anything bigger is a Pluss key (encrypted size minus a small allowance)
+  const upload = (bytes, token, extra = {}) => {
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(bytes)]), 'a.bin');
-    form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m' }));
+    form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', ...extra }));
     return call('POST', '/upload', { form, token });
   };
   const MB = 1024 * 1024;
@@ -321,10 +325,30 @@ console.log('\nS3: server-side pricing');
   check('1 MB file (+ encryption overhead) is free for anonymous users', exactlyFree.status === 200 && exactlyFree.json.coinsCharged === 0, exactlyFree);
   await setCoins(USER_P, 100);
   const threeMb = await upload(3 * MB + 28, 'tok-P');
-  check('3 MB file costs 1 coin', threeMb.json?.coinsCharged === 1 && (await coinsOf(USER_P)) === 99, threeMb.json);
+  check('3 MB file is one Pluss key', threeMb.json?.coinsCharged === 1 && (await coinsOf(USER_P)) === 99, threeMb.json);
   const fourMb = await upload(4 * MB, 'tok-P');
-  check('4 MB file costs 2 coins', fourMb.json?.coinsCharged === 2, fourMb.json);
+  check('4 MB file is also one Pluss key', fourMb.json?.coinsCharged === 1, fourMb.json);
+  const bigUnlimited = await upload(6 * MB, 'tok-P');
+  check('large file with unlimited opens is 400 TOO_MANY_OPENS', bigUnlimited.status === 400 && bigUnlimited.json.code === 'TOO_MANY_OPENS', bigUnlimited);
+  const bigTooMany = await upload(6 * MB, 'tok-P', { maxScans: 101 });
+  check('large file with 101 opens is 400', bigTooMany.status === 400 && bigTooMany.json.code === 'TOO_MANY_OPENS', bigTooMany);
+  const bigOk = await upload(6 * MB, 'tok-P', { maxScans: 100 });
+  check('large file with 100 opens is allowed', bigOk.status === 200 && bigOk.json.coinsCharged === 1, bigOk);
   check('anonymous 2 MB file is rejected', (await upload(2 * MB, undefined)).status >= 400);
+  const uploadFiles = (sizes, token) => {
+    const form = new FormData();
+    sizes.forEach((bytes, i) => form.append(i === 0 ? 'file' : `file${i}`, new Blob([new Uint8Array(bytes)]), `a${i}.bin`));
+    form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', maxScans: 1 }));
+    return call('POST', '/upload', { form, token });
+  };
+  const tooBig = await upload(22 * MB, 'tok-P', { maxScans: 1 });
+  check('upload over 21 MB is refused before it is read (413)', tooBig.status === 413 && tooBig.json.code === 'UPLOAD_TOO_LARGE', tooBig);
+  const declaredTooBig = await globalThis.__handler(new Request('http://local/make-server-c3c9181e/upload', { method: 'POST', headers: { 'Content-Length': String(1024 * MB), 'Content-Type': 'multipart/form-data; boundary=x' }, body: 'x' }));
+  check('declared 1 GB upload is refused at once (413)', declaredTooBig.status === 413);
+  const overTotal = await uploadFiles([10 * MB, Math.round(10.4 * MB)], 'tok-P');
+  check('two files over 20 MB in all is 400', overTotal.status === 400 && /Total file size/.test(overTotal.json?.error), overTotal);
+  const anonTotal = await uploadFiles([Math.round(0.6 * MB), Math.round(0.6 * MB)], undefined);
+  check('anonymous files over 1 MB in all is 400', anonTotal.status === 400 && /Total file size/.test(anonTotal.json?.error), anonTotal);
 
   await setCoins(USER_P, 5);
   globalThis.__failStorageUpload = true;
@@ -363,7 +387,7 @@ console.log('\nScheduled release');
   await setCoins(USER_P, 10);
   const scheduledAt = Date.parse(inDays(30));
   const priced = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'hemmelig', expiryType: '24h', password: 'pw', activatesAt: new Date(scheduledAt).toISOString() } });
-  check('schedule + password + 24h costs 3 coins', priced.status === 200 && priced.json.coinsCharged === 3, priced.json);
+  check('schedule + password + 24h is one Pluss key', priced.status === 200 && priced.json.coinsCharged === 1, priced.json);
   const id = priced.json.id;
   const times = await rawTimes(id);
   check('activation date is stored', times.activatesAt === scheduledAt, times);
@@ -418,7 +442,7 @@ console.log('\nScheduled release');
   form.append('file', new Blob([Buffer.alloc(10)]), 'a.png');
   form.append('metadata', JSON.stringify({ contentType: 'file', expiryType: '10m', activatesAt: inDays(1) }));
   const upload = await call('POST', '/upload', { ...paid, form });
-  check('file drop: scheduled upload costs 1 coin', upload.status === 200 && upload.json.coinsCharged === 1, upload);
+  check('file drop: scheduled upload is one Pluss key', upload.status === 200 && upload.json.coinsCharged === 1, upload);
   check('file drop: /open before activation is 403', (await call('POST', `/qr/${upload.json.id}/open`, { body: {} })).status === 403);
   check('file drop: /file before activation is 403', (await call('GET', `/qr/${upload.json.id}/file`)).status === 403);
 }
@@ -564,9 +588,23 @@ const denied = (r) => !r.ok && /permission denied/.test(r.err);
   check('user cannot read other profiles', (await asRole('authenticated', USER_A, `select * from public.user_profiles where id = $1`, [USER_B])).res?.rows.length === 0);
 
   await db.query(`delete from public.user_profiles where id = $1`, [USER_C]);
-  check('S3: user cannot create profile with coins', !(await asRole('authenticated', USER_C, `insert into public.user_profiles (id, coins) values ($1, 50)`, [USER_C])).ok);
-  check('user can create own profile with 0 coins', (await asRole('authenticated', USER_C, `insert into public.user_profiles (id, coins) values ($1, 0)`, [USER_C])).ok);
+  const chosen = await asRole('authenticated', USER_C, `insert into public.user_profiles (id, coins) values ($1, 50)`, [USER_C]);
+  check('S3: user cannot choose the start balance; a new profile starts with 3 Pluss keys', chosen.ok && (await coinsOf(USER_C)) === 3, { chosen, coins: await coinsOf(USER_C) });
+  await db.query(`delete from public.user_profiles where id = $1`, [USER_C]);
+  check('user can create own profile', (await asRole('authenticated', USER_C, `insert into public.user_profiles (id) values ($1)`, [USER_C])).ok && (await coinsOf(USER_C)) === 3);
   check('user cannot create profile for someone else', !(await asRole('authenticated', USER_C, `insert into public.user_profiles (id, coins) values ($1, 0)`, [USER_B])).ok);
+}
+
+console.log('\nSaldo packages');
+{
+  const unknown = await call('POST', '/checkout', { token: 'tok-P', body: { package: 'coins1000' } });
+  check('unknown package is 400', unknown.status === 400 && unknown.json.code === 'UNKNOWN_PACKAGE', unknown);
+  for (const [pkg, coins, ore] of [['saldo50', 10, 5000], ['saldo100', 20, 10000]]) {
+    const r = await call('POST', '/checkout', { token: 'tok-P', body: { package: pkg } });
+    const s = globalThis.__lastCheckoutSession;
+    check(`${pkg}: ${ore / 100} kr gives ${coins} Pluss keys`, r.status === 200 && s?.line_items[0].price_data.unit_amount === ore && s?.metadata.coins === String(coins), { status: r.status, s });
+  }
+  check('checkout needs login', (await call('POST', '/checkout', { body: { package: 'saldo50' } })).status === 401);
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

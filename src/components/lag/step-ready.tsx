@@ -18,7 +18,7 @@ export function downloadImage(src: string, filename: string) {
   document.body.removeChild(link);
 }
 
-export type KeyImageKind = 'link' | 'key' | 'key1' | 'key2' | 'single';
+export type KeyImageKind = 'link' | 'single';
 
 const fileStem = (qrDrop: QrDrop) => qrDrop.fileName.replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 40) || 'key';
 
@@ -32,21 +32,6 @@ export function lockImage(qrDrop: QrDrop): { src: string; file: string; kind: Ke
   };
 }
 
-// The images a key consists of, in the order they should be handed out. The keys only exist
-// right after creation; a key loaded from the server has just the lock QR.
-export function keyImages(qrDrop: QrDrop): Array<{ src: string; file: string; kind: KeyImageKind }> {
-  const name = fileStem(qrDrop);
-  if (qrDrop.secureMode && qrDrop.qrCodeUrl2) {
-    return [
-      lockImage(qrDrop),
-      { src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}-key-1.png`, kind: 'key1' },
-      { src: qrDrop.qrCodeUrl2, file: `onetimeqr-${name}-key-2.png`, kind: 'key2' },
-    ];
-  }
-  if (qrDrop.keyUrl) return [{ src: qrDrop.qrCodeUrl, file: `onetimeqr-${name}.png`, kind: 'key' }];
-  return [lockImage(qrDrop)];
-}
-
 // Set while step 3 shows unlock codes that haven't been saved. They exist only on this page,
 // so App asks through this before it navigates away.
 export const leaveReadyGuard: { current: null | (() => boolean) } = { current: null };
@@ -57,27 +42,85 @@ interface StepReadyProps {
   onKeyring: () => void;
 }
 
+// One thing to hand out: its QR code, and the ways to share it
+interface ShareCard {
+  id: 'link' | 'key' | 'key1' | 'key2';
+  tag: string; // Top right of the printed card
+  src: string;
+  caption?: string;
+  heading: string;
+  text: string; // Shown, copied and sent by SMS or email
+  message: string;
+  emailSubject: string;
+  file: string;
+  hint?: string;
+}
+
+// The cards a new key consists of, in the order they should be handed out. What opens the
+// content only exists right after creation; a key loaded from the server has just the lock.
+function shareCards(t: (key: string, options?: Record<string, unknown>) => string, qrDrop: QrDrop): ShareCard[] {
+  const name = fileStem(qrDrop);
+  const url = qrDrop.keyUrl || shareLink(qrDrop);
+  const cards: ShareCard[] = [{
+    id: 'link',
+    tag: `${t('lag.preview.sealed')}${qrDrop.maxScans ? ` · ${qrDrop.maxScans}×` : ''}`,
+    src: qrDrop.keyUrl ? qrDrop.qrCodeUrl : lockImage(qrDrop).src,
+    caption: qrDrop.keyUrl ? undefined : t('lag.ready.link'),
+    heading: t('lag.ready.share'),
+    text: url,
+    message: t('lag.ready.shareMessage', { url }),
+    emailSubject: t('lag.ready.emailSubject'),
+    file: qrDrop.keyUrl ? `onetimeqr-${name}.png` : lockImage(qrDrop).file,
+  }];
+  if (qrDrop.keyCode && qrDrop.keyCodeQr) {
+    cards.push({
+      id: 'key',
+      tag: t('lag.ready.keyCodeTag'),
+      src: qrDrop.keyCodeQr,
+      caption: t('lag.ready.keyCodeCaption'),
+      heading: t('lag.ready.shareCode'),
+      text: qrDrop.keyCode,
+      message: t('lag.ready.shareCodeMessage', { code: qrDrop.keyCode }),
+      emailSubject: t('lag.ready.emailCodeSubject'),
+      file: `onetimeqr-${name}-key.png`,
+      hint: t('lag.ready.keyCodeHint'),
+    });
+  }
+  if (qrDrop.key1Url && qrDrop.key2Url && qrDrop.qrCodeUrl2) {
+    ([[1, qrDrop.key1Url, qrDrop.qrCodeUrl], [2, qrDrop.key2Url, qrDrop.qrCodeUrl2]] as const).forEach(([n, keyUrl, src]) => {
+      cards.push({
+        id: n === 1 ? 'key1' : 'key2',
+        tag: t('lag.ready.keyTag', { n }),
+        src,
+        caption: t(`lag.ready.key${n}`),
+        heading: t('lag.ready.shareKey', { n }),
+        text: keyUrl,
+        message: t('lag.ready.shareKeyMessage', { n, url: keyUrl }),
+        emailSubject: t('lag.ready.emailKeySubject', { n }),
+        file: `onetimeqr-${name}-key-${n}.png`,
+      });
+    });
+  }
+  return cards;
+}
+
 export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
   const { t, i18n } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const [codeCopied, setCodeCopied] = useState(false);
-  // The link carries the key when there is one; otherwise it only leads to the lock
-  const url = qrDrop.keyUrl || shareLink(qrDrop);
   const delivery = qrDrop.keyDelivery;
-  const images = keyImages(qrDrop);
-  const message = t('lag.ready.shareMessage', { url });
-  const codeMessage = qrDrop.keyCode ? t('lag.ready.shareCodeMessage', { code: qrDrop.keyCode }) : '';
-  // Printing shows one card: the link's, or the key code's, so the two never end up on the same paper
-  const [printing, setPrinting] = useState<'link' | 'code'>('link');
-  const keysOnlyNow = !!(qrDrop.keyUrl || qrDrop.keyCode || qrDrop.qrCodeUrl2);
-  // What has left this page; which of it holds the key depends on how the key is handed out
-  const [linkSaved, setLinkSaved] = useState(false);
-  const [imagesSaved, setImagesSaved] = useState(false);
-  const [codeSaved, setCodeSaved] = useState(false);
-  const saved =
-    delivery === 'separate' ? codeSaved
-    : delivery === 'twoQr' ? imagesSaved
-    : linkSaved || imagesSaved;
+  const cards = shareCards(t, qrDrop);
+  // What must leave this page before it is safe to go: the cards holding what opens the content
+  const required: ShareCard['id'][] =
+    delivery === 'separate' ? ['key']
+    : delivery === 'twoQr' ? ['key1', 'key2']
+    : qrDrop.keyUrl ? ['link']
+    : [];
+  const [savedIds, setSavedIds] = useState<ShareCard['id'][]>([]);
+  const markSaved = (id: ShareCard['id']) => setSavedIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+  const keysOnlyNow = required.length > 0;
+  const saved = required.every((id) => savedIds.includes(id));
+  const [copiedId, setCopiedId] = useState<ShareCard['id'] | null>(null);
+  // Printing shows one card, so two parts of what opens the content never end up on the same paper
+  const [printing, setPrinting] = useState<ShareCard['id']>('link');
 
   useEffect(() => {
     if (!keysOnlyNow || saved) return;
@@ -93,44 +136,27 @@ export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
     };
   }, [keysOnlyNow, saved, t]);
 
-  const copy = async () => {
-    if (await copyToClipboard(url)) {
-      setCopied(true);
-      setLinkSaved(true);
-      setTimeout(() => setCopied(false), 2000);
+  const copy = async (card: ShareCard) => {
+    if (await copyToClipboard(card.text)) {
+      setCopiedId(card.id);
+      markSaved(card.id);
+      setTimeout(() => setCopiedId((id) => (id === card.id ? null : id)), 2000);
     } else {
       toast.error(t('qrDetail.couldNotCopyLink'));
     }
   };
 
-  const copyCode = async () => {
-    if (await copyToClipboard(qrDrop.keyCode!)) {
-      setCodeCopied(true);
-      setCodeSaved(true);
-      setTimeout(() => setCodeCopied(false), 2000);
-    } else {
-      toast.error(t('qrDetail.couldNotCopyLink'));
-    }
-  };
-
-  const downloadCode = () => {
-    downloadImage(qrDrop.keyCodeQr!, `onetimeqr-${fileStem(qrDrop)}-key-code.png`);
-    setCodeSaved(true);
+  const download = (card: ShareCard) => {
+    downloadImage(card.src, card.file);
+    markSaved(card.id);
     toast.success(t('qrDetail.qrDownloaded'));
   };
 
-  const print = (card: 'link' | 'code') => {
-    flushSync(() => setPrinting(card));
+  const print = (card: ShareCard) => {
+    flushSync(() => setPrinting(card.id));
     window.print();
     setPrinting('link');
-    if (card === 'code') setCodeSaved(true);
-    else setImagesSaved(true);
-  };
-
-  const download = () => {
-    images.forEach((img, i) => setTimeout(() => downloadImage(img.src, img.file), i * 150));
-    setImagesSaved(true);
-    toast.success(images.length > 1 ? t('lag.ready.downloaded', { count: images.length }) : t('qrDetail.qrDownloaded'));
+    markSaved(card.id);
   };
 
   return (
@@ -149,77 +175,39 @@ export function StepReady({ qrDrop, onNew, onKeyring }: StepReadyProps) {
       {delivery && <p className="lg-note" style={{ margin: 0 }}>{t(`lag.ready.note.${delivery}`)}</p>}
 
       {/* Each QR code sits next to the ways to share it; on a phone they stack in that order */}
-      <div className="lg-cols lg-pair">
-        <div className="lg-col-half">
-          <div className={`lg-ticket${printing === 'link' ? ' lg-print' : ''}`}>
-            <div className="lg-ticket-head">
-              <span>ONETIMEQR</span>
-              <span>{t('lag.preview.sealed')}{qrDrop.maxScans ? ` · ${qrDrop.maxScans}×` : ''}</span>
-            </div>
-            {images.length > 1 || (images[0].kind !== 'key' && images[0].kind !== 'single') ? (
-              <div className={`lg-ticket-pair${images.length > 2 ? ' lg-ticket-three' : ''}`}>
-                {images.map((img) => (
-                  <figure key={img.kind}>
-                    <img src={img.src} alt={t(`lag.ready.${img.kind}`)} />
-                    <figcaption className="lg-small" style={{ fontWeight: 600 }}>{t(`lag.ready.${img.kind}`)}</figcaption>
-                  </figure>
-                ))}
-              </div>
-            ) : (
-              <img src={images[0].src} alt={qrDrop.fileName} />
-            )}
-            <div className="lg-ticket-title">{qrDrop.fileName}</div>
-          </div>
-        </div>
-        <div className="lg-col-half">
-          <section className="lg-card" style={{ padding: 24, gap: 14 }}>
-            <h2 className="lg-h2" style={{ fontSize: 20 }}>{t('lag.ready.share')}</h2>
-            <div className="lg-linkbox">
-              <span>{url.replace(/^https?:\/\//, '')}</span>
-              <button type="button" onClick={copy}>{copied ? t('lag.ready.copied') : t('lag.ready.copy')}</button>
-            </div>
-            <div className="lg-grid-2">
-              <a className="lg-btn" href={`sms:?&body=${encodeURIComponent(message)}`} onClick={() => setLinkSaved(true)}>{t('lag.ready.sms')}</a>
-              <a className="lg-btn" href={`mailto:?subject=${encodeURIComponent(t('lag.ready.emailSubject'))}&body=${encodeURIComponent(message)}`} onClick={() => setLinkSaved(true)}>{t('lag.ready.email')}</a>
-              <button type="button" className="lg-btn" onClick={download}>{t('lag.ready.download')}</button>
-              <button type="button" className="lg-btn" onClick={() => print('link')}>{t('lag.ready.print')}</button>
-            </div>
-          </section>
-        </div>
-      </div>
-
-      {qrDrop.keyCode && (
-        <div className="lg-cols lg-pair">
+      {cards.map((card) => (
+        <div key={card.id} className="lg-cols lg-pair">
           <div className="lg-col-half">
-            <div className={`lg-ticket${printing === 'code' ? ' lg-print' : ''}`}>
+            <div className={`lg-ticket${printing === card.id ? ' lg-print' : ''}`}>
               <div className="lg-ticket-head">
                 <span>ONETIMEQR</span>
-                <span>{t('lag.ready.keyCodeTag')}</span>
+                <span>{card.tag}</span>
               </div>
               <figure style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
-                <img src={qrDrop.keyCodeQr} alt={t('lag.ready.keyCodeCaption')} />
-                <figcaption className="lg-small" style={{ fontWeight: 600 }}>{t('lag.ready.keyCodeCaption')}</figcaption>
+                <img src={card.src} alt={card.caption || qrDrop.fileName} />
+                {card.caption && <figcaption className="lg-small" style={{ fontWeight: 600 }}>{card.caption}</figcaption>}
               </figure>
+              {card.id === 'link' && <div className="lg-ticket-title">{qrDrop.fileName}</div>}
             </div>
           </div>
           <div className="lg-col-half">
             <section className="lg-card" style={{ padding: 24, gap: 14 }}>
-              <h2 className="lg-h2" style={{ fontSize: 20 }}>{t('lag.ready.shareCode')}</h2>
+              <h2 className="lg-h2" style={{ fontSize: 20 }}>{card.heading}</h2>
               <div className="lg-linkbox">
-                <span>{qrDrop.keyCode}</span>
-                <button type="button" onClick={copyCode}>{codeCopied ? t('lag.ready.copied') : t('lag.ready.copy')}</button>
+                <span>{card.text.replace(/^https?:\/\//, '')}</span>
+                <button type="button" onClick={() => copy(card)}>{copiedId === card.id ? t('lag.ready.copied') : t('lag.ready.copy')}</button>
               </div>
               <div className="lg-grid-2">
-                <a className="lg-btn" href={`sms:?&body=${encodeURIComponent(codeMessage)}`} onClick={() => setCodeSaved(true)}>{t('lag.ready.sms')}</a>
-                <a className="lg-btn" href={`mailto:?subject=${encodeURIComponent(t('lag.ready.emailCodeSubject'))}&body=${encodeURIComponent(codeMessage)}`} onClick={() => setCodeSaved(true)}>{t('lag.ready.email')}</a>
-                <button type="button" className="lg-btn" onClick={downloadCode} disabled={!qrDrop.keyCodeQr}>{t('lag.ready.download')}</button>
-                <button type="button" className="lg-btn" onClick={() => print('code')} disabled={!qrDrop.keyCodeQr}>{t('lag.ready.print')}</button>
+                <a className="lg-btn" href={`sms:?&body=${encodeURIComponent(card.message)}`} onClick={() => markSaved(card.id)}>{t('lag.ready.sms')}</a>
+                <a className="lg-btn" href={`mailto:?subject=${encodeURIComponent(card.emailSubject)}&body=${encodeURIComponent(card.message)}`} onClick={() => markSaved(card.id)}>{t('lag.ready.email')}</a>
+                <button type="button" className="lg-btn" onClick={() => download(card)}>{t('lag.ready.download')}</button>
+                <button type="button" className="lg-btn" onClick={() => print(card)}>{t('lag.ready.print')}</button>
               </div>
-              <p className="lg-small lg-muted" style={{ margin: 0 }}>{t('lag.ready.keyCodeHint')}</p>
+              {card.hint && <p className="lg-small lg-muted" style={{ margin: 0 }}>{card.hint}</p>}
             </section>
           </div>
         </div>
-      )}
+      ))}
 
       <section className="lg-card" style={{ padding: 24, gap: 14 }}>
         <h2 className="lg-h2" style={{ fontSize: 20 }}>{t('lag.ready.next')}</h2>

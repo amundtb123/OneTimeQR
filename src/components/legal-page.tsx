@@ -105,8 +105,8 @@ const SECTIONS: Section[] = [
         ],
       },
       tx(
-        'Logger du inn med Google, kan du lage Pluss-nøkler: inntil 20 MB, lengre utløpstid, passord, to QR-nøkler og fast åpningsdato. En Pluss-nøkkel koster 5 kr. Nye kontoer får 15 kr i startsaldo.',
-        'If you log in with Google, you can make Pluss keys: up to 20 MB, longer expiry, a password, two QR keys and a set opening date. A Pluss key costs 5 kr. New accounts get 15 kr to start with.',
+        'Logger du inn med Google, kan du legge til mer: inntil 20 MB, lengre utløpstid, passord, to QR-nøkler og fast åpningsdato. Hvert valg koster 1–2 kr, og en nøkkel koster aldri mer enn 5 kr. Nye kontoer får 15 kr i startsaldo.',
+        'If you log in with Google, you can add more: up to 20 MB, longer expiry, a password, two QR keys and a set opening date. Each costs 1–2 kr, and a key never costs more than 5 kr. New accounts get 15 kr to start with.',
       ),
       tx('Filene i en nøkkel kan lastes ned maks 3 GB til sammen (filstørrelse × antall åpninger), og maks 1000 ganger. Jo større filer, jo færre åpninger: 20 MB kan for eksempel åpnes 153 ganger. Eieren kan forhåndsvise 3 ganger uten å bruke en åpning; etter det teller også eierens åpninger.', 'The files of a key can be downloaded at most 3 GB in all (file size × number of opens), and at most 1000 times. The bigger the files, the fewer opens: 20 MB can for example be opened 153 times. The owner can preview 3 times without using an open; after that the owner\'s opens count too.'),
       tx('Vi kan endre disse grensene.', 'We may change these limits.'),
@@ -116,12 +116,12 @@ const SECTIONS: Section[] = [
     id: 'coins',
     title: tx('Saldo og betaling', 'Balance and payment'),
     body: [
-      tx('Du fyller på saldoen med 50 eller 100 kr. En Pluss-nøkkel koster 5 kr uansett hva den bruker av Pluss, og trekkes fra saldoen når du lager den. Prisen vises før du lager nøkkelen.', 'You top up your balance with 50 or 100 kr. A Pluss key costs 5 kr whatever Pluss features it uses, and is taken from your balance when you create it. The price is shown before you create the key.'),
+      tx('Du fyller på saldoen med 50 eller 100 kr. Lengre tid koster 1 kr (7 dager 2 kr), passord 1 kr, filer over 1 MB 2 kr, to QR-nøkler 2 kr og fast åpningsdato 2 kr. En nøkkel koster aldri mer enn 5 kr til sammen. Prisen vises før du lager nøkkelen, og trekkes fra saldoen når du lager den.', 'You top up your balance with 50 or 100 kr. Longer time costs 1 kr (7 days 2 kr), a password 1 kr, files over 1 MB 2 kr, two QR keys 2 kr and a set opening date 2 kr. A key never costs more than 5 kr in all. The price is shown before you create the key, and is taken from your balance when you create it.'),
       {
         list: [
           tx('Saldoen kan bare brukes til nøkler i OneTimeQR og kan ikke tas ut som penger', 'The balance can only be used for keys in OneTimeQR and cannot be withdrawn as money'),
           tx('Saldo refunderes ikke', 'The balance is not refunded'),
-          tx('Priser og hva som er Pluss kan endres', 'Prices and what counts as Pluss may change'),
+          tx('Priser og hva som koster kan endres', 'Prices and what costs money may change'),
           tx('Saldoen oppdateres etter vellykket betaling, men vi garanterer ikke umiddelbar levering', 'The balance is updated after a successful payment, but we do not guarantee immediate delivery'),
         ],
       },

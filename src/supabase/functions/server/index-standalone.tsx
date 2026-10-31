@@ -266,7 +266,8 @@ async function registerPasswordAttempt(id: string): Promise<number> {
 
 // SECURITY (S3): Prices are decided here, never by the client.
 // Must stay in sync with calculatePriceKr() and maxOpensFor() in src/utils/create-drop.ts.
-// A key is free, or a Pluss key of PLUSS_PRICE_KR. The balance counts kroner. Downloads are what
+// A key is free; each choice beyond the free one adds PRICE_KR, and a key costs at most
+// MAX_PRICE_KR. The balance counts kroner. Downloads are what
 // storage bills for, so the files of a key may be downloaded at most MAX_TRAFFIC_BYTES in all
 // (file size × opens): the bigger the files, the fewer opens.
 const EXPIRY_DURATIONS_MS: Record<string, number> = {
@@ -284,7 +285,9 @@ const MB = 1024 * 1024;
 const GB = 1024 * MB;
 const FREE_FILE_BYTES = 1 * MB;
 const FREE_TRAFFIC_BYTES = 100 * MB;
-const PLUSS_PRICE_KR = 5;
+const PRICE_KR = { longer: 1, week: 2, password: 1, file: 2, twoKeys: 2, scheduled: 2 };
+const MAX_PRICE_KR = 5;
+const WEEK_MS = EXPIRY_DURATIONS_MS['7d'];
 const MAX_TRAFFIC_BYTES = 3 * GB;
 // Every open downloads the files again, so a key with files must have a number of opens
 const MAX_OPENS_WITH_FILES = 1000;
@@ -304,13 +307,15 @@ function maxOpensFor(bytes: number): number {
 function calculatePriceKr(options: { hasPassword: boolean; fileSizes: number[]; opens: number; expiryType: string; scheduled: boolean; twoKeys: boolean }): number {
   const bytes = contentBytes(options.fileSizes);
   const traffic = bytes * options.opens;
-  const pluss = options.hasPassword
-    || options.scheduled
-    || options.twoKeys
-    || bytes > FREE_FILE_BYTES
-    || traffic > FREE_TRAFFIC_BYTES
-    || EXPIRY_DURATIONS_MS[options.expiryType] > FREE_EXPIRY_MS;
-  return pluss ? PLUSS_PRICE_KR : 0;
+  const expiryMs = EXPIRY_DURATIONS_MS[options.expiryType];
+  let kr = 0;
+  if (expiryMs >= WEEK_MS) kr += PRICE_KR.week;
+  else if (expiryMs > FREE_EXPIRY_MS) kr += PRICE_KR.longer;
+  if (options.hasPassword) kr += PRICE_KR.password;
+  if (bytes > FREE_FILE_BYTES || traffic > FREE_TRAFFIC_BYTES) kr += PRICE_KR.file;
+  if (options.twoKeys) kr += PRICE_KR.twoKeys;
+  if (options.scheduled) kr += PRICE_KR.scheduled;
+  return Math.min(kr, MAX_PRICE_KR);
 }
 
 function toPositiveInt(value: unknown): number | null {

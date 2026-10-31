@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../utils/auth-context';
 import { createCheckoutSession } from '../utils/api-client';
-import { PLUSS_PRICE_KR, SALDO_PACKAGES } from '../utils/create-drop';
+import { MAX_PRICE_KR, SALDO_PACKAGES } from '../utils/create-drop';
 
 // Tops up the balance through Stripe Checkout. The balance counts kroner.
 export function CoinShop() {
@@ -39,12 +39,12 @@ export function CoinShop() {
           <div style={{ fontSize: 28, fontWeight: 800 }}>{t('coins.kr', { kr: coins })}</div>
         </div>
       )}
-      <p className="lg-small lg-muted" style={{ margin: 0 }}>{t('coins.explain', { kr: PLUSS_PRICE_KR })}</p>
+      <p className="lg-small lg-muted" style={{ margin: 0 }}>{t('coins.explain', { max: MAX_PRICE_KR })}</p>
       <div className="lg-grid-2">
         {SALDO_PACKAGES.map((pkg) => (
           <button key={pkg.id} type="button" className="lg-btn" disabled={busy !== null} onClick={() => buy(pkg.id)} style={{ flexDirection: 'column', gap: 2 }}>
             <strong>{t('coins.topUp', { kr: pkg.kr })}</strong>
-            <span className="lg-xs lg-muted">{t('coins.keys', { count: pkg.kr / PLUSS_PRICE_KR })}</span>
+            <span className="lg-xs lg-muted">{t('coins.keys', { count: pkg.kr / MAX_PRICE_KR })}</span>
           </button>
         ))}
       </div>

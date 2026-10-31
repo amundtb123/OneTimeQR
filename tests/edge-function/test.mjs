@@ -303,25 +303,28 @@ console.log('\nS3: server-side pricing');
 
   const clientId = crypto.randomUUID();
   const broke = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType: '10m', password: 'p', clientId } });
-  check('user without coins gets 402 INSUFFICIENT_COINS', broke.status === 402 && broke.json.code === 'INSUFFICIENT_COINS' && broke.json.coinCost === 5, broke);
+  check('user without coins gets 402 INSUFFICIENT_COINS', broke.status === 402 && broke.json.code === 'INSUFFICIENT_COINS' && broke.json.coinCost === 1, broke);
   check('nothing is stored when payment fails', !(await rawDrop(clientId)));
 
-  // A Pluss key costs 5 kr, whatever it adds beyond the free key
+  // Each choice beyond the free key adds 1–2 kr, at most 5 kr per key
   await setCoins(USER_P, 10);
   const bought = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType: '7d', password: 'p' } });
-  check('password + 7 days is one Pluss key (5 kr)', bought.status === 200 && bought.json.coinsCharged === 5 && bought.json.coins === 5, bought.json);
-  check('balance is 5 kr after paying 5 of 10', (await coinsOf(USER_P)) === 5);
+  check('password (1 kr) + 7 days (2 kr) is 3 kr', bought.status === 200 && bought.json.coinsCharged === 3 && bought.json.coins === 7, bought.json);
+  check('balance is 7 kr after paying 3 of 10', (await coinsOf(USER_P)) === 7);
   await setCoins(USER_P, 10);
   const twoKeys = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'bundle', secureMode: true, textContentCiphertext: '{"c":1}', clientId: crypto.randomUUID(), expiryType: '10m' } });
-  check('two QR keys is one Pluss key', twoKeys.status === 200 && twoKeys.json.coinsCharged === 5, twoKeys.json);
-  const priced = { '30m': 5, '1h': 5, '24h': 5, 'scan': 5 };
+  check('two QR keys is 2 kr', twoKeys.status === 200 && twoKeys.json.coinsCharged === 2, twoKeys.json);
+  await setCoins(USER_P, 10);
+  const everything = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'bundle', secureMode: true, textContentCiphertext: '{"c":1}', clientId: crypto.randomUUID(), expiryType: '7d', password: 'p', activatesAt: new Date(Date.now() + 864e5).toISOString() } });
+  check('a key never costs more than 5 kr', everything.status === 200 && everything.json.coinsCharged === 5, everything.json);
+  const priced = { '30m': 1, '1h': 1, '24h': 1, '7d': 2, 'scan': 2 };
   for (const [expiryType, cost] of Object.entries(priced)) {
     await setCoins(USER_P, 100);
     const r = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType } });
     check(`expiry ${expiryType} costs ${cost}`, r.json?.coinsCharged === cost && (await coinsOf(USER_P)) === 100 - cost, r.json);
   }
 
-  // Files: 1 MB free, anything bigger is a Pluss key (encrypted size minus a small allowance).
+  // Files: 1 MB free, anything bigger adds 2 kr (encrypted size minus a small allowance).
   // The files may be downloaded at most 3 GB in all (size × opens), so bigger files get fewer opens.
   const upload = (bytes, token, extra = {}) => {
     const form = new FormData();
@@ -334,9 +337,9 @@ console.log('\nS3: server-side pricing');
   check('1 MB file (+ encryption overhead) is free for anonymous users', exactlyFree.status === 200 && exactlyFree.json.coinsCharged === 0, exactlyFree);
   await setCoins(USER_P, 100);
   const threeMb = await upload(3 * MB + 28, 'tok-P');
-  check('3 MB file is one Pluss key', threeMb.json?.coinsCharged === 5 && (await coinsOf(USER_P)) === 95, threeMb.json);
+  check('3 MB file is 2 kr', threeMb.json?.coinsCharged === 2 && (await coinsOf(USER_P)) === 98, threeMb.json);
   const fourMb = await upload(4 * MB, 'tok-P');
-  check('4 MB file is also one Pluss key', fourMb.json?.coinsCharged === 5, fourMb.json);
+  check('4 MB file is also 2 kr', fourMb.json?.coinsCharged === 2, fourMb.json);
   const unlimited = await upload(100, undefined, { maxScans: undefined });
   check('file with unlimited opens is 400 TOO_MANY_OPENS', unlimited.status === 400 && unlimited.json.code === 'TOO_MANY_OPENS', unlimited);
   const tooMany = await upload(100, undefined, { maxScans: 1001 });
@@ -344,14 +347,14 @@ console.log('\nS3: server-side pricing');
   check('scan-once file needs no number of opens', (await upload(100, 'tok-P', { maxScans: undefined, expiryType: 'scan' })).status === 200);
   check('1 MB × 100 opens is free', (await upload(MB, undefined, { maxScans: 100 })).json?.coinsCharged === 0);
   const freeTooOften = await upload(MB, undefined, { maxScans: 101 });
-  check('1 MB × 101 opens is a Pluss key (anonymous 401)', freeTooOften.status === 401 && freeTooOften.json.coinCost === 5, freeTooOften);
-  check('20 MB × 3 opens is 5 kr', (await upload(20 * MB, 'tok-P', { maxScans: 3 })).json?.coinsCharged === 5);
+  check('1 MB × 101 opens costs 2 kr (anonymous 401)', freeTooOften.status === 401 && freeTooOften.json.coinCost === 2, freeTooOften);
+  check('20 MB × 3 opens is 2 kr', (await upload(20 * MB, 'tok-P', { maxScans: 3 })).json?.coinsCharged === 2);
   // 3 GB / 20 MB = 153.6 opens
   const most = await upload(20 * MB, 'tok-P', { maxScans: 153 });
-  check('20 MB × 153 opens is allowed and still 5 kr', most.status === 200 && most.json.coinsCharged === 5, most.json);
+  check('20 MB × 153 opens is allowed and still 2 kr', most.status === 200 && most.json.coinsCharged === 2, most.json);
   const tooOften = await upload(20 * MB, 'tok-P', { maxScans: 154 });
   check('20 MB × 154 opens is 400 TOO_MANY_OPENS with the limit', tooOften.status === 400 && tooOften.json.code === 'TOO_MANY_OPENS' && tooOften.json.maxOpens === 153, tooOften);
-  check('small files can still be opened 1000 times', (await upload(3 * MB, 'tok-P', { maxScans: 1000 })).json?.coinsCharged === 5);
+  check('small files can still be opened 1000 times', (await upload(3 * MB, 'tok-P', { maxScans: 1000 })).json?.coinsCharged === 2);
   check('anonymous 2 MB file is rejected', (await upload(2 * MB, undefined)).status >= 400);
   const uploadFiles = (sizes, token) => {
     const form = new FormData();
@@ -375,7 +378,7 @@ console.log('\nS3: server-side pricing');
   check('failed upload returns 500', failed.status === 500, failed);
   check('failed upload refunds the coins', (await coinsOf(USER_P)) === 5, await coinsOf(USER_P));
 
-  await setCoins(USER_P, 15);
+  await setCoins(USER_P, 3);
   const parallel = await Promise.all(Array.from({ length: 6 }, () =>
     call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType: '10m', password: 'p' } })));
   check('parallel paid creates: only as many as the balance allows', parallel.filter((r) => r.status === 200).length === 3 && parallel.filter((r) => r.status === 402).length === 3, parallel.map((r) => r.status));
@@ -405,7 +408,7 @@ console.log('\nScheduled release');
   await setCoins(USER_P, 10);
   const scheduledAt = Date.parse(inDays(30));
   const priced = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'hemmelig', expiryType: '24h', password: 'pw', activatesAt: new Date(scheduledAt).toISOString() } });
-  check('schedule + password + 24h is one Pluss key', priced.status === 200 && priced.json.coinsCharged === 5, priced.json);
+  check('schedule (2 kr) + password (1 kr) + 24h (1 kr) is 4 kr', priced.status === 200 && priced.json.coinsCharged === 4, priced.json);
   const id = priced.json.id;
   const times = await rawTimes(id);
   check('activation date is stored', times.activatesAt === scheduledAt, times);
@@ -460,7 +463,7 @@ console.log('\nScheduled release');
   form.append('file', new Blob([Buffer.alloc(10)]), 'a.png');
   form.append('metadata', JSON.stringify({ contentType: 'file', expiryType: '10m', maxScans: 1, activatesAt: inDays(1) }));
   const upload = await call('POST', '/upload', { ...paid, form });
-  check('file drop: scheduled upload is one Pluss key', upload.status === 200 && upload.json.coinsCharged === 5, upload);
+  check('file drop: scheduled upload is 2 kr', upload.status === 200 && upload.json.coinsCharged === 2, upload);
   check('file drop: /open before activation is 403', (await call('POST', `/qr/${upload.json.id}/open`, { body: {} })).status === 403);
 }
 

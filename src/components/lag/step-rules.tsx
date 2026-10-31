@@ -3,11 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../utils/auth-context';
 import { defaultActivationDate, formatActivationDate, fromLocalInputValue, maxActivationDate, toLocalInputValue } from '../../utils/activation';
-import { FREE_EXPIRY, EXPIRY, MODE, TIMES, WHO, loginOnlyWho, timesLabel, type Rules } from './rules';
+import { EXPIRY, MODE, TIMES, WHO, timesLabel, type Rules } from './rules';
 import { KeyPreview, PREVIEW_URL, STYLE_PRESETS, type StylePreset } from './key-preview';
 import { QrStylePicker } from '../qr-style-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { draftCost, type Draft } from './create-flow';
+import { MAX_PRICE_KR, PRICE_KR, expiryPriceKr } from '../../utils/create-drop';
 import { CoinShop } from '../coin-shop';
 
 type Token = 'times' | 'who' | 'opens' | 'expiry' | 'mode';
@@ -79,8 +80,8 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
   const opensDate = rules.opensAt ? fromLocalInputValue(rules.opensAt) : null;
   const opensLabel = opensDate ? formatActivationDate(opensDate, i18n.language) : '';
 
-  // A choice that makes it a Pluss key is marked
-  const plussTag = (pluss: boolean) => (pluss ? <small>{t('lag.rules.pluss')}</small> : null);
+  // A choice that costs something shows what it adds
+  const priceTag = (kr: number) => (kr > 0 ? <small>{t('lag.rules.adds', { kr })}</small> : null);
 
   const token = (key: Token, label: string) => (
     <button
@@ -93,10 +94,10 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     </button>
   );
 
-  const option = (key: string, label: string, pressed: boolean, pick: () => void, pluss = false) => (
+  const option = (key: string, label: string, pressed: boolean, pick: () => void, kr = 0) => (
     <button key={key} type="button" className="lg-opt" aria-pressed={pressed} onClick={() => { pick(); setOpen(null); }}>
       {label}
-      {plussTag(pluss)}
+      {priceTag(kr)}
     </button>
   );
 
@@ -115,14 +116,14 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
           }),
         ];
       case 'who':
-        return WHO.map((v) => option(v, t(`lag.rules.who.${v}`), rules.who === v, () => setRules({ who: v }), loginOnlyWho(v)));
+        return WHO.map((v) => option(v, t(`lag.rules.who.${v}`), rules.who === v, () => setRules({ who: v }), v === 'password' ? PRICE_KR.password : v === 'two' ? PRICE_KR.twoKeys : 0));
       case 'opens':
         return [
           option('now', t('lag.rules.opens.now'), !rules.opensAt, () => setRules({ opensAt: null })),
-          option('later', t('lag.rules.opens.later'), !!rules.opensAt, () => setRules({ opensAt: rules.opensAt || toLocalInputValue(defaultActivationDate()) }), true),
+          option('later', t('lag.rules.opens.later'), !!rules.opensAt, () => setRules({ opensAt: rules.opensAt || toLocalInputValue(defaultActivationDate()) }), PRICE_KR.scheduled),
         ];
       case 'expiry':
-        return EXPIRY.map((v) => option(v, t(`lag.rules.expiry.${v}`), rules.expiry === v, () => setRules({ expiry: v }), v !== FREE_EXPIRY));
+        return EXPIRY.map((v) => option(v, t(`lag.rules.expiry.${v}`), rules.expiry === v, () => setRules({ expiry: v }), expiryPriceKr(v)));
       case 'mode':
         return MODE.map((v) => option(v, t(`lag.rules.mode.${v}`), rules.mode === v, () => setRules({ mode: v })));
       default:
@@ -339,10 +340,10 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
           </div>
 
           <div className="lg-price">
-            <strong>{cost === 0 ? t('lag.preview.free') : t('lag.preview.pluss', { kr: cost })}</strong>
+            <strong>{cost === 0 ? t('lag.preview.free') : t('lag.preview.price', { kr: cost })}</strong>
             {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
           </div>
-          {cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.plussNote')}</span>}
+          {cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.priceNote', { max: MAX_PRICE_KR })}</span>}
           {tooLarge && <span className="lg-warn">{t('lag.errors.tooLarge', { max: '20 MB' })}</span>}
           {tooManyOpens && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: maxTimes })}</span>}
           {notEnough && (
@@ -378,7 +379,7 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
 
       <div className="lg-bar">
         <div className="lg-stack" style={{ gap: 0 }}>
-          <strong style={{ fontSize: 16 }}>{cost === 0 ? t('lag.preview.free') : t('lag.preview.pluss', { kr: cost })}</strong>
+          <strong style={{ fontSize: 16 }}>{cost === 0 ? t('lag.preview.free') : t('lag.preview.price', { kr: cost })}</strong>
           {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
         </div>
         <button

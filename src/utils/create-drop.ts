@@ -68,9 +68,11 @@ export const SALDO_PACKAGES = [
   { id: 'saldo100', kr: 100 },
 ] as const;
 
-// A Pluss key costs PLUSS_PRICE_KR. Free keys may be downloaded FREE_TRAFFIC in all, and any
-// key with files MAX_TRAFFIC_GB (file size × opens): the bigger the files, the fewer opens.
-export const PLUSS_PRICE_KR = 5;
+// Each choice beyond the free key adds PRICE_KR; a key costs at most MAX_PRICE_KR. Free keys may
+// be downloaded FREE_TRAFFIC in all, and any key with files MAX_TRAFFIC_GB (file size × opens):
+// the bigger the files, the fewer opens.
+export const PRICE_KR = { longer: 1, week: 2, password: 1, file: 2, twoKeys: 2, scheduled: 2 };
+export const MAX_PRICE_KR = 5;
 export const MAX_TRAFFIC_GB = 3;
 const FREE_TRAFFIC = 100 * MB;
 
@@ -82,13 +84,23 @@ export function maxOpensFor(totalFileSize: number): number {
   return Math.max(1, Math.min(MAX_OPENS_WITH_FILES, Math.floor(MAX_TRAFFIC_GB * GB / Math.max(1, totalFileSize))));
 }
 
-// Same rule as the server: a key that goes beyond the free one (1 MB, 10 minutes, the link or
-// link + QR key) is a Pluss key
+// What a choice of expiry adds to the price
+export function expiryPriceKr(expiryType: string): number {
+  const minutes = EXPIRY_MINUTES[expiryType] ?? 10;
+  if (minutes >= EXPIRY_MINUTES['7d']) return PRICE_KR.week;
+  return minutes > 10 ? PRICE_KR.longer : 0;
+}
+
+// Same rule as the server: the free key is 1 MB, 10 minutes and the link or link + QR key;
+// each choice beyond it adds to the price, up to MAX_PRICE_KR
 export function calculatePriceKr(opts: { totalFileSize: number; opens: number; expiryType: string; password: boolean; scheduled: boolean; twoKeys: boolean }): number {
-  const minutes = EXPIRY_MINUTES[opts.expiryType] ?? 10;
   const traffic = opts.totalFileSize * opts.opens;
-  const pluss = opts.password || opts.scheduled || opts.twoKeys || opts.totalFileSize > FREE_SIZE_LIMIT || traffic > FREE_TRAFFIC || minutes > 10;
-  return pluss ? PLUSS_PRICE_KR : 0;
+  let kr = expiryPriceKr(opts.expiryType);
+  if (opts.password) kr += PRICE_KR.password;
+  if (opts.totalFileSize > FREE_SIZE_LIMIT || traffic > FREE_TRAFFIC) kr += PRICE_KR.file;
+  if (opts.twoKeys) kr += PRICE_KR.twoKeys;
+  if (opts.scheduled) kr += PRICE_KR.scheduled;
+  return Math.min(kr, MAX_PRICE_KR);
 }
 
 const toBase64Url = (bytes: Uint8Array) =>

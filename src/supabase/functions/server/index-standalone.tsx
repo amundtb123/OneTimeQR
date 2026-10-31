@@ -287,6 +287,9 @@ const FREE_FILE_BYTES = 1 * MB;
 const FREE_TRAFFIC_BYTES = 100 * MB;
 const PRICE_KR = { longer: 1, week: 2, password: 1, file: 2, twoKeys: 2, scheduled: 2 };
 const MAX_PRICE_KR = 5;
+// Launch period: everything costs 0 kr, but what would cost money still needs an account.
+// On unless the secret FREE_LAUNCH is "false". Must match FREE_LAUNCH in src/utils/create-drop.ts.
+const isFreeLaunch = () => Deno.env.get('FREE_LAUNCH') !== 'false';
 const WEEK_MS = EXPIRY_DURATIONS_MS['7d'];
 const MAX_TRAFFIC_BYTES = 3 * GB;
 // Every open downloads the files again, so a key with files must have a number of opens
@@ -349,12 +352,12 @@ function priceQrDrop(c: any, userId: string | null, metadata: any, fileSizes: nu
   if (fileSizes.length > 0 && (!opens || opens > maxOpens)) {
     return c.json({ error: `Keys with these files can be opened at most ${maxOpens} times`, code: 'TOO_MANY_OPENS', maxOpens }, 400);
   }
-  // Only Pluss keys need an account
-  const cost = calculatePriceKr({ hasPassword: !!metadata.password, fileSizes, opens: opens ?? 1, expiryType: metadata.expiryType, scheduled: activatesAt !== null, twoKeys: metadata.secureMode === true });
-  if (cost > 0 && !userId) {
-    return c.json({ error: 'Log in to use paid features', code: 'LOGIN_REQUIRED', coinCost: cost }, 401);
+  // Only keys that cost money need an account
+  const price = calculatePriceKr({ hasPassword: !!metadata.password, fileSizes, opens: opens ?? 1, expiryType: metadata.expiryType, scheduled: activatesAt !== null, twoKeys: metadata.secureMode === true });
+  if (price > 0 && !userId) {
+    return c.json({ error: 'Log in to use paid features', code: 'LOGIN_REQUIRED', coinCost: isFreeLaunch() ? 0 : price }, 401);
   }
-  return { cost, activatesAt };
+  return { cost: isFreeLaunch() ? 0 : price, activatesAt };
 }
 
 // Atomically takes coins from the user. Returns the new balance, or null if they can't afford it.

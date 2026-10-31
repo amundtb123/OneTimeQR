@@ -4,6 +4,7 @@ import { useAuth } from '../../utils/auth-context';
 import { AuthButton } from '../auth-button';
 import { LanguageSwitcher } from '../language-switcher';
 import { CoinShop } from '../coin-shop';
+import { FREE_LAUNCH } from '../../utils/create-drop';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { QrMark } from './qr-mark';
 
@@ -42,7 +43,8 @@ export function AppHeader({ section, keyCount, showNav, onNavigate, onHome }: Ap
           )}
         </div>
         <div className="lg-header-right">
-          {showNav && user && (
+          {/* No balance to show or top up while everything is free */}
+          {!FREE_LAUNCH && showNav && user && (
             <button type="button" className="lg-coins" onClick={() => setShopOpen(true)} title={t('nav.buyCoins')}>
               {t('nav.coins', { kr: coins ?? 0 })}
             </button>

@@ -9,7 +9,7 @@ import { QrStylePicker } from '../qr-style-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { draftCost, type Draft } from './create-flow';
 import { CoinShop } from '../coin-shop';
-import { MAX_OPENS_LARGE_FILE, PLUSS_PRICE_KR, saldoKr } from '../../utils/create-drop';
+import { MAX_OPENS_WITH_FILES } from '../../utils/create-drop';
 
 type Token = 'times' | 'who' | 'opens' | 'expiry' | 'mode';
 
@@ -73,8 +73,8 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     }
   };
 
-  const { cost, needsLogin, largeFile, tooManyOpens } = draftCost(draft);
-  const maxTimes = largeFile ? MAX_OPENS_LARGE_FILE : MAX_TIMES;
+  const { cost, needsLogin, hasFiles, tooManyOpens } = draftCost(draft);
+  const maxTimes = hasFiles ? MAX_OPENS_WITH_FILES : MAX_TIMES;
   const [shopOpen, setShopOpen] = useState(false);
   const blockedByLogin = !user && needsLogin;
   const notEnough = !!user && cost > 0 && coins !== null && coins < cost;
@@ -106,8 +106,8 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     switch (open) {
       case 'times':
         return [
-          // A large file is downloaded again on every open, so it can't be opened without limit
-          ...TIMES.filter((v) => !largeFile || v !== 'inf').map((v) => option(String(v), timesLabel(t, v, 'lag.rules.times'), !customTimes && rules.times === v, () => {
+          // Files are downloaded again on every open, so they can't be opened without limit
+          ...TIMES.filter((v) => !hasFiles || v !== 'inf').map((v) => option(String(v), timesLabel(t, v, 'lag.rules.times'), !customTimes && rules.times === v, () => {
             setCustomTimes(false);
             setRules({ times: v });
           })),
@@ -341,11 +341,11 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
           </div>
 
           <div className="lg-price">
-            <strong>{cost === 0 ? t('lag.preview.free') : t('lag.preview.pluss', { kr: PLUSS_PRICE_KR })}</strong>
-            {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: saldoKr(coins) })}</span>}
+            <strong>{cost === 0 ? t('lag.preview.free') : t('lag.preview.pluss', { kr: cost })}</strong>
+            {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
           </div>
           {cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.plussNote')}</span>}
-          {tooManyOpens && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: MAX_OPENS_LARGE_FILE })}</span>}
+          {tooManyOpens && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: MAX_OPENS_WITH_FILES })}</span>}
           {notEnough && (
             <span className="lg-warn">
               {t('lag.preview.notEnough')}{' '}
@@ -379,8 +379,8 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
 
       <div className="lg-bar">
         <div className="lg-stack" style={{ gap: 0 }}>
-          <strong style={{ fontSize: 16 }}>{cost === 0 ? t('lag.preview.free') : t('lag.preview.pluss', { kr: PLUSS_PRICE_KR })}</strong>
-          {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: saldoKr(coins) })}</span>}
+          <strong style={{ fontSize: 16 }}>{cost === 0 ? t('lag.preview.free') : t('lag.preview.pluss', { kr: cost })}</strong>
+          {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
         </div>
         <button
           type="button"

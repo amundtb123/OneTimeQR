@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 
 // Terms & privacy in the "Lag" look. Every statement here should match what the code does:
-// limits and prices mirror create-drop.ts and the server's calculateCoinCost.
+// limits and prices mirror create-drop.ts and the server's calculatePriceKr.
 type Text = { no: string; en: string };
 type Block = Text | { list: Text[] };
 
@@ -99,6 +99,7 @@ const SECTIONS: Section[] = [
       {
         list: [
           tx('maks 1 MB', 'up to 1 MB'),
+          tx('maks 100 MB nedlasting til sammen (filstørrelse × antall åpninger)', 'up to 100 MB of downloads in all (file size × number of opens)'),
           tx('maks 10 minutter', 'up to 10 minutes'),
           tx('bare «den som har lenken» og «den som har lenken og QR-nøkkelen»', 'only "whoever has the link" and "whoever has the link and the QR key"'),
         ],
@@ -107,7 +108,7 @@ const SECTIONS: Section[] = [
         'Logger du inn med Google, kan du lage Pluss-nøkler: inntil 20 MB, lengre utløpstid, passord, to QR-nøkler og fast åpningsdato. En Pluss-nøkkel koster 5 kr. Nye kontoer får 15 kr i startsaldo.',
         'If you log in with Google, you can make Pluss keys: up to 20 MB, longer expiry, a password, two QR keys and a set opening date. A Pluss key costs 5 kr. New accounts get 15 kr to start with.',
       ),
-      tx('Filer over 5 MB kan åpnes maks 100 ganger.', 'Files over 5 MB can be opened at most 100 times.'),
+      tx('Nøkler med filer kan åpnes maks 1000 ganger. Eieren kan forhåndsvise dem 3 ganger uten å bruke en åpning; etter det teller også eierens åpninger.', 'Keys with files can be opened at most 1000 times. The owner can preview them 3 times without using an open; after that the owner\'s opens count too.'),
       tx('Vi kan endre disse grensene.', 'We may change these limits.'),
     ],
   },
@@ -115,7 +116,7 @@ const SECTIONS: Section[] = [
     id: 'coins',
     title: tx('Saldo og betaling', 'Balance and payment'),
     body: [
-      tx('Du fyller på saldoen med 50 eller 100 kr. En Pluss-nøkkel koster 5 kr uansett hva den bruker av Pluss, og trekkes fra saldoen når du lager den. Prisen vises før du lager nøkkelen.', 'You top up your balance with 50 or 100 kr. A Pluss key costs 5 kr whatever Pluss features it uses, and is taken from your balance when you create it. The price is shown before you create the key.'),
+      tx('Du fyller på saldoen med 50 eller 100 kr. En Pluss-nøkkel koster 5 kr uansett hva den bruker av Pluss, og dekker 3 GB nedlasting (filstørrelse × antall åpninger). Hver GB utover koster 1,50 kr. Prisen trekkes fra saldoen når du lager nøkkelen, og vises før du lager den.', 'You top up your balance with 50 or 100 kr. A Pluss key costs 5 kr whatever Pluss features it uses, and covers 3 GB of downloads (file size × number of opens). Each GB beyond costs 1.50 kr. The price is taken from your balance when you create the key, and is shown before you create it.'),
       {
         list: [
           tx('Saldoen kan bare brukes til nøkler i OneTimeQR og kan ikke tas ut som penger', 'The balance can only be used for keys in OneTimeQR and cannot be withdrawn as money'),

@@ -4,7 +4,6 @@ import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { useAuth } from '../utils/auth-context';
 import { useTranslation } from 'react-i18next';
-import { saldoKr } from '../utils/create-drop';
 
 export function SuccessPage() {
   const { user, coins, refreshCoins, loading: authLoading, session } = useAuth();
@@ -290,7 +289,7 @@ export function SuccessPage() {
     ? 'Logg inn' 
     : isRefreshing 
       ? null // Will show loading message instead
-      : t('coins.kr', { kr: saldoKr(coins ?? 0) }); // Show 0 kr instead of "—"
+      : t('coins.kr', { kr: coins ?? 0 }); // Show 0 kr instead of "—"
 
   const isComplete = !isRefreshing && coins !== null && user;
 
@@ -324,7 +323,7 @@ export function SuccessPage() {
           </div>
           {isRefreshing ? (
             <p className="text-3xl font-bold text-indigo-600 animate-pulse">
-              {t('coins.kr', { kr: saldoKr(coins ?? 0) })}
+              {t('coins.kr', { kr: coins ?? 0 })}
             </p>
           ) : (
             <p className="text-3xl font-bold text-indigo-600">

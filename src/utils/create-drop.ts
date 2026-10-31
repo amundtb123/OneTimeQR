@@ -49,8 +49,10 @@ export const unlockQrStyle: QrStyle = {
   logoMargin: 4,
 };
 
-export const FREE_SIZE_LIMIT = 1 * 1024 * 1024;
-export const MAX_SIZE_LOGGED_IN = 20 * 1024 * 1024;
+const MB = 1024 * 1024;
+const GB = 1024 * MB;
+export const FREE_SIZE_LIMIT = 1 * MB;
+export const MAX_SIZE_LOGGED_IN = 20 * MB;
 
 export const EXPIRY_MINUTES: Record<string, number> = {
   '10m': 10,
@@ -60,24 +62,30 @@ export const EXPIRY_MINUTES: Record<string, number> = {
   '7d': 7 * 24 * 60,
 };
 
-// The balance counts Pluss keys. Must match PLUSS_PRICE_ORE and SALDO_PACKAGES on the server.
-export const PLUSS_PRICE_KR = 5;
+// The balance counts kroner. Must match SALDO_PACKAGES on the server.
 export const SALDO_PACKAGES = [
   { id: 'saldo50', kr: 50 },
   { id: 'saldo100', kr: 100 },
 ] as const;
-export const saldoKr = (coins: number) => coins * PLUSS_PRICE_KR;
 
-// Every open of a large file is downloaded again, so it can be opened at most this many times
-export const LARGE_FILE_SIZE = 5 * 1024 * 1024;
-export const MAX_OPENS_LARGE_FILE = 100;
+// A Pluss key costs PLUSS_PRICE_KR and covers PLUSS_TRAFFIC_GB of downloads (file size × opens);
+// beyond that each GB costs EXTRA_KR_PER_GB. Free keys may be downloaded FREE_TRAFFIC in all.
+export const PLUSS_PRICE_KR = 5;
+export const PLUSS_TRAFFIC_GB = 3;
+export const EXTRA_KR_PER_GB = 1.5;
+const FREE_TRAFFIC = 100 * MB;
+
+// Every open downloads the files again, so a key with files must have a number of opens
+export const MAX_OPENS_WITH_FILES = 1000;
 
 // Same rule as the server: a key that goes beyond the free one (1 MB, 10 minutes, the link or
-// link + QR key) is a Pluss key and costs 1 from the balance, whatever it adds
-export function calculateCoinCost(opts: { totalFileSize: number; expiryType: string; password: boolean; scheduled: boolean; twoKeys: boolean }): number {
+// link + QR key) is a Pluss key; its price follows how much it may be downloaded
+export function calculatePriceKr(opts: { totalFileSize: number; opens: number; expiryType: string; password: boolean; scheduled: boolean; twoKeys: boolean }): number {
   const minutes = EXPIRY_MINUTES[opts.expiryType] ?? 10;
-  const pluss = opts.password || opts.scheduled || opts.twoKeys || opts.totalFileSize > FREE_SIZE_LIMIT || minutes > 10;
-  return pluss ? 1 : 0;
+  const traffic = opts.totalFileSize * opts.opens;
+  const pluss = opts.password || opts.scheduled || opts.twoKeys || opts.totalFileSize > FREE_SIZE_LIMIT || traffic > FREE_TRAFFIC || minutes > 10;
+  if (!pluss) return 0;
+  return PLUSS_PRICE_KR + Math.ceil(Math.max(0, traffic - PLUSS_TRAFFIC_GB * GB) / GB * EXTRA_KR_PER_GB);
 }
 
 const toBase64Url = (bytes: Uint8Array) =>

@@ -3,12 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../utils/auth-context';
 import { createCheckoutSession } from '../utils/api-client';
-import { PLUSS_PRICE_KR, SALDO_PACKAGES, saldoKr } from '../utils/create-drop';
+import { PLUSS_PRICE_KR, PLUSS_TRAFFIC_GB, EXTRA_KR_PER_GB, SALDO_PACKAGES } from '../utils/create-drop';
 
-// Tops up the balance through Stripe Checkout. The balance counts Pluss keys of PLUSS_PRICE_KR each.
+// Tops up the balance through Stripe Checkout. The balance counts kroner.
 export function CoinShop() {
   const { user, coins, signInWithGoogle } = useAuth();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [busy, setBusy] = useState<string | null>(null);
 
   const buy = async (pkg: string) => {
@@ -36,10 +36,10 @@ export function CoinShop() {
       {user && coins !== null && (
         <div>
           <div className="lg-small lg-muted">{t('coins.balance')}</div>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>{t('coins.kr', { kr: saldoKr(coins) })}</div>
+          <div style={{ fontSize: 28, fontWeight: 800 }}>{t('coins.kr', { kr: coins })}</div>
         </div>
       )}
-      <p className="lg-small lg-muted" style={{ margin: 0 }}>{t('coins.explain', { kr: PLUSS_PRICE_KR })}</p>
+      <p className="lg-small lg-muted" style={{ margin: 0 }}>{t('coins.explain', { kr: PLUSS_PRICE_KR, gb: PLUSS_TRAFFIC_GB, extra: EXTRA_KR_PER_GB.toLocaleString(i18n.language) })}</p>
       <div className="lg-grid-2">
         {SALDO_PACKAGES.map((pkg) => (
           <button key={pkg.id} type="button" className="lg-btn" disabled={busy !== null} onClick={() => buy(pkg.id)} style={{ flexDirection: 'column', gap: 2 }}>

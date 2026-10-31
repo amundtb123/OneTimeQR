@@ -261,7 +261,7 @@ export async function getQrDrop(id: string): Promise<{ qrDrop: QrDropData }> {
   return fetchApi(`/qr/${id}`);
 }
 
-// View tokens from /open, per QR drop. Required by /file and /download.
+// View tokens from /open, per QR drop. Required by /download.
 const viewTokens = new Map<string, string>();
 
 function viewTokenHeaders(id: string): Record<string, string> {
@@ -287,19 +287,6 @@ export async function openQrDrop(id: string, password?: string): Promise<{
   });
   viewTokens.set(id, result.viewToken);
   return result;
-}
-
-export async function getFileUrl(id: string): Promise<{ 
-  fileUrl?: string; // Backwards compatibility - first file
-  fileName?: string;
-  fileType?: string;
-  fileSize?: number;
-  files?: Array<{fileUrl: string; fileName: string; fileType: string; fileSize: number; fileIndex: number}>;
-  fileCount?: number;
-}> {
-  return fetchApi(`/qr/${id}/file`, {
-    headers: viewTokenHeaders(id),
-  });
 }
 
 export async function incrementDownloadCount(id: string): Promise<{ success: boolean; downloadCount: number }> {

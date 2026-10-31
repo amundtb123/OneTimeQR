@@ -5,7 +5,7 @@ import type { QrDrop } from '../../App';
 import type { QrStyle } from '../qr-style-picker';
 import { useAuth } from '../../utils/auth-context';
 import { fromLocalInputValue, isValidActivationDate } from '../../utils/activation';
-import { calculateCoinCost, createDrop, saldoKr, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT, LARGE_FILE_SIZE, MAX_OPENS_LARGE_FILE } from '../../utils/create-drop';
+import { calculatePriceKr, createDrop, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT, MAX_OPENS_WITH_FILES } from '../../utils/create-drop';
 import { KEYS_BY_WHO, loginOnlyWho, templateById, type Rules, type TemplateId } from './rules';
 import { STYLE_PRESETS, type StylePreset } from './key-preview';
 import { StepStart, type PastedContent } from './step-start';
@@ -42,16 +42,18 @@ const emptyDraft = (loggedIn: boolean): Draft => ({
 // What stands between the draft and the server, in the order the person should fix it
 export function draftCost(draft: Draft) {
   const totalFileSize = draft.files.reduce((sum, file) => sum + file.size, 0);
-  const cost = calculateCoinCost({
+  const hasFiles = draft.files.length > 0;
+  const opens = draft.rules.times === 'inf' ? MAX_OPENS_WITH_FILES : draft.rules.times;
+  const cost = calculatePriceKr({
     totalFileSize,
+    opens,
     expiryType: draft.rules.expiry,
     password: draft.rules.who === 'password',
     scheduled: !!draft.rules.opensAt,
     twoKeys: draft.rules.who === 'two',
   });
-  const largeFile = totalFileSize > LARGE_FILE_SIZE;
-  const tooManyOpens = largeFile && (draft.rules.times === 'inf' || draft.rules.times > MAX_OPENS_LARGE_FILE);
-  return { cost, totalFileSize, largeFile, tooManyOpens, needsLogin: cost > 0 || loginOnlyWho(draft.rules.who) || totalFileSize > FREE_SIZE_LIMIT };
+  const tooManyOpens = hasFiles && (draft.rules.times === 'inf' || draft.rules.times > MAX_OPENS_WITH_FILES);
+  return { cost, totalFileSize, hasFiles, tooManyOpens, needsLogin: cost > 0 || loginOnlyWho(draft.rules.who) || totalFileSize > FREE_SIZE_LIMIT };
 }
 
 interface CreateFlowProps {
@@ -109,7 +111,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
       return;
     }
     if (tooManyOpens) {
-      toast.error(t('lag.errors.tooManyOpens', { max: MAX_OPENS_LARGE_FILE }));
+      toast.error(t('lag.errors.tooManyOpens', { max: MAX_OPENS_WITH_FILES }));
       return;
     }
     if (!user && (cost > 0 || loginOnlyWho(rules.who))) {
@@ -158,7 +160,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
       );
       if (coinsCharged > 0) {
         await refreshCoins();
-        toast.success(t('lag.preview.charged', { kr: saldoKr(coinsCharged) }));
+        toast.success(t('lag.preview.charged', { kr: coinsCharged }));
       }
       setDraft(emptyDraft(!!user));
       setAcceptedTerms(false);
@@ -172,7 +174,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
         toast.error(t('lag.preview.notEnough'));
       } else if (error?.code === 'RATE_LIMITED') toast.error(t('upload.rateLimited'));
       else if (error?.code === 'INVALID_ACTIVATION_DATE') toast.error(t('activation.invalid'));
-      else if (error?.code === 'TOO_MANY_OPENS') toast.error(t('lag.errors.tooManyOpens', { max: MAX_OPENS_LARGE_FILE }));
+      else if (error?.code === 'TOO_MANY_OPENS') toast.error(t('lag.errors.tooManyOpens', { max: MAX_OPENS_WITH_FILES }));
       else toast.error(error?.message || t('upload.createQrError'));
     } finally {
       setCreating(false);

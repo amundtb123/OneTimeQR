@@ -127,7 +127,6 @@ console.log('\nS1: password-protected drop');
   check('metadata has no content', m.json.qrDrop.textContent === undefined && m.json.qrDrop.hasTextContent === true, m.json.qrDrop);
   check('metadata has no password hash', m.json.qrDrop.password === true);
 
-  check('/file without view token is 403', (await call('GET', `/qr/${id}/file`)).status === 403);
   check('/open without password is 401', (await call('POST', `/qr/${id}/open`, { body: {} })).status === 401);
   check('/open with wrong password is 401', (await call('POST', `/qr/${id}/open`, { body: { password: 'feil' } })).status === 401);
   const opened = await call('POST', `/qr/${id}/open`, { body: { password: 'riktig' } });
@@ -160,8 +159,8 @@ console.log('\nS1: encryption key only via /open');
   check('metadata hides encryptionKey', (await meta(id)).json.qrDrop.encryptionKey === undefined);
   const opened = await call('POST', `/qr/${id}/open`, { body: {} });
   check('/open returns the key for standard files', opened.json.qrDrop.encryptionKey === 'a'.repeat(64));
-  check('/file with another drop\'s view token is 403', (await call('GET', `/qr/${id}/file`, { viewToken: (await call('POST', `/qr/${(await create({})).id}/open`, { body: {} })).json.viewToken })).status === 403);
-  check('/file with forged view token is 403', (await call('GET', `/qr/${id}/file`, { viewToken: crypto.randomUUID() })).status === 403);
+  check('/download with another drop\'s view token is 403', (await call('POST', `/qr/${id}/download`, { viewToken: (await call('POST', `/qr/${(await create({})).id}/open`, { body: {} })).json.viewToken })).status === 403);
+  check('/download with forged view token is 403', (await call('POST', `/qr/${id}/download`, { viewToken: crypto.randomUUID() })).status === 403);
 }
 
 console.log('\nB2 + S1: view limits');
@@ -202,21 +201,19 @@ console.log('\nS1: files and downloads');
 {
   const form = new FormData();
   form.append('file', new Blob([new Uint8Array(100)], { type: 'application/octet-stream' }), 'doc.pdf');
-  form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', maxDownloads: 1, viewOnly: false, encryptionKey: 'b'.repeat(64), originalFileTypes: { file: 'application/pdf' } }));
+  form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', maxScans: 1, maxDownloads: 1, viewOnly: false, encryptionKey: 'b'.repeat(64), originalFileTypes: { file: 'application/pdf' } }));
   const up = await call('POST', '/upload', { form });
   check('upload ok', up.status === 200, up);
   const id = up.json.id;
   check('metadata has no file URLs', (await meta(id)).json.files === undefined);
-  check('/file without token 403', (await call('GET', `/qr/${id}/file`)).status === 403);
   check('/download without token 403', (await call('POST', `/qr/${id}/download`)).status === 403);
   const opened = await call('POST', `/qr/${id}/open`, { body: {} });
   check('/open returns signed file URLs', opened.json.files?.length === 1 && opened.json.fileUrl?.startsWith('https://signed.test/'), opened.json);
   const vt = opened.json.viewToken;
-  check('/file with token 200', (await call('GET', `/qr/${id}/file`, { viewToken: vt })).status === 200);
-  check('/file?index=0 with token 200', (await call('GET', `/qr/${id}/file?index=0`, { viewToken: vt })).status === 200);
+  // A viewer could otherwise get new file URLs, and download again, for as long as the token lasts
+  check('/file endpoint is gone', (await call('GET', `/qr/${id}/file`, { viewToken: vt })).status === 404);
   check('/download with token 200', (await call('POST', `/qr/${id}/download`, { viewToken: vt })).status === 200);
   check('/download beyond maxDownloads 410', (await call('POST', `/qr/${id}/download`, { viewToken: vt })).status === 410);
-  check('/file after maxDownloads 410', (await call('GET', `/qr/${id}/file`, { viewToken: vt })).status === 410);
 }
 
 console.log('\nS1: ownership');
@@ -225,8 +222,7 @@ console.log('\nS1: ownership');
   const ownerOpen = await call('POST', `/qr/${id}/open`, { body: {}, token: 'tok-A' });
   check('owner preview works', ownerOpen.status === 200);
   check('owner preview does not use a view', ((await rawDrop(id)).scanCount || 0) === 0);
-  check('owner can fetch files without view token', (await call('GET', `/qr/${id}/file`, { token: 'tok-A' })).status === 404 /* no files, but access granted */);
-  check('other user cannot fetch files without token', (await call('GET', `/qr/${id}/file`, { token: 'tok-B' })).status === 403);
+  check('owner previews without files are not limited', (await Promise.all(Array.from({ length: 5 }, () => call('POST', `/qr/${id}/open`, { body: {}, token: 'tok-A' })))).every((r) => r.status === 200));
   await call('POST', `/qr/${id}/open`, { body: {}, token: 'tok-B' });
   check('other user\'s open is counted', (await rawDrop(id)).scanCount === 1);
 
@@ -257,7 +253,19 @@ console.log('\nOwner token (anonymous creator preview)');
   check('wrong owner token is a normal view', (await call2({ 'X-Owner-Token': crypto.randomUUID() })).status === 200 && (await rawDrop(created.id)).scanCount === 1);
   check('recipient after that gets 410', (await call2({})).status === 410);
   const other = await create({});
-  check('owner token of another drop does not grant access', (await call('GET', `/qr/${other.id}/file`, { viewToken: undefined })).status === 403);
+  check('owner token of another drop does not grant access', (await call('POST', `/qr/${other.id}/download`, { headers: { 'X-Owner-Token': created.ownerToken } })).status === 403);
+
+  // Each preview downloads the files again, so only the first 3 previews of a key with files are free
+  const form = new FormData();
+  form.append('file', new Blob([new Uint8Array(10)]), 'a.bin');
+  form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', maxScans: 2 }));
+  const withFile = (await call('POST', '/upload', { form })).json;
+  const preview = () => globalThis.__handler(new Request(`http://local/make-server-c3c9181e/qr/${withFile.id}/open`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Owner-Token': withFile.ownerToken }, body: '{}' }));
+  const previews = [];
+  for (let i = 0; i < 3; i++) previews.push((await preview()).status);
+  check('owner previews with files: 3 free', previews.join() === '200,200,200' && ((await rawDrop(withFile.id)).scanCount || 0) === 0, previews);
+  check('4th owner preview uses a view', (await preview()).status === 200 && (await rawDrop(withFile.id)).scanCount === 1);
+  check('5th uses the last view, then the key is used up', (await preview()).status === 200 && (await preview()).status === 410);
 }
 
 console.log('\nB1: Single QR Mode text-only');
@@ -295,29 +303,30 @@ console.log('\nS3: server-side pricing');
 
   const clientId = crypto.randomUUID();
   const broke = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType: '10m', password: 'p', clientId } });
-  check('user without coins gets 402 INSUFFICIENT_COINS', broke.status === 402 && broke.json.code === 'INSUFFICIENT_COINS' && broke.json.coinCost === 1, broke);
+  check('user without coins gets 402 INSUFFICIENT_COINS', broke.status === 402 && broke.json.code === 'INSUFFICIENT_COINS' && broke.json.coinCost === 5, broke);
   check('nothing is stored when payment fails', !(await rawDrop(clientId)));
 
-  // A Pluss key costs 1 from the balance, whatever it adds beyond the free key
+  // A Pluss key costs 5 kr, whatever it adds beyond the free key
   await setCoins(USER_P, 10);
   const bought = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType: '7d', password: 'p' } });
-  check('password + 7 days is one Pluss key', bought.status === 200 && bought.json.coinsCharged === 1 && bought.json.coins === 9, bought.json);
-  check('balance is 9 after paying 1 of 10', (await coinsOf(USER_P)) === 9);
+  check('password + 7 days is one Pluss key (5 kr)', bought.status === 200 && bought.json.coinsCharged === 5 && bought.json.coins === 5, bought.json);
+  check('balance is 5 kr after paying 5 of 10', (await coinsOf(USER_P)) === 5);
   await setCoins(USER_P, 10);
   const twoKeys = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'bundle', secureMode: true, textContentCiphertext: '{"c":1}', clientId: crypto.randomUUID(), expiryType: '10m' } });
-  check('two QR keys is one Pluss key', twoKeys.status === 200 && twoKeys.json.coinsCharged === 1, twoKeys.json);
-  const priced = { '30m': 1, '1h': 1, '24h': 1, 'scan': 1 };
+  check('two QR keys is one Pluss key', twoKeys.status === 200 && twoKeys.json.coinsCharged === 5, twoKeys.json);
+  const priced = { '30m': 5, '1h': 5, '24h': 5, 'scan': 5 };
   for (const [expiryType, cost] of Object.entries(priced)) {
     await setCoins(USER_P, 100);
     const r = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType } });
     check(`expiry ${expiryType} costs ${cost}`, r.json?.coinsCharged === cost && (await coinsOf(USER_P)) === 100 - cost, r.json);
   }
 
-  // Files: 1 MB free, anything bigger is a Pluss key (encrypted size minus a small allowance)
+  // Files: 1 MB free, anything bigger is a Pluss key (encrypted size minus a small allowance).
+  // A Pluss key covers 3 GB of downloads (size × opens); each GB beyond costs 1.5 kr.
   const upload = (bytes, token, extra = {}) => {
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(bytes)]), 'a.bin');
-    form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', ...extra }));
+    form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', maxScans: 1, ...extra }));
     return call('POST', '/upload', { form, token });
   };
   const MB = 1024 * 1024;
@@ -325,15 +334,24 @@ console.log('\nS3: server-side pricing');
   check('1 MB file (+ encryption overhead) is free for anonymous users', exactlyFree.status === 200 && exactlyFree.json.coinsCharged === 0, exactlyFree);
   await setCoins(USER_P, 100);
   const threeMb = await upload(3 * MB + 28, 'tok-P');
-  check('3 MB file is one Pluss key', threeMb.json?.coinsCharged === 1 && (await coinsOf(USER_P)) === 99, threeMb.json);
+  check('3 MB file is one Pluss key', threeMb.json?.coinsCharged === 5 && (await coinsOf(USER_P)) === 95, threeMb.json);
   const fourMb = await upload(4 * MB, 'tok-P');
-  check('4 MB file is also one Pluss key', fourMb.json?.coinsCharged === 1, fourMb.json);
-  const bigUnlimited = await upload(6 * MB, 'tok-P');
-  check('large file with unlimited opens is 400 TOO_MANY_OPENS', bigUnlimited.status === 400 && bigUnlimited.json.code === 'TOO_MANY_OPENS', bigUnlimited);
-  const bigTooMany = await upload(6 * MB, 'tok-P', { maxScans: 101 });
-  check('large file with 101 opens is 400', bigTooMany.status === 400 && bigTooMany.json.code === 'TOO_MANY_OPENS', bigTooMany);
-  const bigOk = await upload(6 * MB, 'tok-P', { maxScans: 100 });
-  check('large file with 100 opens is allowed', bigOk.status === 200 && bigOk.json.coinsCharged === 1, bigOk);
+  check('4 MB file is also one Pluss key', fourMb.json?.coinsCharged === 5, fourMb.json);
+  const unlimited = await upload(100, undefined, { maxScans: undefined });
+  check('file with unlimited opens is 400 TOO_MANY_OPENS', unlimited.status === 400 && unlimited.json.code === 'TOO_MANY_OPENS', unlimited);
+  const tooMany = await upload(100, undefined, { maxScans: 1001 });
+  check('file with 1001 opens is 400', tooMany.status === 400 && tooMany.json.code === 'TOO_MANY_OPENS', tooMany);
+  check('scan-once file needs no number of opens', (await upload(100, 'tok-P', { maxScans: undefined, expiryType: 'scan' })).status === 200);
+  check('1 MB × 100 opens is free', (await upload(MB, undefined, { maxScans: 100 })).json?.coinsCharged === 0);
+  const freeTooOften = await upload(MB, undefined, { maxScans: 101 });
+  check('1 MB × 101 opens is a Pluss key (anonymous 401)', freeTooOften.status === 401 && freeTooOften.json.coinCost === 5, freeTooOften);
+  check('20 MB × 3 opens is 5 kr', (await upload(20 * MB, 'tok-P', { maxScans: 3 })).json?.coinsCharged === 5);
+  // 6 MB × 1000 ≈ 5.86 GB: 5 kr + 2.86 GB × 1.5 kr, rounded up
+  check('6 MB × 1000 opens is 10 kr', (await upload(6 * MB, 'tok-P', { maxScans: 1000 })).json?.coinsCharged === 10);
+  // 20 MB × 1000 ≈ 19.5 GB: 5 kr + 16.5 GB × 1.5 kr, rounded up
+  await setCoins(USER_P, 100);
+  const most = await upload(20 * MB, 'tok-P', { maxScans: 1000 });
+  check('20 MB × 1000 opens is 30 kr', most.json?.coinsCharged === 30 && (await coinsOf(USER_P)) === 70, most.json);
   check('anonymous 2 MB file is rejected', (await upload(2 * MB, undefined)).status >= 400);
   const uploadFiles = (sizes, token) => {
     const form = new FormData();
@@ -357,7 +375,7 @@ console.log('\nS3: server-side pricing');
   check('failed upload returns 500', failed.status === 500, failed);
   check('failed upload refunds the coins', (await coinsOf(USER_P)) === 5, await coinsOf(USER_P));
 
-  await setCoins(USER_P, 3);
+  await setCoins(USER_P, 15);
   const parallel = await Promise.all(Array.from({ length: 6 }, () =>
     call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType: '10m', password: 'p' } })));
   check('parallel paid creates: only as many as the balance allows', parallel.filter((r) => r.status === 200).length === 3 && parallel.filter((r) => r.status === 402).length === 3, parallel.map((r) => r.status));
@@ -387,7 +405,7 @@ console.log('\nScheduled release');
   await setCoins(USER_P, 10);
   const scheduledAt = Date.parse(inDays(30));
   const priced = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'hemmelig', expiryType: '24h', password: 'pw', activatesAt: new Date(scheduledAt).toISOString() } });
-  check('schedule + password + 24h is one Pluss key', priced.status === 200 && priced.json.coinsCharged === 1, priced.json);
+  check('schedule + password + 24h is one Pluss key', priced.status === 200 && priced.json.coinsCharged === 5, priced.json);
   const id = priced.json.id;
   const times = await rawTimes(id);
   check('activation date is stored', times.activatesAt === scheduledAt, times);
@@ -440,11 +458,10 @@ console.log('\nScheduled release');
   }
   const form = new FormData();
   form.append('file', new Blob([Buffer.alloc(10)]), 'a.png');
-  form.append('metadata', JSON.stringify({ contentType: 'file', expiryType: '10m', activatesAt: inDays(1) }));
+  form.append('metadata', JSON.stringify({ contentType: 'file', expiryType: '10m', maxScans: 1, activatesAt: inDays(1) }));
   const upload = await call('POST', '/upload', { ...paid, form });
-  check('file drop: scheduled upload is one Pluss key', upload.status === 200 && upload.json.coinsCharged === 1, upload);
+  check('file drop: scheduled upload is one Pluss key', upload.status === 200 && upload.json.coinsCharged === 5, upload);
   check('file drop: /open before activation is 403', (await call('POST', `/qr/${upload.json.id}/open`, { body: {} })).status === 403);
-  check('file drop: /file before activation is 403', (await call('GET', `/qr/${upload.json.id}/file`)).status === 403);
 }
 
 console.log('\nClient-chosen IDs');
@@ -482,14 +499,14 @@ console.log('\nS5: rate limiting');
 console.log('\nB5: Stripe webhook');
 {
   const deliver = (event, signature = 'whsec_test') => call('POST', '/webhook', { headers: { 'stripe-signature': signature, 'Content-Type': 'application/json' }, form: JSON.stringify(event) });
-  const session = (id, extra = {}) => ({ id: 'evt_' + id, type: 'checkout.session.completed', data: { object: { id, payment_status: 'paid', metadata: { userId: USER_W, coins: '50' }, ...extra } } });
+  const session = (id, extra = {}) => ({ id: 'evt_' + id, type: 'checkout.session.completed', data: { object: { id, payment_status: 'paid', metadata: { userId: USER_W, kr: '50' }, ...extra } } });
 
   check('missing signature is 400', (await call('POST', '/webhook', { form: '{}' })).status === 400);
   check('wrong signature is 400', (await deliver(session('cs_forged'), 'forged')).status === 400);
   check('forged event adds no coins', (await coinsOf(USER_W)) === 0);
 
   check('paid checkout is 200', (await deliver(session('cs_1'))).status === 200);
-  check('paid checkout adds 50 coins', (await coinsOf(USER_W)) === 50);
+  check('paid checkout adds 50 kr', (await coinsOf(USER_W)) === 50);
   await deliver(session('cs_1'));
   check('redelivery does not add coins again', (await coinsOf(USER_W)) === 50);
   await Promise.all(Array.from({ length: 5 }, () => deliver(session('cs_2'))));
@@ -499,7 +516,9 @@ console.log('\nB5: Stripe webhook');
   check('unpaid session adds no coins', (await coinsOf(USER_W)) === 100);
   await deliver({ ...session('cs_unpaid', { payment_status: 'paid' }), type: 'checkout.session.async_payment_succeeded' });
   check('async payment success adds coins', (await coinsOf(USER_W)) === 150);
-  check('invalid metadata is 400', (await deliver(session('cs_bad', { metadata: { userId: 'nope', coins: '50' } }))).status === 400);
+  check('invalid metadata is 400', (await deliver(session('cs_bad', { metadata: { userId: 'nope', kr: '50' } }))).status === 400);
+  await deliver(session('cs_legacy', { metadata: { userId: USER_W, coins: '10' } }));
+  check('session from before kroner: 10 Pluss keys add 50 kr', (await coinsOf(USER_W)) === 200, await coinsOf(USER_W));
   const resp = await deliver(session('cs_3'));
   check('webhook response leaks no user data', !JSON.stringify(resp.json).includes(USER_W), resp.json);
 }
@@ -525,7 +544,7 @@ console.log('\nTables: tokens, files and cleanup');
 
   const form = new FormData();
   form.append('file', new Blob([new Uint8Array(10)]), 'a.bin');
-  form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m' }));
+  form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', maxScans: 1 }));
   const up = await call('POST', '/upload', { form, token: 'tok-A' });
   const paths = [...globalThis.__files.keys()].filter((k) => k.includes(up.json.id));
   check('upload stores the file', paths.length === 1, paths);
@@ -569,6 +588,7 @@ const denied = (r) => !r.ok && /permission denied/.test(r.err);
     && (await db.query(`select to_regproc('public.qrdrop_consume') as f, to_regproc('public.copy_kv_qr_drops') as c`)).rows.every((r) => r.f === null && r.c === null));
   check('only view tokens can be stored', !(await db.query(`insert into public.qr_tokens values ('x', 'access', gen_random_uuid(), now())`).then(() => true, () => false)));
   check('authenticated cannot call deduct_coins', !(await asRole('authenticated', USER_A, `select public.deduct_coins($1, 1)`, [USER_A])).ok);
+  check('authenticated cannot call qr_drop_owner_preview', !(await asRole('authenticated', USER_A, `select public.qr_drop_owner_preview($1, 1000)`, [crypto.randomUUID()])).ok);
   check('authenticated cannot call refund_coins', !(await asRole('authenticated', USER_A, `select public.refund_coins($1, 1000)`, [USER_A])).ok);
   check('authenticated cannot call credit_checkout_session', !(await asRole('authenticated', USER_A, `select public.credit_checkout_session('x', $1, 1000, 'e')`, [USER_A])).ok);
   check('anon cannot call rate_limit_hit', !(await asRole('anon', null, `select public.rate_limit_hit('x', 0, 1)`)).ok);
@@ -589,9 +609,9 @@ const denied = (r) => !r.ok && /permission denied/.test(r.err);
 
   await db.query(`delete from public.user_profiles where id = $1`, [USER_C]);
   const chosen = await asRole('authenticated', USER_C, `insert into public.user_profiles (id, coins) values ($1, 50)`, [USER_C]);
-  check('S3: user cannot choose the start balance; a new profile starts with 3 Pluss keys', chosen.ok && (await coinsOf(USER_C)) === 3, { chosen, coins: await coinsOf(USER_C) });
+  check('S3: user cannot choose the start balance; a new profile starts with 15 kr', chosen.ok && (await coinsOf(USER_C)) === 15, { chosen, coins: await coinsOf(USER_C) });
   await db.query(`delete from public.user_profiles where id = $1`, [USER_C]);
-  check('user can create own profile', (await asRole('authenticated', USER_C, `insert into public.user_profiles (id) values ($1)`, [USER_C])).ok && (await coinsOf(USER_C)) === 3);
+  check('user can create own profile', (await asRole('authenticated', USER_C, `insert into public.user_profiles (id) values ($1)`, [USER_C])).ok && (await coinsOf(USER_C)) === 15);
   check('user cannot create profile for someone else', !(await asRole('authenticated', USER_C, `insert into public.user_profiles (id, coins) values ($1, 0)`, [USER_B])).ok);
 }
 
@@ -599,10 +619,10 @@ console.log('\nSaldo packages');
 {
   const unknown = await call('POST', '/checkout', { token: 'tok-P', body: { package: 'coins1000' } });
   check('unknown package is 400', unknown.status === 400 && unknown.json.code === 'UNKNOWN_PACKAGE', unknown);
-  for (const [pkg, coins, ore] of [['saldo50', 10, 5000], ['saldo100', 20, 10000]]) {
+  for (const [pkg, kr] of [['saldo50', 50], ['saldo100', 100]]) {
     const r = await call('POST', '/checkout', { token: 'tok-P', body: { package: pkg } });
     const s = globalThis.__lastCheckoutSession;
-    check(`${pkg}: ${ore / 100} kr gives ${coins} Pluss keys`, r.status === 200 && s?.line_items[0].price_data.unit_amount === ore && s?.metadata.coins === String(coins), { status: r.status, s });
+    check(`${pkg}: ${kr} kr gives ${kr} kr of balance`, r.status === 200 && s?.line_items[0].price_data.unit_amount === kr * 100 && s?.metadata.kr === String(kr), { status: r.status, s });
   }
   check('checkout needs login', (await call('POST', '/checkout', { body: { package: 'saldo50' } })).status === 401);
 }

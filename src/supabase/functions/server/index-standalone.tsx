@@ -247,6 +247,12 @@ async function consumeQrDrop(id: string, kind: 'scan' | 'download'): Promise<any
   return data ? dropFromRow(data) : null;
 }
 
+async function countOwnerPreview(id: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('qr_drop_owner_preview', { p_id: id, p_max: MAX_OWNER_PREVIEWS });
+  if (error) throw new Error(`qr_drop_owner_preview failed: ${error.message}`);
+  return data === true;
+}
+
 // Atomically register a password attempt; returns the number of attempts in the current window
 async function registerPasswordAttempt(id: string): Promise<number> {
   const { data, error } = await supabase.rpc('qr_drop_password_attempt', {
@@ -259,8 +265,10 @@ async function registerPasswordAttempt(id: string): Promise<number> {
 }
 
 // SECURITY (S3): Prices are decided here, never by the client.
-// Must stay in sync with calculateCoinCost() in src/utils/create-drop.ts.
-// A key is free, or a Pluss key: 1 from the balance (= 5 kr), whatever it adds beyond the free one.
+// Must stay in sync with calculatePriceKr() in src/utils/create-drop.ts.
+// A key is free, or a Pluss key. The balance counts kroner. A Pluss key costs PLUSS_PRICE_KR and
+// covers PLUSS_TRAFFIC_BYTES of downloads (file size × opens); beyond that each GB costs
+// EXTRA_KR_PER_GB, since downloads are what storage bills for.
 const EXPIRY_DURATIONS_MS: Record<string, number> = {
   '10m': 10 * 60 * 1000,
   '30m': 30 * 60 * 1000,
@@ -272,23 +280,34 @@ const EXPIRY_DURATIONS_MS: Record<string, number> = {
 const FREE_EXPIRY_MS = EXPIRY_DURATIONS_MS['10m'];
 // Scheduled release: at most 3 months ahead
 const MAX_ACTIVATION_DELAY_MS = 92 * 24 * 60 * 60 * 1000;
-const FREE_FILE_BYTES = 1 * 1024 * 1024;
-// Every open of a large file is downloaded again, so it can be opened at most this many times
-const LARGE_FILE_BYTES = 5 * 1024 * 1024;
-const MAX_OPENS_LARGE_FILE = 100;
+const MB = 1024 * 1024;
+const GB = 1024 * MB;
+const FREE_FILE_BYTES = 1 * MB;
+const FREE_TRAFFIC_BYTES = 100 * MB;
+const PLUSS_PRICE_KR = 5;
+const PLUSS_TRAFFIC_BYTES = 3 * GB;
+const EXTRA_KR_PER_GB = 1.5;
+// Every open downloads the files again, so a key with files must have a number of opens
+const MAX_OPENS_WITH_FILES = 1000;
+// Owner previews download the files too
+const MAX_OWNER_PREVIEWS = 3;
 // Files arrive encrypted (IV + auth tag), slightly larger than the originals the client prices
 const ENCRYPTION_OVERHEAD_ALLOWANCE = 1024;
 
 const contentBytes = (fileSizes: number[]) =>
   fileSizes.reduce((sum, size) => sum + Math.max(0, size - ENCRYPTION_OVERHEAD_ALLOWANCE), 0);
 
-function calculateCoinCost(options: { hasPassword: boolean; fileSizes: number[]; expiryType: string; scheduled: boolean; twoKeys: boolean }): number {
+function calculatePriceKr(options: { hasPassword: boolean; fileSizes: number[]; opens: number; expiryType: string; scheduled: boolean; twoKeys: boolean }): number {
+  const bytes = contentBytes(options.fileSizes);
+  const traffic = bytes * options.opens;
   const pluss = options.hasPassword
     || options.scheduled
     || options.twoKeys
-    || contentBytes(options.fileSizes) > FREE_FILE_BYTES
+    || bytes > FREE_FILE_BYTES
+    || traffic > FREE_TRAFFIC_BYTES
     || EXPIRY_DURATIONS_MS[options.expiryType] > FREE_EXPIRY_MS;
-  return pluss ? 1 : 0;
+  if (!pluss) return 0;
+  return PLUSS_PRICE_KR + Math.ceil(Math.max(0, traffic - PLUSS_TRAFFIC_BYTES) / GB * EXTRA_KR_PER_GB);
 }
 
 function toPositiveInt(value: unknown): number | null {
@@ -317,14 +336,12 @@ function priceQrDrop(c: any, userId: string | null, metadata: any, fileSizes: nu
   }
   const activatesAt = parseActivatesAt(metadata.activatesAt);
   if (activatesAt === undefined) return invalidActivationResponse(c);
-  if (contentBytes(fileSizes) > LARGE_FILE_BYTES) {
-    const maxScans = toPositiveInt(metadata.maxScans);
-    if (!maxScans || maxScans > MAX_OPENS_LARGE_FILE) {
-      return c.json({ error: `Large files can be opened at most ${MAX_OPENS_LARGE_FILE} times`, code: 'TOO_MANY_OPENS', maxOpens: MAX_OPENS_LARGE_FILE }, 400);
-    }
+  const opens = metadata.expiryType === 'scan' ? 1 : toPositiveInt(metadata.maxScans);
+  if (fileSizes.length > 0 && (!opens || opens > MAX_OPENS_WITH_FILES)) {
+    return c.json({ error: `Keys with files can be opened at most ${MAX_OPENS_WITH_FILES} times`, code: 'TOO_MANY_OPENS', maxOpens: MAX_OPENS_WITH_FILES }, 400);
   }
   // Only Pluss keys need an account
-  const cost = calculateCoinCost({ hasPassword: !!metadata.password, fileSizes, expiryType: metadata.expiryType, scheduled: activatesAt !== null, twoKeys: metadata.secureMode === true });
+  const cost = calculatePriceKr({ hasPassword: !!metadata.password, fileSizes, opens: opens ?? 1, expiryType: metadata.expiryType, scheduled: activatesAt !== null, twoKeys: metadata.secureMode === true });
   if (cost > 0 && !userId) {
     return c.json({ error: 'Log in to use paid features', code: 'LOGIN_REQUIRED', coinCost: cost }, 401);
   }
@@ -383,7 +400,7 @@ async function createSignedFileUrls(qrDrop: any) {
   const signed = await Promise.all(files.map(async (file: any, index: number) => {
     const { data, error } = await supabase.storage
       .from(BUCKET_NAME)
-      .createSignedUrl(file.path, 120); // 2 minutes expiry for security
+      .createSignedUrl(file.path, 60); // Only for starting the download right after /open
 
     if (error || !data) {
       console.error(`Error getting signed URL for file ${index}:`, error);
@@ -1097,8 +1114,11 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
       return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
     }
 
-    // Owners can preview a scheduled drop; everyone else waits (and can't guess the password yet)
-    const isOwner = await isRequestOwner(c, qrDrop);
+    // Owners can preview a scheduled drop; everyone else waits (and can't guess the password yet).
+    // A preview doesn't use up a view, but downloads the files again, so with files only the
+    // first MAX_OWNER_PREVIEWS are free; after that the owner opens it like everyone else.
+    const hasFiles = Array.isArray(qrDrop.files) ? qrDrop.files.length > 0 : !!qrDrop.filePath;
+    const isOwner = (await isRequestOwner(c, qrDrop)) && (!hasFiles || (await countOwnerPreview(id)));
     if (isNotYetActive(qrDrop) && !isOwner) {
       return c.json({ error: 'QR drop is not active yet', code: 'NOT_YET_ACTIVE', activatesAt: qrDrop.activatesAt }, 403);
     }
@@ -1144,72 +1164,6 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
   } catch (error) {
     console.error('Error opening QR drop:', error);
     return c.json({ error: 'Failed to open QR drop' }, 500);
-  }
-});
-
-// Get file URL(s) (for file downloads) - supports multiple files
-// SECURITY: Requires a view token from /open (or ownership)
-app.get('/make-server-c3c9181e/qr/:id/file', async (c) => {
-  const id = c.req.param('id');
-
-  // SECURITY: Validate UUID format
-  if (!UUID_REGEX.test(id)) {
-    return c.json({ error: 'Invalid QR drop ID format' }, 400);
-  }
-
-  const fileIndex = c.req.query('index'); // Optional: specific file index
-
-  try {
-    const qrDrop = await getQrDrop(id);
-    if (!qrDrop) {
-      return c.json({ error: 'QR drop not found' }, 404);
-    }
-
-    if (!(await hasViewAccess(c, qrDrop))) {
-      return c.json({ error: 'Open the QR drop first', code: 'VIEW_TOKEN_REQUIRED' }, 403);
-    }
-
-    if (qrDrop.expiresAt && Date.now() > qrDrop.expiresAt) {
-      return c.json({
-        error: 'This QR drop has expired',
-        expired: true
-      }, 410);
-    }
-
-    if (qrDrop.maxDownloads && (qrDrop.downloadCount || 0) >= qrDrop.maxDownloads) {
-      return c.json({
-        error: 'Maximum downloads reached',
-        expired: true
-      }, 410);
-    }
-
-    const validFiles = await createSignedFileUrls(qrDrop);
-
-    if (validFiles.length === 0) {
-      return c.json({ error: 'This QR drop does not contain any files' }, 404);
-    }
-
-    // If specific index requested, return only that file
-    if (fileIndex !== undefined) {
-      const file = validFiles.find((f: any) => f.fileIndex === parseInt(fileIndex));
-      if (!file) {
-        return c.json({ error: 'Invalid file index' }, 400);
-      }
-      return c.json({ ...file, totalFiles: validFiles.length });
-    }
-
-    // For backwards compatibility, also include first file at root level
-    return c.json({
-      files: validFiles,
-      fileCount: validFiles.length,
-      // Backwards compatibility fields (first file)
-      fileUrl: validFiles[0].fileUrl,
-      fileName: validFiles[0].fileName,
-      fileType: validFiles[0].fileType
-    });
-  } catch (error) {
-    console.error('Error getting files:', error);
-    return c.json({ error: 'Server error' }, 500);
   }
 });
 
@@ -1362,11 +1316,10 @@ app.delete('/make-server-c3c9181e/qr/:id', async (c) => {
   }
 });
 
-// The balance counts Pluss keys; each is worth PLUSS_PRICE_ORE. Must match src/utils/create-drop.ts.
-const PLUSS_PRICE_ORE = 500;
-const SALDO_PACKAGES: Record<string, { coins: number }> = {
-  saldo50: { coins: 10 },
-  saldo100: { coins: 20 },
+// The balance counts kroner. Must match SALDO_PACKAGES in src/utils/create-drop.ts.
+const SALDO_PACKAGES: Record<string, { kr: number }> = {
+  saldo50: { kr: 50 },
+  saldo100: { kr: 100 },
 };
 
 // Stripe Checkout - Create session
@@ -1420,10 +1373,9 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
           price_data: {
             currency: 'nok',
             product_data: {
-              name: `OneTimeQR-saldo ${pkg.coins * PLUSS_PRICE_ORE / 100} kr`,
-              description: `${pkg.coins} Pluss-nøkler à ${PLUSS_PRICE_ORE / 100} kr`,
+              name: `OneTimeQR-saldo ${pkg.kr} kr`,
             },
-            unit_amount: pkg.coins * PLUSS_PRICE_ORE,
+            unit_amount: pkg.kr * 100,
           },
           quantity: 1,
         },
@@ -1435,7 +1387,7 @@ app.post('/make-server-c3c9181e/checkout', async (c) => {
       metadata: {
         userId: user.id,
         userEmail: user.email || '',
-        coins: String(pkg.coins),
+        kr: String(pkg.kr),
       },
       // Enable automatic payment methods (Apple Pay, Google Pay)
       payment_method_options: {
@@ -1511,7 +1463,10 @@ app.post('/make-server-c3c9181e/webhook', async (c) => {
       }
 
       const userId = session.metadata?.userId;
-      const coinsToAdd = parseInt(session.metadata?.coins ?? '', 10);
+      // Sessions made before the balance counted kroner carry Pluss keys of 5 kr in "coins"
+      const coinsToAdd = session.metadata?.kr !== undefined
+        ? parseInt(session.metadata.kr, 10)
+        : parseInt(session.metadata?.coins ?? '', 10) * 5;
 
       // SECURITY: Don't log user IDs, emails or session metadata
       if (!userId || !UUID_REGEX.test(userId) || !Number.isInteger(coinsToAdd) || coinsToAdd <= 0) {

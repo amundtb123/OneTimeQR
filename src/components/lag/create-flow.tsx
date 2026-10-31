@@ -5,7 +5,7 @@ import type { QrDrop } from '../../App';
 import type { QrStyle } from '../qr-style-picker';
 import { useAuth } from '../../utils/auth-context';
 import { fromLocalInputValue, isValidActivationDate } from '../../utils/activation';
-import { calculatePriceKr, createDrop, maxOpensFor, FREE_LAUNCH, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT } from '../../utils/create-drop';
+import { calculatePriceKr, createDrop, maxOpensFor, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT } from '../../utils/create-drop';
 import { KEYS_BY_WHO, MAX_TIMES, loginOnlyWho, templateById, type Rules, type TemplateId } from './rules';
 import { STYLE_PRESETS, type StylePreset } from './key-preview';
 import { StepStart, type PastedContent } from './step-start';
@@ -46,7 +46,7 @@ export function draftCost(draft: Draft) {
   // The bigger the files, the fewer opens (none of it applies without files)
   const maxOpens = hasFiles ? maxOpensFor(totalFileSize) : MAX_TIMES;
   const opens = draft.rules.times === 'inf' ? maxOpens : draft.rules.times;
-  const price = calculatePriceKr({
+  const cost = calculatePriceKr({
     totalFileSize,
     opens,
     expiryType: draft.rules.expiry,
@@ -56,9 +56,7 @@ export function draftCost(draft: Draft) {
   });
   const tooManyOpens = hasFiles && (draft.rules.times === 'inf' || draft.rules.times > maxOpens);
   const tooLarge = totalFileSize > MAX_SIZE_LOGGED_IN;
-  // While launching nothing is charged, but what would cost money still needs an account
-  const cost = FREE_LAUNCH ? 0 : price;
-  return { cost, price, totalFileSize, hasFiles, maxOpens, tooManyOpens, tooLarge, needsLogin: price > 0 || loginOnlyWho(draft.rules.who) || totalFileSize > FREE_SIZE_LIMIT };
+  return { cost, totalFileSize, hasFiles, maxOpens, tooManyOpens, tooLarge, needsLogin: cost > 0 || loginOnlyWho(draft.rules.who) || totalFileSize > FREE_SIZE_LIMIT };
 }
 
 interface CreateFlowProps {

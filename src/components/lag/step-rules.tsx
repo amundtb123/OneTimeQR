@@ -8,7 +8,7 @@ import { KeyPreview, PREVIEW_URL, STYLE_PRESETS, type StylePreset } from './key-
 import { QrStylePicker } from '../qr-style-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { draftCost, type Draft } from './create-flow';
-import { FREE_LAUNCH, MAX_PRICE_KR, PRICE_KR, expiryPriceKr } from '../../utils/create-drop';
+import { MAX_PRICE_KR, PRICE_KR, expiryPriceKr } from '../../utils/create-drop';
 import { CoinShop } from '../coin-shop';
 
 type Token = 'times' | 'who' | 'opens' | 'expiry' | 'mode';
@@ -73,18 +73,15 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     }
   };
 
-  const { cost, price, needsLogin, hasFiles, maxOpens: maxTimes, tooManyOpens, tooLarge } = draftCost(draft);
+  const { cost, needsLogin, hasFiles, maxOpens: maxTimes, tooManyOpens, tooLarge } = draftCost(draft);
   const [shopOpen, setShopOpen] = useState(false);
   const blockedByLogin = !user && needsLogin;
   const notEnough = !!user && cost > 0 && coins !== null && coins < cost;
   const opensDate = rules.opensAt ? fromLocalInputValue(rules.opensAt) : null;
   const opensLabel = opensDate ? formatActivationDate(opensDate, i18n.language) : '';
 
-  // A choice that costs something shows what it adds; while launching it is free, but needs an account
-  const priceTag = (kr: number) => {
-    if (kr === 0 || (FREE_LAUNCH && user)) return null;
-    return <small>{FREE_LAUNCH ? t('lag.rules.needsLogin') : t('lag.rules.adds', { kr })}</small>;
-  };
+  // A choice that costs something shows what it adds
+  const priceTag = (kr: number) => (kr > 0 ? <small>{t('lag.rules.adds', { kr })}</small> : null);
 
   const token = (key: Token, label: string) => (
     <button
@@ -344,9 +341,8 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
 
           <div className="lg-price">
             <strong>{cost === 0 ? t('lag.preview.free') : t('lag.preview.price', { kr: cost })}</strong>
-            {!FREE_LAUNCH && user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
+            {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
           </div>
-          {FREE_LAUNCH && price > 0 && <span className="lg-xs lg-muted">{t('lag.preview.launchNote')}</span>}
           {cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.priceNote', { max: MAX_PRICE_KR })}</span>}
           {tooLarge && <span className="lg-warn">{t('lag.errors.tooLarge', { max: '20 MB' })}</span>}
           {tooManyOpens && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: maxTimes })}</span>}
@@ -384,7 +380,7 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
       <div className="lg-bar">
         <div className="lg-stack" style={{ gap: 0 }}>
           <strong style={{ fontSize: 16 }}>{cost === 0 ? t('lag.preview.free') : t('lag.preview.price', { kr: cost })}</strong>
-          {!FREE_LAUNCH && user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
+          {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
         </div>
         <button
           type="button"

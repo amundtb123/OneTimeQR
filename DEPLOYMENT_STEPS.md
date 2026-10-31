@@ -17,13 +17,6 @@ Funksjonen som kjører i produksjon er **`src/supabase/functions/server/index-st
 2. Erstatt all koden med innholdet i `index-standalone.tsx`
 3. Klikk **Deploy**
 
-### Gratis lansering
-
-Mens `FREE_LAUNCH` er på, koster alt 0 kr for innloggede (det som ellers koster, krever
-fortsatt innlogging). Den er på så lenge secreten `FREE_LAUNCH` ikke er satt til `false`.
-Når vi skal ta betalt: sett secreten `FREE_LAUNCH=false` (Edge Functions → Secrets) og
-`FREE_LAUNCH = false` i `src/utils/create-drop.ts`, og deploy begge samtidig.
-
 ## 3. Deploy frontend
 
 Merge til `main`. Netlify bygger og publiserer automatisk.

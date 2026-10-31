@@ -73,9 +73,6 @@ export const SALDO_PACKAGES = [
 // the bigger the files, the fewer opens.
 export const PRICE_KR = { longer: 1, week: 2, password: 1, file: 2, twoKeys: 2, scheduled: 2 };
 export const MAX_PRICE_KR = 5;
-// Launch period: everything costs 0 kr, but what would cost money still needs an account.
-// Must match the server's FREE_LAUNCH secret (free unless it is "false").
-export const FREE_LAUNCH = true;
 export const MAX_TRAFFIC_GB = 3;
 const FREE_TRAFFIC = 100 * MB;
 

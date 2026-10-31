@@ -116,7 +116,6 @@ const SECTIONS: Section[] = [
     id: 'coins',
     title: tx('Saldo og betaling', 'Balance and payment'),
     body: [
-      tx('Mens vi lanserer er alt gratis for innloggede brukere, og ingenting trekkes fra saldoen. Vi sier fra i god tid før vi begynner å ta betalt. Prisene under gjelder fra da.', 'While we launch, everything is free for logged-in users and nothing is taken from your balance. We will tell you well before we start charging. The prices below apply from then.'),
       tx('Du fyller på saldoen med 50 eller 100 kr. Lengre tid koster 1 kr (7 dager 2 kr), passord 1 kr, filer over 1 MB 2 kr, to QR-nøkler 2 kr og fast åpningsdato 2 kr. En nøkkel koster aldri mer enn 5 kr til sammen. Prisen vises før du lager nøkkelen, og trekkes fra saldoen når du lager den.', 'You top up your balance with 50 or 100 kr. Longer time costs 1 kr (7 days 2 kr), a password 1 kr, files over 1 MB 2 kr, two QR keys 2 kr and a set opening date 2 kr. A key never costs more than 5 kr in all. The price is shown before you create the key, and is taken from your balance when you create it.'),
       {
         list: [

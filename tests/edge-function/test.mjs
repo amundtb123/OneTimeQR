@@ -64,8 +64,7 @@ for (const [hash, expires] of [['old-view-1', '-1 minute'], ['old-view-2', '-1 s
 await db.query(`insert into public.rate_limits values ('create:old', 5, now() - interval '1 minute')`);
 
 // ---------- Load the Edge Function ----------
-// Prices are tested with charging on; the free launch is tested on its own at the end
-const env = { SUPABASE_URL: 'http://db', SUPABASE_SERVICE_ROLE_KEY: 'service', SUPABASE_ANON_KEY: 'anon-key', STRIPE_WEBHOOK_SECRET: 'whsec_test', FREE_LAUNCH: 'false' };
+const env = { SUPABASE_URL: 'http://db', SUPABASE_SERVICE_ROLE_KEY: 'service', SUPABASE_ANON_KEY: 'anon-key', STRIPE_WEBHOOK_SECRET: 'whsec_test' };
 globalThis.Deno = { env: { get: (k) => env[k] }, serve: (h) => { globalThis.__handler = h; } };
 await import(path.join(here, '.out/server.mjs'));
 
@@ -629,18 +628,6 @@ console.log('\nSaldo packages');
     check(`${pkg}: ${kr} kr gives ${kr} kr of balance`, r.status === 200 && s?.line_items[0].price_data.unit_amount === kr * 100 && s?.metadata.kr === String(kr), { status: r.status, s });
   }
   check('checkout needs login', (await call('POST', '/checkout', { body: { package: 'saldo50' } })).status === 401);
-}
-
-console.log('\nFree launch');
-{
-  delete env.FREE_LAUNCH;
-  await setCoins(USER_P, 0);
-  const all = await call('POST', '/create', { token: 'tok-P', body: { contentType: 'text', textContent: 'x', expiryType: '7d', password: 'p' } });
-  check('logged in: everything is free and nothing is taken', all.status === 200 && all.json.coinsCharged === 0 && (await coinsOf(USER_P)) === 0, all.json);
-  const anon = await call('POST', '/create', { body: { contentType: 'text', textContent: 'x', expiryType: '7d' } });
-  check('anonymous: what would cost money still needs an account', anon.status === 401 && anon.json.code === 'LOGIN_REQUIRED' && anon.json.coinCost === 0, anon);
-  check('anonymous: the free key still works', (await call('POST', '/create', { body: { contentType: 'text', textContent: 'x', expiryType: '10m' } })).status === 200);
-  env.FREE_LAUNCH = 'false';
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

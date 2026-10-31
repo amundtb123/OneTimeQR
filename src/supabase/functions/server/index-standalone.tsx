@@ -265,10 +265,10 @@ async function registerPasswordAttempt(id: string): Promise<number> {
 }
 
 // SECURITY (S3): Prices are decided here, never by the client.
-// Must stay in sync with calculatePriceKr() in src/utils/create-drop.ts.
-// A key is free, or a Pluss key. The balance counts kroner. A Pluss key costs PLUSS_PRICE_KR and
-// covers PLUSS_TRAFFIC_BYTES of downloads (file size × opens); beyond that each GB costs
-// EXTRA_KR_PER_GB, since downloads are what storage bills for.
+// Must stay in sync with calculatePriceKr() and maxOpensFor() in src/utils/create-drop.ts.
+// A key is free, or a Pluss key of PLUSS_PRICE_KR. The balance counts kroner. Downloads are what
+// storage bills for, so the files of a key may be downloaded at most MAX_TRAFFIC_BYTES in all
+// (file size × opens): the bigger the files, the fewer opens.
 const EXPIRY_DURATIONS_MS: Record<string, number> = {
   '10m': 10 * 60 * 1000,
   '30m': 30 * 60 * 1000,
@@ -285,8 +285,7 @@ const GB = 1024 * MB;
 const FREE_FILE_BYTES = 1 * MB;
 const FREE_TRAFFIC_BYTES = 100 * MB;
 const PLUSS_PRICE_KR = 5;
-const PLUSS_TRAFFIC_BYTES = 3 * GB;
-const EXTRA_KR_PER_GB = 1.5;
+const MAX_TRAFFIC_BYTES = 3 * GB;
 // Every open downloads the files again, so a key with files must have a number of opens
 const MAX_OPENS_WITH_FILES = 1000;
 // Owner previews download the files too
@@ -297,6 +296,11 @@ const ENCRYPTION_OVERHEAD_ALLOWANCE = 1024;
 const contentBytes = (fileSizes: number[]) =>
   fileSizes.reduce((sum, size) => sum + Math.max(0, size - ENCRYPTION_OVERHEAD_ALLOWANCE), 0);
 
+// The most opens a key with files of this many bytes may have
+function maxOpensFor(bytes: number): number {
+  return Math.max(1, Math.min(MAX_OPENS_WITH_FILES, Math.floor(MAX_TRAFFIC_BYTES / Math.max(1, bytes))));
+}
+
 function calculatePriceKr(options: { hasPassword: boolean; fileSizes: number[]; opens: number; expiryType: string; scheduled: boolean; twoKeys: boolean }): number {
   const bytes = contentBytes(options.fileSizes);
   const traffic = bytes * options.opens;
@@ -306,8 +310,7 @@ function calculatePriceKr(options: { hasPassword: boolean; fileSizes: number[]; 
     || bytes > FREE_FILE_BYTES
     || traffic > FREE_TRAFFIC_BYTES
     || EXPIRY_DURATIONS_MS[options.expiryType] > FREE_EXPIRY_MS;
-  if (!pluss) return 0;
-  return PLUSS_PRICE_KR + Math.ceil(Math.max(0, traffic - PLUSS_TRAFFIC_BYTES) / GB * EXTRA_KR_PER_GB);
+  return pluss ? PLUSS_PRICE_KR : 0;
 }
 
 function toPositiveInt(value: unknown): number | null {
@@ -337,8 +340,9 @@ function priceQrDrop(c: any, userId: string | null, metadata: any, fileSizes: nu
   const activatesAt = parseActivatesAt(metadata.activatesAt);
   if (activatesAt === undefined) return invalidActivationResponse(c);
   const opens = metadata.expiryType === 'scan' ? 1 : toPositiveInt(metadata.maxScans);
-  if (fileSizes.length > 0 && (!opens || opens > MAX_OPENS_WITH_FILES)) {
-    return c.json({ error: `Keys with files can be opened at most ${MAX_OPENS_WITH_FILES} times`, code: 'TOO_MANY_OPENS', maxOpens: MAX_OPENS_WITH_FILES }, 400);
+  const maxOpens = maxOpensFor(contentBytes(fileSizes));
+  if (fileSizes.length > 0 && (!opens || opens > maxOpens)) {
+    return c.json({ error: `Keys with these files can be opened at most ${maxOpens} times`, code: 'TOO_MANY_OPENS', maxOpens }, 400);
   }
   // Only Pluss keys need an account
   const cost = calculatePriceKr({ hasPassword: !!metadata.password, fileSizes, opens: opens ?? 1, expiryType: metadata.expiryType, scheduled: activatesAt !== null, twoKeys: metadata.secureMode === true });

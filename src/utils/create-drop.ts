@@ -68,24 +68,27 @@ export const SALDO_PACKAGES = [
   { id: 'saldo100', kr: 100 },
 ] as const;
 
-// A Pluss key costs PLUSS_PRICE_KR and covers PLUSS_TRAFFIC_GB of downloads (file size × opens);
-// beyond that each GB costs EXTRA_KR_PER_GB. Free keys may be downloaded FREE_TRAFFIC in all.
+// A Pluss key costs PLUSS_PRICE_KR. Free keys may be downloaded FREE_TRAFFIC in all, and any
+// key with files MAX_TRAFFIC_GB (file size × opens): the bigger the files, the fewer opens.
 export const PLUSS_PRICE_KR = 5;
-export const PLUSS_TRAFFIC_GB = 3;
-export const EXTRA_KR_PER_GB = 1.5;
+export const MAX_TRAFFIC_GB = 3;
 const FREE_TRAFFIC = 100 * MB;
 
 // Every open downloads the files again, so a key with files must have a number of opens
 export const MAX_OPENS_WITH_FILES = 1000;
 
+// Same rule as the server: the most opens a key with files of this size may have
+export function maxOpensFor(totalFileSize: number): number {
+  return Math.max(1, Math.min(MAX_OPENS_WITH_FILES, Math.floor(MAX_TRAFFIC_GB * GB / Math.max(1, totalFileSize))));
+}
+
 // Same rule as the server: a key that goes beyond the free one (1 MB, 10 minutes, the link or
-// link + QR key) is a Pluss key; its price follows how much it may be downloaded
+// link + QR key) is a Pluss key
 export function calculatePriceKr(opts: { totalFileSize: number; opens: number; expiryType: string; password: boolean; scheduled: boolean; twoKeys: boolean }): number {
   const minutes = EXPIRY_MINUTES[opts.expiryType] ?? 10;
   const traffic = opts.totalFileSize * opts.opens;
   const pluss = opts.password || opts.scheduled || opts.twoKeys || opts.totalFileSize > FREE_SIZE_LIMIT || traffic > FREE_TRAFFIC || minutes > 10;
-  if (!pluss) return 0;
-  return PLUSS_PRICE_KR + Math.ceil(Math.max(0, traffic - PLUSS_TRAFFIC_GB * GB) / GB * EXTRA_KR_PER_GB);
+  return pluss ? PLUSS_PRICE_KR : 0;
 }
 
 const toBase64Url = (bytes: Uint8Array) =>

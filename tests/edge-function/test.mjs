@@ -322,7 +322,7 @@ console.log('\nS3: server-side pricing');
   }
 
   // Files: 1 MB free, anything bigger is a Pluss key (encrypted size minus a small allowance).
-  // A Pluss key covers 3 GB of downloads (size × opens); each GB beyond costs 1.5 kr.
+  // The files may be downloaded at most 3 GB in all (size × opens), so bigger files get fewer opens.
   const upload = (bytes, token, extra = {}) => {
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(bytes)]), 'a.bin');
@@ -346,12 +346,12 @@ console.log('\nS3: server-side pricing');
   const freeTooOften = await upload(MB, undefined, { maxScans: 101 });
   check('1 MB × 101 opens is a Pluss key (anonymous 401)', freeTooOften.status === 401 && freeTooOften.json.coinCost === 5, freeTooOften);
   check('20 MB × 3 opens is 5 kr', (await upload(20 * MB, 'tok-P', { maxScans: 3 })).json?.coinsCharged === 5);
-  // 6 MB × 1000 ≈ 5.86 GB: 5 kr + 2.86 GB × 1.5 kr, rounded up
-  check('6 MB × 1000 opens is 10 kr', (await upload(6 * MB, 'tok-P', { maxScans: 1000 })).json?.coinsCharged === 10);
-  // 20 MB × 1000 ≈ 19.5 GB: 5 kr + 16.5 GB × 1.5 kr, rounded up
-  await setCoins(USER_P, 100);
-  const most = await upload(20 * MB, 'tok-P', { maxScans: 1000 });
-  check('20 MB × 1000 opens is 30 kr', most.json?.coinsCharged === 30 && (await coinsOf(USER_P)) === 70, most.json);
+  // 3 GB / 20 MB = 153.6 opens
+  const most = await upload(20 * MB, 'tok-P', { maxScans: 153 });
+  check('20 MB × 153 opens is allowed and still 5 kr', most.status === 200 && most.json.coinsCharged === 5, most.json);
+  const tooOften = await upload(20 * MB, 'tok-P', { maxScans: 154 });
+  check('20 MB × 154 opens is 400 TOO_MANY_OPENS with the limit', tooOften.status === 400 && tooOften.json.code === 'TOO_MANY_OPENS' && tooOften.json.maxOpens === 153, tooOften);
+  check('small files can still be opened 1000 times', (await upload(3 * MB, 'tok-P', { maxScans: 1000 })).json?.coinsCharged === 5);
   check('anonymous 2 MB file is rejected', (await upload(2 * MB, undefined)).status >= 400);
   const uploadFiles = (sizes, token) => {
     const form = new FormData();

@@ -167,7 +167,7 @@ const resources = {
       coins: {
         balance: 'Balance',
         kr: '{{kr}} kr',
-        explain: 'A Pluss key costs {{kr}} kr and is taken from your balance: bigger files, longer time, password, two QR keys or a set opening date. It covers {{gb}} GB of downloads (file size × opens); each GB beyond costs {{extra}} kr. Free keys cost nothing.',
+        explain: 'A Pluss key costs {{kr}} kr and is taken from your balance: bigger files, longer time, password, two QR keys or a set opening date. Free keys cost nothing.',
         topUp: 'Top up {{kr}} kr',
         keys_one: 'Up to {{count}} Pluss key',
         keys_other: 'Up to {{count}} Pluss keys',
@@ -718,7 +718,7 @@ const resources = {
       coins: {
         balance: 'Saldo',
         kr: '{{kr}} kr',
-        explain: 'En Pluss-nøkkel koster {{kr}} kr og trekkes fra saldoen: større filer, lengre tid, passord, to QR-nøkler eller fast åpningsdato. Den dekker {{gb}} GB nedlasting (filstørrelse × åpninger); hver GB utover koster {{extra}} kr. Gratis-nøkler koster ingenting.',
+        explain: 'En Pluss-nøkkel koster {{kr}} kr og trekkes fra saldoen: større filer, lengre tid, passord, to QR-nøkler eller fast åpningsdato. Gratis-nøkler koster ingenting.',
         topUp: 'Fyll på {{kr}} kr',
         keys_one: 'Opptil {{count}} Pluss-nøkkel',
         keys_other: 'Opptil {{count}} Pluss-nøkler',

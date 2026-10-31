@@ -3,13 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../utils/auth-context';
 import { defaultActivationDate, formatActivationDate, fromLocalInputValue, maxActivationDate, toLocalInputValue } from '../../utils/activation';
-import { FREE_EXPIRY, EXPIRY, MAX_TIMES, MODE, TIMES, WHO, loginOnlyWho, timesLabel, type Rules } from './rules';
+import { FREE_EXPIRY, EXPIRY, MODE, TIMES, WHO, loginOnlyWho, timesLabel, type Rules } from './rules';
 import { KeyPreview, PREVIEW_URL, STYLE_PRESETS, type StylePreset } from './key-preview';
 import { QrStylePicker } from '../qr-style-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { draftCost, type Draft } from './create-flow';
 import { CoinShop } from '../coin-shop';
-import { MAX_OPENS_WITH_FILES } from '../../utils/create-drop';
 
 type Token = 'times' | 'who' | 'opens' | 'expiry' | 'mode';
 
@@ -73,8 +72,7 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     }
   };
 
-  const { cost, needsLogin, hasFiles, tooManyOpens } = draftCost(draft);
-  const maxTimes = hasFiles ? MAX_OPENS_WITH_FILES : MAX_TIMES;
+  const { cost, needsLogin, hasFiles, maxOpens: maxTimes, tooManyOpens, tooLarge } = draftCost(draft);
   const [shopOpen, setShopOpen] = useState(false);
   const blockedByLogin = !user && needsLogin;
   const notEnough = !!user && cost > 0 && coins !== null && coins < cost;
@@ -106,8 +104,8 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     switch (open) {
       case 'times':
         return [
-          // Files are downloaded again on every open, so they can't be opened without limit
-          ...TIMES.filter((v) => !hasFiles || v !== 'inf').map((v) => option(String(v), timesLabel(t, v, 'lag.rules.times'), !customTimes && rules.times === v, () => {
+          // Files are downloaded again on every open, so bigger files can be opened fewer times
+          ...TIMES.filter((v) => !hasFiles || (v !== 'inf' && v <= maxTimes)).map((v) => option(String(v), timesLabel(t, v, 'lag.rules.times'), !customTimes && rules.times === v, () => {
             setCustomTimes(false);
             setRules({ times: v });
           })),
@@ -345,7 +343,8 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
             {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
           </div>
           {cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.plussNote')}</span>}
-          {tooManyOpens && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: MAX_OPENS_WITH_FILES })}</span>}
+          {tooLarge && <span className="lg-warn">{t('lag.errors.tooLarge', { max: '20 MB' })}</span>}
+          {tooManyOpens && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: maxTimes })}</span>}
           {notEnough && (
             <span className="lg-warn">
               {t('lag.preview.notEnough')}{' '}
@@ -369,7 +368,7 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
               <span className="lg-xs lg-muted" style={{ textAlign: 'center' }}>{t('lag.preview.loginToPay')}</span>
             </>
           ) : (
-            <button type="button" className="lg-btn lg-btn-primary" disabled={creating || !acceptedTerms || notEnough || tooManyOpens} onClick={onCreate}>
+            <button type="button" className="lg-btn lg-btn-primary" disabled={creating || !acceptedTerms || notEnough || tooManyOpens || tooLarge} onClick={onCreate}>
               {creating ? t('lag.preview.creating') : t('lag.preview.create')}
             </button>
           )}
@@ -385,7 +384,7 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
         <button
           type="button"
           className="lg-btn lg-btn-primary"
-          disabled={creating || (!blockedByLogin && (notEnough || tooManyOpens))}
+          disabled={creating || (!blockedByLogin && (notEnough || tooManyOpens || tooLarge))}
           onClick={() => {
             if (blockedByLogin) {
               signInWithGoogle().catch(() => toast.error(t('common.loginError')));

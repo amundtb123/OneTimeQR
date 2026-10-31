@@ -95,19 +95,15 @@ const SECTIONS: Section[] = [
     id: 'free',
     title: tx('Gratis og med konto', 'Free and with an account'),
     body: [
-      tx('Uten innlogging kan du dele gratis, med disse grensene:', 'Without logging in you can share for free, with these limits:'),
+      tx('Alle funksjoner er gratis: lengre utløpstid, passord, to QR-nøkler og fast åpningsdato. Det er filene som setter grensene:', 'Every feature is free: longer expiry, a password, two QR keys and a set opening date. The files set the limits:'),
       {
         list: [
-          tx('maks 1 MB', 'up to 1 MB'),
-          tx('maks 100 MB nedlasting til sammen (filstørrelse × antall åpninger)', 'up to 100 MB of downloads in all (file size × number of opens)'),
-          tx('maks 10 minutter', 'up to 10 minutes'),
-          tx('bare «den som har lenken» og «den som har lenken og QR-nøkkelen»', 'only "whoever has the link" and "whoever has the link and the QR key"'),
+          tx('uten innlogging: filer opptil 1 MB, og maks 100 MB nedlasting per nøkkel (filstørrelse × antall åpninger)', 'without logging in: files up to 1 MB, and at most 100 MB of downloads per key (file size × number of opens)'),
+          tx('innlogget med Google: filer opptil 10 MB gratis, så lenge nøkkelen kan lastes ned maks 1 GB og du har brukt under 10 GB gratis nedlasting denne måneden', 'logged in with Google: files up to 10 MB for free, as long as the key can be downloaded at most 1 GB and you have used less than 10 GB of free downloads this month'),
+          tx('innlogget: filer opptil 20 MB, mot betaling (se under)', 'logged in: files up to 20 MB, for a price (see below)'),
         ],
       },
-      tx(
-        'Logger du inn med Google, kan du legge til mer: inntil 20 MB, lengre utløpstid, passord, to QR-nøkler og fast åpningsdato. Hvert valg koster 1–2 kr, og en nøkkel koster aldri mer enn 5 kr. Nye kontoer får 15 kr i startsaldo.',
-        'If you log in with Google, you can add more: up to 20 MB, longer expiry, a password, two QR keys and a set opening date. Each costs 1–2 kr, and a key never costs more than 5 kr. New accounts get 15 kr to start with.',
-      ),
+      tx('Nye kontoer får 15 kr i startsaldo.', 'New accounts get 15 kr to start with.'),
       tx('Filene i en nøkkel kan lastes ned maks 3 GB til sammen (filstørrelse × antall åpninger), og maks 1000 ganger. Jo større filer, jo færre åpninger: 20 MB kan for eksempel åpnes 153 ganger. Eieren kan forhåndsvise 3 ganger uten å bruke en åpning; etter det teller også eierens åpninger.', 'The files of a key can be downloaded at most 3 GB in all (file size × number of opens), and at most 1000 times. The bigger the files, the fewer opens: 20 MB can for example be opened 153 times. The owner can preview 3 times without using an open; after that the owner\'s opens count too.'),
       tx('Vi kan endre disse grensene.', 'We may change these limits.'),
     ],
@@ -116,7 +112,7 @@ const SECTIONS: Section[] = [
     id: 'coins',
     title: tx('Saldo og betaling', 'Balance and payment'),
     body: [
-      tx('Du fyller på saldoen med 50 eller 100 kr. Lengre tid koster 1 kr (7 dager 2 kr), passord 1 kr, filer over 1 MB 2 kr, to QR-nøkler 2 kr og fast åpningsdato 2 kr. En nøkkel koster aldri mer enn 5 kr til sammen. Prisen vises før du lager nøkkelen, og trekkes fra saldoen når du lager den.', 'You top up your balance with 50 or 100 kr. Longer time costs 1 kr (7 days 2 kr), a password 1 kr, files over 1 MB 2 kr, two QR keys 2 kr and a set opening date 2 kr. A key never costs more than 5 kr in all. The price is shown before you create the key, and is taken from your balance when you create it.'),
+      tx('Du fyller på saldoen med 50 eller 100 kr. Nøkler som ikke er gratis, koster etter hvor mye filene kan lastes ned: 1,50 kr per GB (filstørrelse × antall åpninger), rundet opp, og minst 2 kr. Prisen vises før du lager nøkkelen, og trekkes fra saldoen når du lager den. Har du brukt opp gratis nedlasting for måneden, kan prisen først vises når nøkkelen lages.', 'You top up your balance with 50 or 100 kr. Keys that are not free cost by how much the files can be downloaded: 1.50 kr per GB (file size × number of opens), rounded up, and at least 2 kr. The price is shown before you create the key, and is taken from your balance when you create it. If you have used up the free downloads for the month, the price may only show when the key is created.'),
       {
         list: [
           tx('Saldoen kan bare brukes til nøkler i OneTimeQR og kan ikke tas ut som penger', 'The balance can only be used for keys in OneTimeQR and cannot be withdrawn as money'),

@@ -29,9 +29,6 @@ export const KEYS_BY_WHO: Record<Who, KeyDelivery> = { code: 'link', separate: '
 export const EXPIRY: Expiry[] = ['10m', '30m', '1h', '24h', '7d'];
 export const MODE: Mode[] = ['download', 'view'];
 
-// Without an account only the free rules can be picked
-export const FREE_EXPIRY: Expiry = '10m';
-export const loginOnlyWho = (who: Who) => who === 'password' || who === 'two';
 
 export type TemplateId = 'once' | 'secret' | 'two' | 'gift' | 'many' | 'authenticity';
 
@@ -46,11 +43,11 @@ export interface Template {
 export const TEMPLATES: Template[] = [
   {
     id: 'once', mark: '1×', tone: 'blue',
-    rules: (loggedIn) => ({ times: 1, who: 'code', expiry: loggedIn ? '24h' : FREE_EXPIRY, mode: 'download', opensAt: null }),
+    rules: () => ({ times: 1, who: 'code', expiry: '24h', mode: 'download', opensAt: null }),
   },
   {
     id: 'secret', mark: '••', tone: 'soft',
-    rules: (loggedIn) => ({ times: 1, who: 'code', expiry: loggedIn ? '1h' : FREE_EXPIRY, mode: 'view', opensAt: null }),
+    rules: () => ({ times: 1, who: 'code', expiry: '1h', mode: 'view', opensAt: null }),
   },
   {
     id: 'two', mark: '2', tone: 'ink',
@@ -62,7 +59,7 @@ export const TEMPLATES: Template[] = [
   },
   {
     id: 'many', mark: '50', tone: 'blue',
-    rules: (loggedIn) => ({ times: 50, who: 'code', expiry: loggedIn ? '7d' : FREE_EXPIRY, mode: 'download', opensAt: null }),
+    rules: () => ({ times: 50, who: 'code', expiry: '7d', mode: 'download', opensAt: null }),
   },
   { id: 'authenticity', mark: '✓', tone: 'ink', soon: true, rules: (l) => TEMPLATES[0].rules(l) },
 ];

@@ -266,10 +266,11 @@ async function registerPasswordAttempt(id: string): Promise<number> {
 
 // SECURITY (S3): Prices are decided here, never by the client.
 // Must stay in sync with calculatePriceKr() and maxOpensFor() in src/utils/create-drop.ts.
-// A key is free; each choice beyond the free one adds PRICE_KR, and a key costs at most
-// MAX_PRICE_KR. The balance counts kroner. Downloads are what
-// storage bills for, so the files of a key may be downloaded at most MAX_TRAFFIC_BYTES in all
-// (file size × opens): the bigger the files, the fewer opens.
+// Every choice is free; only files cost, because downloads are what storage bills for.
+// Without an account: files up to 1 MB, downloaded at most ANON_TRAFFIC_BYTES per key.
+// With an account: files up to FREE_FILE_BYTES are free while the key may be downloaded at most
+// FREE_KEY_TRAFFIC_BYTES and the user has free traffic left this month. Anything else costs
+// KR_PER_GB of downloads (file size × opens), at least MIN_PRICE_KR. The balance counts kroner.
 const EXPIRY_DURATIONS_MS: Record<string, number> = {
   '10m': 10 * 60 * 1000,
   '30m': 30 * 60 * 1000,
@@ -278,17 +279,19 @@ const EXPIRY_DURATIONS_MS: Record<string, number> = {
   '7d': 7 * 24 * 60 * 60 * 1000,
   'scan': 7 * 24 * 60 * 60 * 1000, // Scan-once drops live at most 7 days
 };
-const FREE_EXPIRY_MS = EXPIRY_DURATIONS_MS['10m'];
 // Scheduled release: at most 3 months ahead
 const MAX_ACTIVATION_DELAY_MS = 92 * 24 * 60 * 60 * 1000;
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
-const FREE_FILE_BYTES = 1 * MB;
-const FREE_TRAFFIC_BYTES = 100 * MB;
-const PRICE_KR = { longer: 1, week: 2, password: 1, file: 2, twoKeys: 2, scheduled: 2 };
-const MAX_PRICE_KR = 5;
-const WEEK_MS = EXPIRY_DURATIONS_MS['7d'];
+const ANON_FILE_BYTES = 1 * MB;
+const ANON_TRAFFIC_BYTES = 100 * MB;
+const MAX_FILE_BYTES = 20 * MB;
+const FREE_FILE_BYTES = 10 * MB;
+const FREE_KEY_TRAFFIC_BYTES = 1 * GB;
+const FREE_TRAFFIC_PER_MONTH_BYTES = 10 * GB;
 const MAX_TRAFFIC_BYTES = 3 * GB;
+const KR_PER_GB = 1.5;
+const MIN_PRICE_KR = 2;
 // Every open downloads the files again, so a key with files must have a number of opens
 const MAX_OPENS_WITH_FILES = 1000;
 // Owner previews download the files too
@@ -299,23 +302,26 @@ const ENCRYPTION_OVERHEAD_ALLOWANCE = 1024;
 const contentBytes = (fileSizes: number[]) =>
   fileSizes.reduce((sum, size) => sum + Math.max(0, size - ENCRYPTION_OVERHEAD_ALLOWANCE), 0);
 
-// The most opens a key with files of this many bytes may have
-function maxOpensFor(bytes: number): number {
-  return Math.max(1, Math.min(MAX_OPENS_WITH_FILES, Math.floor(MAX_TRAFFIC_BYTES / Math.max(1, bytes))));
+// The most opens a key with files of this many bytes may have: the bigger the files, the fewer
+function maxOpensFor(bytes: number, loggedIn: boolean): number {
+  const traffic = loggedIn ? MAX_TRAFFIC_BYTES : ANON_TRAFFIC_BYTES;
+  return Math.max(1, Math.min(MAX_OPENS_WITH_FILES, Math.floor(traffic / Math.max(1, bytes))));
 }
 
-function calculatePriceKr(options: { hasPassword: boolean; fileSizes: number[]; opens: number; expiryType: string; scheduled: boolean; twoKeys: boolean }): number {
-  const bytes = contentBytes(options.fileSizes);
-  const traffic = bytes * options.opens;
-  const expiryMs = EXPIRY_DURATIONS_MS[options.expiryType];
-  let kr = 0;
-  if (expiryMs >= WEEK_MS) kr += PRICE_KR.week;
-  else if (expiryMs > FREE_EXPIRY_MS) kr += PRICE_KR.longer;
-  if (options.hasPassword) kr += PRICE_KR.password;
-  if (bytes > FREE_FILE_BYTES || traffic > FREE_TRAFFIC_BYTES) kr += PRICE_KR.file;
-  if (options.twoKeys) kr += PRICE_KR.twoKeys;
-  if (options.scheduled) kr += PRICE_KR.scheduled;
-  return Math.min(kr, MAX_PRICE_KR);
+const isFreeKey = (bytes: number, traffic: number) => bytes <= FREE_FILE_BYTES && traffic <= FREE_KEY_TRAFFIC_BYTES;
+
+const priceForTraffic = (traffic: number) => Math.max(MIN_PRICE_KR, Math.ceil(traffic / GB * KR_PER_GB));
+
+// Takes traffic from the user's free allowance this month; false if there isn't enough left
+async function useFreeTraffic(userId: string, bytes: number): Promise<boolean> {
+  const { data, error } = await supabase.rpc('free_traffic_use', { p_user_id: userId, p_bytes: bytes, p_limit: FREE_TRAFFIC_PER_MONTH_BYTES });
+  if (error) throw new Error(`free_traffic_use failed: ${error.message}`);
+  return data === true;
+}
+
+async function releaseFreeTraffic(userId: string, bytes: number): Promise<void> {
+  const { error } = await supabase.rpc('free_traffic_release', { p_user_id: userId, p_bytes: bytes });
+  if (error) console.error('❌ Failed to give back free traffic after a failed create:', error.message);
 }
 
 function toPositiveInt(value: unknown): number | null {
@@ -336,25 +342,30 @@ function invalidActivationResponse(c: any) {
   return c.json({ error: 'Activation date must be in the future and at most 3 months ahead', code: 'INVALID_ACTIVATION_DATE' }, 400);
 }
 
-// Rejects options the creator isn't allowed to pick, or returns the price (0 = free)
-// and when the drop opens (null = right away)
-function priceQrDrop(c: any, userId: string | null, metadata: any, fileSizes: number[]): { cost: number; activatesAt: number | null } | Response {
+// Rejects options the creator isn't allowed to pick, or returns the price (0 = free), how much
+// of the free allowance it used, and when the drop opens (null = right away)
+async function priceQrDrop(c: any, userId: string | null, metadata: any, fileSizes: number[]): Promise<{ cost: number; freeTraffic: number; activatesAt: number | null } | Response> {
   if (!(metadata.expiryType in EXPIRY_DURATIONS_MS)) {
     return c.json({ error: 'Invalid expiry type' }, 400);
   }
   const activatesAt = parseActivatesAt(metadata.activatesAt);
   if (activatesAt === undefined) return invalidActivationResponse(c);
+  if (fileSizes.length === 0) return { cost: 0, freeTraffic: 0, activatesAt };
+
+  const bytes = contentBytes(fileSizes);
   const opens = metadata.expiryType === 'scan' ? 1 : toPositiveInt(metadata.maxScans);
-  const maxOpens = maxOpensFor(contentBytes(fileSizes));
-  if (fileSizes.length > 0 && (!opens || opens > maxOpens)) {
+  const maxOpens = maxOpensFor(bytes, !!userId);
+  if (!opens || opens > maxOpens) {
     return c.json({ error: `Keys with these files can be opened at most ${maxOpens} times`, code: 'TOO_MANY_OPENS', maxOpens }, 400);
   }
-  // Only Pluss keys need an account
-  const cost = calculatePriceKr({ hasPassword: !!metadata.password, fileSizes, opens: opens ?? 1, expiryType: metadata.expiryType, scheduled: activatesAt !== null, twoKeys: metadata.secureMode === true });
-  if (cost > 0 && !userId) {
-    return c.json({ error: 'Log in to use paid features', code: 'LOGIN_REQUIRED', coinCost: cost }, 401);
+  // Without an account the size and opens limits keep it small enough to be free
+  if (!userId) return { cost: 0, freeTraffic: 0, activatesAt };
+
+  const traffic = bytes * opens;
+  if (isFreeKey(bytes, traffic) && (await useFreeTraffic(userId, traffic))) {
+    return { cost: 0, freeTraffic: traffic, activatesAt };
   }
-  return { cost, activatesAt };
+  return { cost: priceForTraffic(traffic), freeTraffic: 0, activatesAt };
 }
 
 // Atomically takes coins from the user. Returns the new balance, or null if they can't afford it.
@@ -707,7 +718,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
 
     // SECURITY: Validate file sizes on server side
     // The limits the app shows: 20 MB in all when logged in, 1 MB without an account
-    const MAX_FILE_SIZE = userId ? 20 * 1024 * 1024 : FREE_FILE_BYTES;
+    const MAX_FILE_SIZE = userId ? MAX_FILE_BYTES : ANON_FILE_BYTES;
     const MAX_TOTAL_SIZE = MAX_FILE_SIZE;
     
     // Limits apply to the original size; files arrive slightly larger because they are encrypted
@@ -777,9 +788,9 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       return c.json({ error: 'QR drop ID already in use' }, 409);
     }
 
-    const price = priceQrDrop(c, userId, metadata, files.map((file) => file.size));
+    const price = await priceQrDrop(c, userId, metadata, files.map((file) => file.size));
     if (price instanceof Response) return price;
-    const { cost, activatesAt } = price;
+    const { cost, freeTraffic, activatesAt } = price;
 
     let coinBalance: number | null = null;
     if (cost > 0) {
@@ -903,6 +914,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
         await supabase.storage.from(BUCKET_NAME).remove(uploadedFiles.map((f) => f.path));
       }
       if (cost > 0) await refundCoins(userId!, cost);
+      if (freeTraffic > 0) await releaseFreeTraffic(userId!, freeTraffic);
       if (error?.status === 409) return c.json({ error: error.message }, 409);
       throw error;
     }
@@ -986,7 +998,7 @@ app.post('/make-server-c3c9181e/create', async (c) => {
       return c.json({ error: 'QR drop ID already in use' }, 409);
     }
 
-    const price = priceQrDrop(c, userId, metadata, []);
+    const price = await priceQrDrop(c, userId, metadata, []);
     if (price instanceof Response) return price;
     const { cost, activatesAt } = price;
     // Done before charging so a hashing failure can't cost coins

@@ -8,7 +8,7 @@ import { KeyPreview, PREVIEW_URL, STYLE_PRESETS, type StylePreset } from './key-
 import { QrStylePicker } from '../qr-style-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { draftCost, type Draft } from './create-flow';
-import { MAX_PRICE_KR, PRICE_KR, expiryPriceKr } from '../../utils/create-drop';
+import { FREE_FILE_SIZE, FREE_TRAFFIC_PER_MONTH_GB, KR_PER_GB, MIN_PRICE_KR } from '../../utils/create-drop';
 import { CoinShop } from '../coin-shop';
 
 type Token = 'times' | 'who' | 'opens' | 'expiry' | 'mode';
@@ -73,15 +73,12 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     }
   };
 
-  const { cost, needsLogin, hasFiles, maxOpens: maxTimes, tooManyOpens, tooLarge } = draftCost(draft);
+  const { cost, needsLogin, hasFiles, maxOpens: maxTimes, tooManyOpens, tooLarge } = draftCost(draft, !!user);
   const [shopOpen, setShopOpen] = useState(false);
   const blockedByLogin = !user && needsLogin;
   const notEnough = !!user && cost > 0 && coins !== null && coins < cost;
   const opensDate = rules.opensAt ? fromLocalInputValue(rules.opensAt) : null;
   const opensLabel = opensDate ? formatActivationDate(opensDate, i18n.language) : '';
-
-  // A choice that costs something shows what it adds
-  const priceTag = (kr: number) => (kr > 0 ? <small>{t('lag.rules.adds', { kr })}</small> : null);
 
   const token = (key: Token, label: string) => (
     <button
@@ -94,10 +91,9 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     </button>
   );
 
-  const option = (key: string, label: string, pressed: boolean, pick: () => void, kr = 0) => (
+  const option = (key: string, label: string, pressed: boolean, pick: () => void) => (
     <button key={key} type="button" className="lg-opt" aria-pressed={pressed} onClick={() => { pick(); setOpen(null); }}>
       {label}
-      {priceTag(kr)}
     </button>
   );
 
@@ -116,14 +112,14 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
           }),
         ];
       case 'who':
-        return WHO.map((v) => option(v, t(`lag.rules.who.${v}`), rules.who === v, () => setRules({ who: v }), v === 'password' ? PRICE_KR.password : v === 'two' ? PRICE_KR.twoKeys : 0));
+        return WHO.map((v) => option(v, t(`lag.rules.who.${v}`), rules.who === v, () => setRules({ who: v })));
       case 'opens':
         return [
           option('now', t('lag.rules.opens.now'), !rules.opensAt, () => setRules({ opensAt: null })),
-          option('later', t('lag.rules.opens.later'), !!rules.opensAt, () => setRules({ opensAt: rules.opensAt || toLocalInputValue(defaultActivationDate()) }), PRICE_KR.scheduled),
+          option('later', t('lag.rules.opens.later'), !!rules.opensAt, () => setRules({ opensAt: rules.opensAt || toLocalInputValue(defaultActivationDate()) })),
         ];
       case 'expiry':
-        return EXPIRY.map((v) => option(v, t(`lag.rules.expiry.${v}`), rules.expiry === v, () => setRules({ expiry: v }), expiryPriceKr(v)));
+        return EXPIRY.map((v) => option(v, t(`lag.rules.expiry.${v}`), rules.expiry === v, () => setRules({ expiry: v })));
       case 'mode':
         return MODE.map((v) => option(v, t(`lag.rules.mode.${v}`), rules.mode === v, () => setRules({ mode: v })));
       default:
@@ -343,7 +339,8 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
             <strong>{cost === 0 ? t('lag.preview.free') : t('lag.preview.price', { kr: cost })}</strong>
             {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
           </div>
-          {cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.priceNote', { max: MAX_PRICE_KR })}</span>}
+          {cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.priceNote', { free: FREE_FILE_SIZE / (1024 * 1024), perGb: KR_PER_GB.toLocaleString(i18n.language), min: MIN_PRICE_KR })}</span>}
+          {cost === 0 && user && hasFiles && <span className="lg-xs lg-muted">{t('lag.preview.freeNote', { free: FREE_FILE_SIZE / (1024 * 1024), month: FREE_TRAFFIC_PER_MONTH_GB })}</span>}
           {tooLarge && <span className="lg-warn">{t('lag.errors.tooLarge', { max: '20 MB' })}</span>}
           {tooManyOpens && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: maxTimes })}</span>}
           {notEnough && (

@@ -1,16 +1,143 @@
-
   <!DOCTYPE html>
   <html lang="en">
     <head>
+      <!-- Google Analytics without cookies (Consent Mode, storage denied). Key fragments, login
+           tokens, key IDs and query strings other than utm_* are stripped before anything is sent. -->
+      <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('consent', 'default', { analytics_storage: 'denied', ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });
+        function gaLocation() {
+          var path = location.pathname.replace(/^\/(scan|unlock)\/.*/, '/$1');
+          var utm = location.search.slice(1).split('&').filter(function (p) { return /^utm_/.test(p); }).join('&');
+          return location.origin + path + (utm ? '?' + utm : '');
+        }
+        gtag('js', new Date());
+        gtag('config', 'G-3BRP2MRGRK', { send_page_view: false });
+        // The app navigates with the History API: count a page view whenever the cleaned path changes
+        // (the app tidies the address on load, which drops utm_* without being a new page)
+        var gaLast = null;
+        function gaPageView() {
+          var loc = gaLocation();
+          var path = loc.split('?')[0];
+          if (path === gaLast) return;
+          gaLast = path;
+          gtag('set', { page_location: loc });
+          gtag('event', 'page_view', { page_location: loc });
+        }
+        ['pushState', 'replaceState'].forEach(function (name) {
+          var original = history[name];
+          history[name] = function () { var result = original.apply(this, arguments); gaPageView(); return result; };
+        });
+        window.addEventListener('popstate', gaPageView);
+        gaPageView();
+      </script>
+      <script async src="https://www.googletagmanager.com/gtag/js?id=G-3BRP2MRGRK"></script>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-      <title>OneTimeQR</title>
+      <title>OneTimeQR – QR codes that expire after one scan or a set time</title>
+      <meta name="description" content="Share files, text and links behind a QR code that disappears. Set an expiry time or scan limit, add a password or a second QR key. Encrypted, no account needed, free to start." />
+      <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+
+      <meta property="og:type" content="website" />
+      <meta property="og:site_name" content="OneTimeQR" />
+      <meta property="og:url" content="https://onetimeqr.com/" />
+      <meta property="og:title" content="OneTimeQR – QR codes that expire" />
+      <meta property="og:description" content="Share files, text and links behind a QR code that disappears after a set time or number of scans." />
+      <meta property="og:image" content="https://onetimeqr.com/og-image.png" />
+      <meta property="og:image:width" content="1200" />
+      <meta property="og:image:height" content="630" />
+      <meta property="og:image:alt" content="OneTimeQR logo – QR codes that expire after one scan or a set time" />
+      <meta name="twitter:card" content="summary_large_image" />
+      <meta name="twitter:image" content="https://onetimeqr.com/og-image.png" />
+      <meta name="twitter:title" content="OneTimeQR – QR codes that expire" />
+      <meta name="twitter:description" content="Share files, text and links behind a QR code that disappears after a set time or number of scans." />
+
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebApplication",
+            "name": "OneTimeQR",
+            "url": "https://onetimeqr.com/",
+            "applicationCategory": "UtilitiesApplication",
+            "operatingSystem": "Any (web browser)",
+            "inLanguage": ["en", "no"],
+            "description": "Share files, text and links behind a QR code that expires after a set time or number of scans. Content is stored encrypted and deleted automatically.",
+            "featureList": [
+              "One-time QR codes: content can be opened once, or a set number of times",
+              "QR codes that expire after 10 minutes up to 7 days",
+              "Share files, text and URLs in one QR code",
+              "Optional password, or a separate QR key sent another way",
+              "Two must unlock: two QR keys, both needed to open the content",
+              "View-only mode and download limits",
+              "Gift with a date: content opens on a chosen date, up to 3 months ahead",
+              "Encrypted storage and automatic deletion"
+            ],
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "NOK",
+              "description": "Free without an account for files up to 5 MB, and free for files up to 10 MB when logged in. Larger files or many downloads cost 1.5 kr per GB of traffic (minimum 2 kr)."
+            }
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "How do I make a QR code that only works once?",
+                "acceptedAnswer": { "@type": "Answer", "text": "On onetimeqr.com, write a message or add a file, picture or link. The default rule is \"Share once\": the content can be opened one time, then it is gone. You can also choose a number of opens and an expiry." }
+              },
+              {
+                "@type": "Question",
+                "name": "Can a QR code expire after a certain time?",
+                "acceptedAnswer": { "@type": "Answer", "text": "Yes. OneTimeQR lets you choose an expiry from 10 minutes up to 7 days. When the time is up, the content is deleted automatically." }
+              },
+              {
+                "@type": "Question",
+                "name": "Is OneTimeQR free?",
+                "acceptedAnswer": { "@type": "Answer", "text": "Yes. Text, links and all settings are free. Files are free up to 5 MB without an account and up to 10 MB when logged in. Larger files or many downloads cost 1.5 kr per GB of traffic, minimum 2 kr." }
+              },
+              {
+                "@type": "Question",
+                "name": "Is the content secure?",
+                "acceptedAnswer": { "@type": "Answer", "text": "Content is stored encrypted, and OneTimeQR does not have access to files in plain text. Encryption and decryption happen in the browser, and the key travels in the link, never to the server. You can add a password, send a separate QR key another way, or use \"Two must unlock\", where two QR keys are needed to open the content." }
+              },
+              {
+                "@type": "Question",
+                "name": "What can I share with a OneTimeQR code?",
+                "acceptedAnswer": { "@type": "Answer", "text": "Files such as images, PDFs and documents, a text message of up to 200 characters and links, all in the same QR code. Typical uses are Wi-Fi passwords, contracts, invoices, tickets and other things that should not stay online." }
+              }
+            ]
+          }
+        ]
+      }
+      </script>
     </head>
 
     <body>
-      <div id="root"></div>
+      <!-- Static content for search engines and AI crawlers that do not run JavaScript. React replaces it on load. -->
+      <div id="root">
+        <main style="max-width:640px;margin:0 auto;padding:48px 16px;font-family:system-ui,sans-serif;color:#0B0B0B">
+          <h1>OneTimeQR – QR codes that expire</h1>
+          <p>Share files, text and links behind a QR code that disappears after a set time or number of scans. Set an expiry, share the QR, done.</p>
+          <h2>Features</h2>
+          <ul>
+            <li>Share once: the content can be opened one time, or as many times as you choose.</li>
+            <li>Expiry from 10 minutes up to 7 days, then the content is deleted automatically.</li>
+            <li>Combine files, text and URLs in one QR code.</li>
+            <li>Password, view-only mode, a separate QR key, or two QR keys that must both be scanned.</li>
+            <li>Gift with a date: the content opens on a date you choose.</li>
+            <li>Encrypted in your browser. We never see the key. No account needed to get started.</li>
+          </ul>
+          <h2>Pricing</h2>
+          <p>Text, links and all settings are free. Files are free up to 5 MB without an account and up to 10 MB when logged in. Larger files cost 1.5 kr per GB of traffic.</p>
+          <p><a href="/how-it-works">How it works</a> · <a href="/terms">Terms &amp; privacy</a></p>
+        </main>
+      </div>
       <script type="module" src="/src/main.tsx"></script>
     </body>
   </html>
-  

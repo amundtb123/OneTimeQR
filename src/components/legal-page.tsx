@@ -142,6 +142,7 @@ const SECTIONS: Section[] = [
           tx('Nøkler: det som står under «Kryptering og hva vi kan se», til nøkkelen slettes', 'Keys: what is described under "Encryption and what we can see", until the key is deleted'),
           tx('Misbruksvern: for å begrense hvor mange nøkler som lages, lagrer vi en hash av IP-adressen, ikke selve adressen', 'Abuse protection: to limit how many keys are created, we store a hash of the IP address, not the address itself'),
           tx('Betaling: Stripe behandler betalingen og deler med oss om den gikk gjennom', 'Payment: Stripe processes the payment and tells us whether it went through'),
+          tx('Statistikk: vi bruker Google Analytics uten cookies for å telle sidevisninger og se hvor besøkende kommer fra. Nøkler, nøkkel-ID-er og innlogging tas ut av adressen før noe sendes til Google', 'Statistics: we use Google Analytics without cookies to count page views and see where visitors come from. Keys, key IDs and login details are removed from the address before anything is sent to Google'),
         ],
       },
       tx(

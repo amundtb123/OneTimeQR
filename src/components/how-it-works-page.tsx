@@ -78,14 +78,14 @@ export function HowItWorksPage({ onBack, onHome }: { onBack: () => void; onHome:
               <div className="flex items-center gap-3 mb-4">
                 <Shield className="size-6 text-[#E8927E]" />
                 <h2 className="text-2xl font-bold text-[#3F3F3F]">
-                  {isNorwegian ? 'Secure Mode' : 'Secure Mode'}
+                  {isNorwegian ? 'To må låse opp' : 'Two must unlock'}
                 </h2>
               </div>
               <div className="space-y-4 text-[#5B5B5B] leading-relaxed text-base">
                 <p>
                   {isNorwegian
-                    ? 'I Secure Mode krypteres innholdet før lagring. Tilgangsnøkkelen deles i to deler, og hver del leveres via en egen QR-kode.'
-                    : 'In Secure Mode, content is encrypted before storage. The access key is split into two parts, and each part is delivered via a separate QR code.'}
+                    ? 'Med «To må låse opp» krypteres innholdet før lagring. Tilgangsnøkkelen deles i to deler, og hver del leveres via en egen QR-kode.'
+                    : 'With “Two must unlock”, content is encrypted before storage. The access key is split into two parts, and each part is delivered via a separate QR code.'}
                 </p>
                 <p>
                   {isNorwegian

@@ -155,8 +155,10 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     if (e2e) {
       try {
         const master = hexToBytes(keyRef.current!);
-        text = drop.textContent ? await decryptTextWithSplitKey(JSON.parse(drop.textContent), master, drop.id) : undefined;
-        urls = drop.urlContent ? parseUrls(await decryptTextWithSplitKey(JSON.parse(drop.urlContent), master, drop.id)) : [];
+        // A series code carries its series' content, encrypted with the series' id
+        const contentId = drop.contentId || drop.id;
+        text = drop.textContent ? await decryptTextWithSplitKey(JSON.parse(drop.textContent), master, contentId) : undefined;
+        urls = drop.urlContent ? parseUrls(await decryptTextWithSplitKey(JSON.parse(drop.urlContent), master, contentId)) : [];
       } catch {
         throw new DecryptError('Could not decrypt content');
       }

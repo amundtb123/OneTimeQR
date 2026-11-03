@@ -151,7 +151,8 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
     viewOnly: req.viewOnly,
     noPreview: req.noPreview,
     password: req.password || undefined,
-    qrStyle: req.qrStyle,
+    // The logo is a picture of its own, too big for the metadata; the QR codes are drawn here with it
+    qrStyle: { ...req.qrStyle, logo: undefined },
     secureMode,
     singleQrMode,
     encrypted: true,

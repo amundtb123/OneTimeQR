@@ -5,6 +5,8 @@ import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Switch } from './ui/switch';
+import { prepareLogo } from '../utils/logo-image';
 import QRCodeStyling from 'qr-code-styling';
 
 export interface QrStyle {
@@ -40,6 +42,9 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
   const qrCodeRef = useRef<QRCodeStyling | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // The uploaded file, kept so the white background can be turned on and off again
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [removeWhite, setRemoveWhite] = useState(false);
 
   const presetColors = [
     { name: 'Indigo', value: '#4F46E5' },
@@ -142,18 +147,29 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
     }
   }, [qrUrl, JSON.stringify(style)]); // Update when URL or style changes
 
-  const handleLogoUpload = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        onChange({ ...style, logo: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+  const applyLogo = async (file: File, white: boolean) => {
+    try {
+      onChange({ ...style, logo: await prepareLogo(file, white) });
+    } catch {
+      // Not a picture the browser can draw: keep what was there
     }
   };
 
+  const handleLogoUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setLogoFile(file);
+      applyLogo(file, removeWhite);
+    }
+  };
+
+  const toggleWhite = (white: boolean) => {
+    setRemoveWhite(white);
+    if (logoFile) applyLogo(logoFile, white);
+  };
+
   const removeLogo = () => {
+    setLogoFile(null);
     onChange({ ...style, logo: undefined });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -351,6 +367,13 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
 
               {style.logo && (
                 <>
+                  {logoFile && (
+                    <div className="flex items-center justify-between gap-4">
+                      <Label htmlFor="logoWhite">Gjør hvit bakgrunn gjennomsiktig</Label>
+                      <Switch id="logoWhite" checked={removeWhite} onCheckedChange={toggleWhite} />
+                    </div>
+                  )}
+
                   {/* Logo Size */}
                   <div>
                     <Label htmlFor="logoSize" className="mb-2 block">
@@ -389,7 +412,7 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
 
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                 <p className="text-amber-800 text-sm">
-                  💡 Tips: Bruk en logo med gjennomsiktig bakgrunn for best resultat. QR-koden bruker høy feilkorreksjon når logo er lagt til.
+                  💡 Tips: En PNG med gjennomsiktig bakgrunn blir finest. Har logoen hvit bakgrunn, kan du gjøre den gjennomsiktig over. QR-koden bruker høy feilkorreksjon når logo er lagt til.
                 </p>
               </div>
             </TabsContent>

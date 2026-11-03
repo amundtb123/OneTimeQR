@@ -402,7 +402,7 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
       </div>
 
       <Dialog open={customOpen} onOpenChange={setCustomOpen}>
-        <DialogContent className="bg-white max-w-2xl overflow-y-auto" style={{ maxHeight: '90vh', borderRadius: 0 }}>
+        <DialogContent className="bg-white overflow-y-auto" style={{ maxHeight: '90vh', maxWidth: 'min(720px, calc(100% - 2rem))', borderRadius: 0 }}>
           <DialogHeader>
             <DialogTitle>{t('lag.preview.customTitle')}</DialogTitle>
           </DialogHeader>

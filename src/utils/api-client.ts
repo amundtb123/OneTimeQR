@@ -270,8 +270,9 @@ function viewTokenHeaders(id: string): Record<string, string> {
 }
 
 // Open a QR drop: the server verifies the password (if any), counts the view
-// and returns the content. Each successful call uses up one view.
-export async function openQrDrop(id: string, password?: string): Promise<{
+// and returns the content. Each successful call uses up one view, unless the owner
+// asks for a preview (the first few previews are free).
+export async function openQrDrop(id: string, password?: string, preview = false): Promise<{
   qrDrop: QrDropData & { encryptionKey?: string | null };
   files: Array<{fileUrl: string; fileName: string; fileType: string; fileSize: number; fileIndex: number}> | null;
   fileUrl: string | null;
@@ -281,7 +282,7 @@ export async function openQrDrop(id: string, password?: string): Promise<{
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...ownerTokenHeaders(id),
+      ...(preview ? { ...ownerTokenHeaders(id), 'X-Owner-Preview': '1' } : {}),
     },
     body: JSON.stringify(password ? { password } : {}),
   });

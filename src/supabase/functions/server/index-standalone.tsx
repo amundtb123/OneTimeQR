@@ -1136,10 +1136,11 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
     }
 
     // Owners can preview a scheduled drop; everyone else waits (and can't guess the password yet).
-    // A preview doesn't use up a view, but downloads the files again, so with files only the
-    // first MAX_OWNER_PREVIEWS are free; after that the owner opens it like everyone else.
-    const hasFiles = Array.isArray(qrDrop.files) ? qrDrop.files.length > 0 : !!qrDrop.filePath;
-    const isOwner = (await isRequestOwner(c, qrDrop)) && (!hasFiles || (await countOwnerPreview(id)));
+    // Only the preview button in the app asks for a preview: an owner who scans their own key
+    // uses up a view like anyone else. The first MAX_OWNER_PREVIEWS previews are free; after that
+    // the owner opens it like everyone else.
+    const wantsPreview = c.req.header('X-Owner-Preview') === '1';
+    const isOwner = wantsPreview && (await isRequestOwner(c, qrDrop)) && (await countOwnerPreview(id));
     if (isNotYetActive(qrDrop) && !isOwner) {
       return c.json({ error: 'QR drop is not active yet', code: 'NOT_YET_ACTIVE', activatesAt: qrDrop.activatesAt }, 403);
     }

@@ -342,7 +342,7 @@ function AppContent() {
   };
 
   // The create flow, the key ring and the terms use the new look; scan and the rest keep theirs for now
-  const newLook = !scanId && ['upload', 'list', 'ready', 'legal'].includes(currentView);
+  const newLook = !!scanId || ['upload', 'list', 'ready', 'legal'].includes(currentView);
 
   return (
     <div className="lg-app relative">
@@ -374,25 +374,25 @@ function AppContent() {
         />
       )}
 
+      {scanId && (
+        // Public scan page
+        <main className="lg-wrap lg-main lg-tight">
+          <ScanView
+            key={`${scanId}:${keyArrivals}`}
+            qrDropId={scanId}
+            isDirectScan={true}
+            onBack={() => {
+              window.location.href = '/';
+            }}
+          />
+        </main>
+      )}
+
       {!newLook && (
         <main className="relative z-10 max-w-5xl mx-auto px-4 py-8">
-          {scanId ? (
-            // Public scan page
-            <ScanView
-              key={`${scanId}:${keyArrivals}`}
-              qrDropId={scanId}
-              isDirectScan={true}
-              onBack={() => {
-                window.location.href = '/';
-              }}
-            />
-          ) : (
-            <>
-              {currentView === 'success' && <SuccessPage />}
+          {currentView === 'success' && <SuccessPage />}
 
-              {currentView === 'how-it-works' && <HowItWorksPage onBack={() => navigate('create')} onHome={goHome} />}
-            </>
-          )}
+          {currentView === 'how-it-works' && <HowItWorksPage onBack={() => navigate('create')} onHome={goHome} />}
         </main>
       )}
 

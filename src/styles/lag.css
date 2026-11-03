@@ -236,3 +236,22 @@
 /* QR style dialog: preview beside the options when there is room, above them when not */
 .lg-style-picker { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 28px; align-items: start; }
 @media (max-width: 640px) { .lg-style-picker { grid-template-columns: minmax(0, 1fr); gap: 20px; } }
+
+/* Opened key: the content is the page */
+.lg-open { display: flex; flex-direction: column; gap: 28px; max-width: 720px; margin: 0 auto; width: 100%; }
+.lg-open-seal { width: 52px; height: 52px; display: flex; align-items: center; justify-content: center; background: var(--lg-blue); color: #fff; animation: lg-open-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.lg-open-title { font-size: clamp(40px, 9vw, 64px); overflow-wrap: anywhere; }
+.lg-open-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.lg-open-meta .lg-chip { display: inline-flex; align-items: center; gap: 6px; border-color: var(--lg-line); color: var(--lg-ink-2); font-weight: 500; letter-spacing: 0; font-size: 13px; padding: 6px 10px; white-space: normal; }
+.lg-open-warning { margin: 0; display: flex; gap: 10px; padding: 14px 16px; background: var(--lg-ink); color: #fff; font-size: 15px; line-height: 1.45; }
+.lg-open-card { background: var(--lg-surface); border: 1px solid var(--lg-line); padding: clamp(20px, 5vw, 32px); display: flex; flex-direction: column; gap: 24px; animation: lg-open-rise 0.45s 0.1s ease-out both; }
+.lg-open-message { margin: 0; font-size: clamp(22px, 5vw, 30px); line-height: 1.3; font-weight: 500; letter-spacing: -0.015em; white-space: pre-wrap; overflow-wrap: anywhere; border-left: 4px solid var(--lg-blue); padding-left: 18px; }
+.lg-open-link { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border: 1px solid var(--lg-line); color: var(--lg-blue) !important; font-weight: 500; word-break: break-all; }
+.lg-open-link span { flex: 1; }
+.lg-open-link:hover { border-color: var(--lg-blue); }
+.lg-open-cta { display: flex; padding: 18px 20px; border: 1px dashed var(--lg-line-strong); background: transparent; }
+.lg-open-cta:hover { border-color: var(--lg-blue); color: var(--lg-blue); }
+@keyframes lg-open-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes lg-open-rise { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .lg-open-seal, .lg-open-card { animation: none; } }
+.lg-open-seal.is-gone { background: var(--lg-ink); }

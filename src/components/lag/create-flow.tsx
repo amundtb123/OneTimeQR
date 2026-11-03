@@ -5,6 +5,7 @@ import type { QrDrop } from '../../App';
 import type { QrStyle } from '../qr-style-picker';
 import { useAuth } from '../../utils/auth-context';
 import { fromLocalInputValue, isValidActivationDate } from '../../utils/activation';
+import { shrinkImages } from '../../utils/shrink-image';
 import { calculatePriceKr, createDrop, maxOpensFor, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT } from '../../utils/create-drop';
 import { KEYS_BY_WHO, MAX_TIMES, templateById, type Rules, type TemplateId } from './rules';
 import { STYLE_PRESETS, type StylePreset } from './key-preview';
@@ -49,7 +50,7 @@ export function draftCost(draft: Draft, loggedIn: boolean) {
   const cost = hasFiles ? calculatePriceKr({ totalFileSize, opens, loggedIn }) : 0;
   const tooManyOpens = hasFiles && (draft.rules.times === 'inf' || draft.rules.times > maxOpens);
   const tooLarge = totalFileSize > MAX_SIZE_LOGGED_IN;
-  // Only files over 1 MB need an account
+  // Only files over 5 MB need an account
   return { cost, totalFileSize, hasFiles, maxOpens, tooManyOpens, tooLarge, needsLogin: totalFileSize > FREE_SIZE_LIMIT };
 }
 
@@ -78,18 +79,25 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
 
   const update = useCallback((changes: Partial<Draft>) => setDraft((d) => ({ ...d, ...changes })), []);
 
+  // Without an account big pictures are made smaller, so a phone photo fits the free limit
+  const addFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+    const added = user ? files : await shrinkImages(files);
+    setDraft((d) => ({ ...d, files: [...d.files, ...added] }));
+  }, [user]);
+
   const pickTemplate = useCallback((id: TemplateId, content?: PastedContent) => {
     setDraft((d) => ({
       ...d,
       template: id,
       rules: templateById(id).rules(!!user),
-      files: content?.files ? [...d.files, ...content.files] : d.files,
       text: content?.text ?? d.text,
       urls: content?.url ? [...d.urls, content.url] : d.urls,
     }));
+    if (content?.files) addFiles(content.files);
     setStep(2);
     window.scrollTo({ top: 0 });
-  }, [user]);
+  }, [user, addFiles]);
 
   const handleCreate = async () => {
     const { rules } = draft;
@@ -104,7 +112,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
     const { cost, totalFileSize, maxOpens, tooManyOpens } = draftCost(draft, !!user);
     const maxSize = user ? MAX_SIZE_LOGGED_IN : FREE_SIZE_LIMIT;
     if (totalFileSize > maxSize) {
-      toast.error(t('upload.fileSizeExceeded', { maxSize: user ? '20 MB' : '1 MB', loginPrompt: user ? '' : t('upload.loginPrompt') }));
+      toast.error(t('upload.fileSizeExceeded', { maxSize: user ? '20 MB' : '5 MB', loginPrompt: user ? '' : t('upload.loginPrompt') }));
       return;
     }
     if (tooManyOpens) {
@@ -180,6 +188,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
     <StepRules
       draft={draft}
       update={update}
+      addFiles={addFiles}
       acceptedTerms={acceptedTerms}
       setAcceptedTerms={setAcceptedTerms}
       creating={creating}

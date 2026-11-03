@@ -304,7 +304,7 @@ console.log('\nS3: server-side pricing');
   check('client expiryDate is ignored (free drop lives 10 min)', expiresAt >= before + 10 * 60e3 && expiresAt <= Date.now() + 10 * 60e3, expiresAt - before);
   check('junk maxScans is dropped', (await rawDrop((await create({ maxScans: 'abc' })).id)).maxScans === null);
 
-  // Files: free up to 1 MB without an account (at most 100 MB of downloads per key), and up to
+  // Files: free up to 5 MB without an account (at most 100 MB of downloads per key), and up to
   // 10 MB with one (at most 1 GB per key and 10 GB a month). Anything else costs 1.5 kr per GB of
   // downloads (size × opens), at least 2 kr. A key may be downloaded at most 3 GB in all.
   const upload = (bytes, token, extra = {}) => {
@@ -317,9 +317,11 @@ console.log('\nS3: server-side pricing');
   const freeUsed = async () => Number((await db.query(`select bytes from public.free_traffic where user_id = $1`, [USER_P])).rows[0]?.bytes ?? 0);
   const setFreeUsed = (bytes) => db.query(`insert into public.free_traffic values ($1, date_trunc('month', now())::date, $2) on conflict (user_id, month) do update set bytes = $2`, [USER_P, bytes]);
 
-  const exactlyFree = await upload(MB + 28, undefined);
-  check('1 MB file (+ encryption overhead) is free for anonymous users', exactlyFree.status === 200 && exactlyFree.json.coinsCharged === 0, exactlyFree);
-  check('anonymous 2 MB file is rejected', (await upload(2 * MB, undefined)).status >= 400);
+  const exactlyFree = await upload(5 * MB + 28, undefined, { maxScans: 20 });
+  check('5 MB file (+ encryption overhead) is free for anonymous users', exactlyFree.status === 200 && exactlyFree.json.coinsCharged === 0, exactlyFree);
+  check('anonymous 6 MB file is rejected', (await upload(6 * MB, undefined)).status >= 400);
+  const anon5Often = await upload(5 * MB, undefined, { maxScans: 21 });
+  check('anonymous 5 MB × 21 opens is 400 TOO_MANY_OPENS', anon5Often.status === 400 && anon5Often.json.maxOpens === 20, anon5Often);
   check('anonymous 1 MB × 100 opens is free', (await upload(MB, undefined, { maxScans: 100 })).json?.coinsCharged === 0);
   const anonTooOften = await upload(MB, undefined, { maxScans: 101 });
   check('anonymous 1 MB × 101 opens is 400 TOO_MANY_OPENS', anonTooOften.status === 400 && anonTooOften.json.code === 'TOO_MANY_OPENS' && anonTooOften.json.maxOpens === 100, anonTooOften);
@@ -360,8 +362,8 @@ console.log('\nS3: server-side pricing');
   check('declared 1 GB upload is refused at once (413)', declaredTooBig.status === 413);
   const overTotal = await uploadFiles([10 * MB, Math.round(10.4 * MB)], 'tok-P');
   check('two files over 20 MB in all is 400', overTotal.status === 400 && /Total file size/.test(overTotal.json?.error), overTotal);
-  const anonTotal = await uploadFiles([Math.round(0.6 * MB), Math.round(0.6 * MB)], undefined);
-  check('anonymous files over 1 MB in all is 400', anonTotal.status === 400 && /Total file size/.test(anonTotal.json?.error), anonTotal);
+  const anonTotal = await uploadFiles([3 * MB, 3 * MB], undefined);
+  check('anonymous files over 5 MB in all is 400', anonTotal.status === 400 && /Total file size/.test(anonTotal.json?.error), anonTotal);
 
   await setCoins(USER_P, 0);
   const clientId = crypto.randomUUID();

@@ -10,12 +10,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { draftCost, type Draft } from './create-flow';
 import { FREE_FILE_SIZE, FREE_TRAFFIC_PER_MONTH_GB, KR_PER_GB, MIN_PRICE_KR } from '../../utils/create-drop';
 import { CoinShop } from '../coin-shop';
+import { wasShrunk } from '../../utils/shrink-image';
 
 type Token = 'times' | 'who' | 'opens' | 'expiry' | 'mode';
 
 interface StepRulesProps {
   draft: Draft;
   update: (changes: Partial<Draft>) => void;
+  addFiles: (files: File[]) => void;
   acceptedTerms: boolean;
   setAcceptedTerms: (accepted: boolean) => void;
   creating: boolean;
@@ -31,7 +33,7 @@ const formatSize = (bytes: number) => {
 
 const fileKind = (file: File) => (file.name.split('.').pop() || file.type.split('/')[1] || '').slice(0, 4).toUpperCase();
 
-export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, creating, onCreate, onBack }: StepRulesProps) {
+export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedTerms, creating, onCreate, onBack }: StepRulesProps) {
   const { t, i18n } = useTranslation();
   const { user, coins, signInWithGoogle } = useAuth();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -58,8 +60,6 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     setThumbs(next);
     return () => Object.values(next).forEach((url) => URL.revokeObjectURL(url));
   }, [draft.files]);
-
-  const addFiles = (files: File[]) => files.length > 0 && update({ files: [...draft.files, ...files] });
 
   const addLink = () => {
     const value = link.trim();
@@ -166,7 +166,7 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
                     </div>
                     <div className="lg-file-name">
                       <span>{file.name}</span>
-                      <span className="lg-xs lg-muted">{formatSize(file.size)}</span>
+                      <span className="lg-xs lg-muted">{formatSize(file.size)}{wasShrunk(file) && ` · ${t('lag.content.shrunk')}`}</span>
                     </div>
                     <button type="button" className="lg-icon-btn" aria-label={t('lag.content.remove', { name: file.name })} onClick={() => update({ files: draft.files.filter((_, j) => j !== i) })}>×</button>
                   </div>

@@ -51,7 +51,7 @@ export const unlockQrStyle: QrStyle = {
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
-export const FREE_SIZE_LIMIT = 1 * MB; // Without an account
+export const FREE_SIZE_LIMIT = 5 * MB; // Without an account
 export const MAX_SIZE_LOGGED_IN = 20 * MB;
 
 export const EXPIRY_MINUTES: Record<string, number> = {
@@ -69,7 +69,7 @@ export const SALDO_PACKAGES = [
 ] as const;
 
 // Same rules as the server. Every choice is free; only files cost, because downloads are what
-// storage bills for. Without an account: files up to 1 MB, downloaded at most ANON_TRAFFIC per key.
+// storage bills for. Without an account: files up to 5 MB, downloaded at most ANON_TRAFFIC per key.
 // With an account: files up to FREE_FILE_SIZE are free while the key may be downloaded at most
 // FREE_KEY_TRAFFIC (and the user has free traffic left this month, which only the server knows).
 // Anything else costs KR_PER_GB of downloads (file size × opens), at least MIN_PRICE_KR.

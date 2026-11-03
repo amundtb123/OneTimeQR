@@ -267,7 +267,7 @@ async function registerPasswordAttempt(id: string): Promise<number> {
 // SECURITY (S3): Prices are decided here, never by the client.
 // Must stay in sync with calculatePriceKr() and maxOpensFor() in src/utils/create-drop.ts.
 // Every choice is free; only files cost, because downloads are what storage bills for.
-// Without an account: files up to 1 MB, downloaded at most ANON_TRAFFIC_BYTES per key.
+// Without an account: files up to 5 MB, downloaded at most ANON_TRAFFIC_BYTES per key.
 // With an account: files up to FREE_FILE_BYTES are free while the key may be downloaded at most
 // FREE_KEY_TRAFFIC_BYTES and the user has free traffic left this month. Anything else costs
 // KR_PER_GB of downloads (file size × opens), at least MIN_PRICE_KR. The balance counts kroner.
@@ -283,7 +283,7 @@ const EXPIRY_DURATIONS_MS: Record<string, number> = {
 const MAX_ACTIVATION_DELAY_MS = 92 * 24 * 60 * 60 * 1000;
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
-const ANON_FILE_BYTES = 1 * MB;
+const ANON_FILE_BYTES = 5 * MB;
 const ANON_TRAFFIC_BYTES = 100 * MB;
 const MAX_FILE_BYTES = 20 * MB;
 const FREE_FILE_BYTES = 10 * MB;
@@ -717,7 +717,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
     }
 
     // SECURITY: Validate file sizes on server side
-    // The limits the app shows: 20 MB in all when logged in, 1 MB without an account
+    // The limits the app shows: 20 MB in all when logged in, 5 MB without an account
     const MAX_FILE_SIZE = userId ? MAX_FILE_BYTES : ANON_FILE_BYTES;
     const MAX_TOTAL_SIZE = MAX_FILE_SIZE;
     

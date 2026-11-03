@@ -98,7 +98,7 @@ const SECTIONS: Section[] = [
       tx('Alle funksjoner er gratis: lengre utløpstid, passord, to QR-nøkler og fast åpningsdato. Det er filene som setter grensene:', 'Every feature is free: longer expiry, a password, two QR keys and a set opening date. The files set the limits:'),
       {
         list: [
-          tx('uten innlogging: filer opptil 1 MB, og maks 100 MB nedlasting per nøkkel (filstørrelse × antall åpninger)', 'without logging in: files up to 1 MB, and at most 100 MB of downloads per key (file size × number of opens)'),
+          tx('uten innlogging: filer opptil 5 MB, og maks 100 MB nedlasting per nøkkel (filstørrelse × antall åpninger)', 'without logging in: files up to 5 MB, and at most 100 MB of downloads per key (file size × number of opens)'),
           tx('innlogget med Google: filer opptil 10 MB gratis, så lenge nøkkelen kan lastes ned maks 1 GB og du har brukt under 10 GB gratis nedlasting denne måneden', 'logged in with Google: files up to 10 MB for free, as long as the key can be downloaded at most 1 GB and you have used less than 10 GB of free downloads this month'),
           tx('innlogget: filer opptil 20 MB, mot betaling (se under)', 'logged in: files up to 20 MB, for a price (see below)'),
         ],

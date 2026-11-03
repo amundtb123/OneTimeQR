@@ -83,6 +83,10 @@ function dropFromRow(row: any) {
     ownerTokenHash: row.owner_token_hash,
     createdAt: toMs(row.created_at),
     lastOpenedAt: toMs(row.last_opened_at),
+    // A series code is encrypted with its series' id, so the client decrypts with contentId
+    seriesId: row.series_id ?? null,
+    seriesNumber: row.series_number ?? null,
+    contentId: row.series_id ?? row.id,
   };
 }
 
@@ -117,7 +121,20 @@ async function getQrDrop(id: string): Promise<any | null> {
   if (!UUID_REGEX.test(id)) return null;
   const { data, error } = await supabase.from('qr_drops').select('*').eq('id', id).maybeSingle();
   if (error) throw new Error(error.message);
-  return data ? dropFromRow(data) : null;
+  return data ? dropWithContent(data) : null;
+}
+
+// A series code's content is stored once, on the series. It is added here, in memory only, so
+// a code's row never holds the series' files and deleting a code leaves them alone.
+async function dropWithContent(row: any): Promise<any | null> {
+  if (!row.series_id) return dropFromRow(row);
+  const { data: series, error } = await supabase
+    .from('qr_series')
+    .select('title, text_content, url_content, files')
+    .eq('id', row.series_id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return series ? dropFromRow({ ...row, ...series }) : null;
 }
 
 // Insert without overwriting; returns false if the ID is already taken
@@ -244,7 +261,7 @@ async function hasViewAccess(c: any, qrDrop: any): Promise<boolean> {
 async function consumeQrDrop(id: string, kind: 'scan' | 'download'): Promise<any | null> {
   const { data, error } = await supabase.rpc('qr_drop_consume', { p_id: id, p_kind: kind, p_now: Date.now() });
   if (error) throw new Error(`qr_drop_consume failed: ${error.message}`);
-  return data ? dropFromRow(data) : null;
+  return data ? dropWithContent(data) : null;
 }
 
 async function countOwnerPreview(id: string): Promise<boolean> {
@@ -668,6 +685,73 @@ async function readBodyCapped(req: Request, maxBytes: number): Promise<Uint8Arra
   return body;
 }
 
+// The files of an upload form: file, file1, file2, ...
+function filesFromForm(formData: FormData): File[] {
+  const files: File[] = [];
+  for (let i = 0; ; i++) {
+    const file = formData.get(i === 0 ? 'file' : `file${i}`);
+    if (!(file instanceof File)) return files;
+    files.push(file);
+  }
+}
+
+const BLOCKED_EXTENSIONS = ['.exe', '.bat', '.sh', '.js', '.html', '.htm', '.php', '.asp', '.jsp'];
+const DANGEROUS_TYPES = ['text/html', 'application/x-javascript', 'application/javascript'];
+
+// SECURITY: Why these files can't be stored, or null if they can. Limits apply to the original
+// size; files arrive slightly larger because they are encrypted.
+function fileProblem(files: File[], maxBytes: number): string | null {
+  let totalSize = 0;
+  for (const file of files) {
+    if (file.size - ENCRYPTION_OVERHEAD_ALLOWANCE > maxBytes) {
+      return `File "${file.name}" exceeds maximum size of ${maxBytes / MB} MB`;
+    }
+    totalSize += file.size;
+  }
+  if (totalSize - files.length * ENCRYPTION_OVERHEAD_ALLOWANCE > maxBytes) {
+    return `Total file size exceeds maximum of ${maxBytes / MB} MB`;
+  }
+  for (const file of files) {
+    const fileName = file.name.toLowerCase();
+    const ext = fileName.substring(fileName.lastIndexOf('.'));
+    if (BLOCKED_EXTENSIONS.includes(ext)) return `File type ${ext} is not allowed for security reasons`;
+    // Be lenient with MIME types (they can be spoofed); only block explicitly dangerous ones
+    if (file.type && file.type !== 'application/octet-stream' && DANGEROUS_TYPES.includes(file.type)) {
+      return `File type ${file.type} is not allowed for security reasons`;
+    }
+  }
+  return null;
+}
+
+// SECURITY: Sanitize filename to prevent path traversal attacks
+function sanitizeFileName(fileName: string): string {
+  return fileName.replace(/\.\./g, '').replace(/\//g, '_').replace(/\\/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 255);
+}
+
+// Uploads files under folder/ and adds each one to `uploaded` as it lands, so the caller can
+// remove them all if anything fails. Files are encrypted, so their original types come from
+// the metadata (originalFileTypes: { file, file1, ... }).
+async function storeFiles(folder: string, files: File[], originalFileTypes: any, uploaded: Array<{ name: string; type: string; size: number; path: string }>) {
+  const timestamp = Date.now();
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const filePath = `${folder}/${timestamp}-${i}-${sanitizeFileName(file.name)}`;
+    const { error } = await supabase.storage
+      .from(BUCKET_NAME)
+      .upload(filePath, await file.arrayBuffer(), {
+        contentType: 'application/octet-stream', // Always stored as octet-stream since files are encrypted
+        upsert: false,
+      });
+    if (error) throw new Error(`Upload failed for file ${i}: ${error.message}`);
+    uploaded.push({
+      name: file.name,
+      type: originalFileTypes?.[i === 0 ? 'file' : `file${i}`] || file.type, // Needed for decryption and display
+      size: file.size, // Encrypted size
+      path: filePath,
+    });
+  }
+}
+
 // Upload files and create QR drop (supports multiple files)
 app.post('/make-server-c3c9181e/upload', async (c) => {
   try {
@@ -681,24 +765,7 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
 
     // SECURITY: Don't log full metadata - may contain sensitive data
 
-    // Get all files from formData (can be multiple)
-    const files: File[] = [];
-    let fileIndex = 0;
-    while (true) {
-      const file = formData.get(`file${fileIndex === 0 ? '' : fileIndex}`) as File;
-      if (!file) break;
-      files.push(file);
-      fileIndex++;
-    }
-
-    // Also check for 'file' (backwards compatibility)
-    if (files.length === 0) {
-      const singleFile = formData.get('file') as File;
-      if (singleFile) {
-        files.push(singleFile);
-      }
-    }
-
+    const files = filesFromForm(formData);
     if (files.length === 0) {
       return c.json({ error: 'No files provided' }, 400);
     }
@@ -716,58 +783,12 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       return c.json({ error: 'Metadata too large. Maximum size is 10 KB.' }, 400);
     }
 
-    // SECURITY: Validate file sizes on server side
-    // The limits the app shows: 20 MB in all when logged in, 5 MB without an account
-    const MAX_FILE_SIZE = userId ? MAX_FILE_BYTES : ANON_FILE_BYTES;
-    const MAX_TOTAL_SIZE = MAX_FILE_SIZE;
-    
-    // Limits apply to the original size; files arrive slightly larger because they are encrypted
-    let totalSize = 0;
-    for (const file of files) {
-      if (file.size - ENCRYPTION_OVERHEAD_ALLOWANCE > MAX_FILE_SIZE) {
-        return c.json({ 
-          error: `File "${file.name}" exceeds maximum size of ${MAX_FILE_SIZE / (1024 * 1024)} MB` 
-        }, 400);
-      }
-      totalSize += file.size;
+    // SECURITY: The limits the app shows: 20 MB in all when logged in, 5 MB without an account
+    const problem = fileProblem(files, userId ? MAX_FILE_BYTES : ANON_FILE_BYTES);
+    if (problem) {
+      return c.json({ error: problem }, 400);
     }
-    
-    if (totalSize - files.length * ENCRYPTION_OVERHEAD_ALLOWANCE > MAX_TOTAL_SIZE) {
-      return c.json({ 
-        error: `Total file size exceeds maximum of ${MAX_TOTAL_SIZE / (1024 * 1024)} MB` 
-      }, 400);
-    }
-
-    // SECURITY: Validate file types
-    const ALLOWED_FILE_TYPES = [
-      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
-      'application/pdf',
-      'text/plain', 'text/csv',
-      'application/zip', 'application/x-zip-compressed',
-      'video/mp4', 'video/webm',
-      'audio/mpeg', 'audio/wav', 'audio/ogg',
-      'application/json',
-    ];
-    
-    const BLOCKED_EXTENSIONS = ['.exe', '.bat', '.sh', '.js', '.html', '.htm', '.php', '.asp', '.jsp'];
-    
-    for (const file of files) {
-      // Check extension
-      const fileName = file.name.toLowerCase();
-      const ext = fileName.substring(fileName.lastIndexOf('.'));
-      if (BLOCKED_EXTENSIONS.includes(ext)) {
-        return c.json({ error: `File type ${ext} is not allowed for security reasons` }, 400);
-      }
-      
-      // Check MIME type if available (but be lenient since MIME types can be spoofed)
-      if (file.type && file.type !== 'application/octet-stream') {
-        // Only block if it's explicitly a dangerous type
-        const dangerousTypes = ['text/html', 'application/x-javascript', 'application/javascript'];
-        if (dangerousTypes.includes(file.type)) {
-          return c.json({ error: `File type ${file.type} is not allowed for security reasons` }, 400);
-        }
-      }
-    }
+    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
 
     // Generate unique ID (use client-provided ID if available for Secure Mode)
     // This ensures encryption/decryption use the same ID
@@ -798,48 +819,10 @@ app.post('/make-server-c3c9181e/upload', async (c) => {
       if (coinBalance === null) return insufficientCoinsResponse(c, cost);
     }
 
-    // SECURITY: Sanitize filename to prevent path traversal attacks
-    const sanitizeFileName = (fileName: string): string => {
-      // Remove path traversal attempts
-      let sanitized = fileName.replace(/\.\./g, '').replace(/\//g, '_').replace(/\\/g, '_');
-      // Remove or replace dangerous characters
-      sanitized = sanitized.replace(/[^a-zA-Z0-9._-]/g, '_');
-      // Limit length to prevent issues
-      return sanitized.substring(0, 255);
-    };
-
     // Upload all files to Supabase Storage. Any failure undoes the whole drop and refunds the coins.
     const uploadedFiles: Array<{name: string; type: string; size: number; path: string}> = [];
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const sanitizedFileName = sanitizeFileName(file.name);
-        const filePath = `${id}/${timestamp}-${i}-${sanitizedFileName}`;
-
-        // Get original file type from metadata if available (files are encrypted, so file.type is application/octet-stream)
-        const fileKey = i === 0 ? 'file' : `file${i}`;
-        const originalFileType = metadata.originalFileTypes?.[fileKey] || file.type;
-
-        const fileBuffer = await file.arrayBuffer();
-        const { error: uploadError } = await supabase.storage
-          .from(BUCKET_NAME)
-          .upload(filePath, fileBuffer, {
-            contentType: 'application/octet-stream', // Always store as octet-stream since files are encrypted
-            upsert: false,
-          });
-
-        if (uploadError) {
-          throw new Error(`Upload failed for file ${i}: ${uploadError.message}`);
-        }
-
-        // Store original file type in metadata (before encryption) for proper decryption and display
-        uploadedFiles.push({
-          name: file.name,
-          type: originalFileType, // Original type (before encryption) - important for decryption
-          size: file.size, // Encrypted size (may differ from original, but we store what we have)
-          path: filePath
-        });
-      }
+      await storeFiles(id, files, metadata.originalFileTypes, uploadedFiles);
 
       // Store metadata in KV
       // For backwards compatibility, also store first file info in old fields
@@ -1278,11 +1261,12 @@ app.get('/make-server-c3c9181e/qrdrops', async (c) => {
     const limit = Math.min(toPositiveInt(c.req.query('limit')) ?? QRDROPS_PAGE_SIZE, QRDROPS_PAGE_SIZE);
     const offset = Math.max(0, parseInt(c.req.query('offset') ?? '0', 10) || 0);
 
-    // Only the caller's own drops, newest first
+    // Only the caller's own drops, newest first. A series' codes are listed with the series.
     const { data, count, error } = await supabase
       .from('qr_drops')
       .select('*', { count: 'exact' })
       .eq('user_id', userId)
+      .is('series_id', null)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
     if (error) throw new Error(error.message);
@@ -1335,6 +1319,253 @@ app.delete('/make-server-c3c9181e/qr/:id', async (c) => {
   } catch (error) {
     console.error('Error deleting QR drop:', error);
     return c.json({ error: 'Failed to delete QR drop' }, 500);
+  }
+});
+
+// ---------- Series: one key made into many unique codes (table public.qr_series) ----------
+// Must stay in sync with SERIES_* and seriesPriceKr() in src/utils/create-series.ts.
+// A code's lifetime starts at its first scan; the series' end is the latest any code can live.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SERIES_LIFETIMES_MS: Record<string, number> = { '24h': DAY_MS, '7d': 7 * DAY_MS, '30d': 30 * DAY_MS, '365d': 365 * DAY_MS };
+const SERIES_ENDS_MS: Record<string, number> = { '6mo': 183 * DAY_MS, '1y': 365 * DAY_MS, '2y': 730 * DAY_MS };
+const SERIES_MIN_CODES = 10;
+const SERIES_MAX_CODES = 5000;
+const SERIES_MAX_OPENS = 50;
+const SERIES_KR_PER_100 = 10;
+// Every code downloads the files again on every open
+const SERIES_MAX_TRAFFIC_BYTES = 50 * GB;
+const SERIES_INSERT_CHUNK = 500;
+
+// 10 kr per started 100 codes, plus the downloads the files can cause (no free allowance)
+function seriesPriceKr(codeCount: number, bytes: number, opens: number): number {
+  const traffic = bytes * opens * codeCount;
+  return Math.ceil(codeCount / 100) * SERIES_KR_PER_100 + (traffic > 0 ? Math.ceil(traffic / GB * KR_PER_GB) : 0);
+}
+
+// What the owner's list shows: rules and status, never content or keys
+function seriesForOwner(row: any, opened: number) {
+  return {
+    id: row.id,
+    title: row.title,
+    codeCount: row.code_count,
+    opened,
+    maxScans: row.max_scans,
+    lifetimeMs: Number(row.lifetime_ms),
+    viewOnly: row.view_only,
+    fileCount: Array.isArray(row.files) ? row.files.length : 0,
+    qrStyle: row.qr_style,
+    expiresAt: toMs(row.expires_at),
+    createdAt: toMs(row.created_at),
+  };
+}
+
+async function deleteSeries(id: string) {
+  const { error } = await supabase.from('qr_series').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+  try {
+    await drainStorageDeletionQueue();
+  } catch (error) {
+    console.error('Error deleting files:', error);
+  }
+}
+
+// Create a series (logged-in only, always paid). Multipart: metadata (JSON) plus optional files
+// file, file1, ... Content is encrypted by the client with the series' id (metadata.clientId)
+// and one key that every code carries in its link. Returns the codes' ids and numbers.
+app.post('/make-server-c3c9181e/series', async (c) => {
+  try {
+    const userId = await getRequestUserId(c);
+    if (!userId) {
+      return c.json({ error: 'Authentication required' }, 401);
+    }
+
+    const body = await readBodyCapped(c.req.raw, MAX_UPLOAD_REQUEST_BYTES);
+    if (!body) {
+      return c.json({ error: 'Upload is too large. Maximum size is 20 MB.', code: 'UPLOAD_TOO_LARGE' }, 413);
+    }
+    const formData = await new Response(body, { headers: { 'Content-Type': c.req.header('Content-Type') ?? '' } }).formData();
+    const metadataString = formData.get('metadata');
+    if (typeof metadataString !== 'string' || metadataString.length > 10 * 1024) {
+      return c.json({ error: 'Metadata missing or too large. Maximum size is 10 KB.' }, 400);
+    }
+    const metadata = JSON.parse(metadataString);
+    const files = filesFromForm(formData);
+
+    if (await isCreateRateLimited(c, userId)) {
+      return rateLimitedResponse(c);
+    }
+
+    const id = metadata.clientId;
+    const codeCount = toPositiveInt(metadata.codeCount);
+    const opens = toPositiveInt(metadata.maxScans);
+    const lifetimeMs = Object.hasOwn(SERIES_LIFETIMES_MS, metadata.lifetime) ? SERIES_LIFETIMES_MS[metadata.lifetime] : null;
+    const endMs = Object.hasOwn(SERIES_ENDS_MS, metadata.seriesEnd) ? SERIES_ENDS_MS[metadata.seriesEnd] : null;
+    if (typeof id !== 'string' || !UUID_REGEX.test(id)) {
+      return c.json({ error: 'clientId is required' }, 400);
+    }
+    if (!codeCount || codeCount < SERIES_MIN_CODES || codeCount > SERIES_MAX_CODES) {
+      return c.json({ error: `A series has ${SERIES_MIN_CODES}–${SERIES_MAX_CODES} codes`, code: 'INVALID_CODE_COUNT' }, 400);
+    }
+    if (!opens || opens > SERIES_MAX_OPENS) {
+      return c.json({ error: `Each code can be opened 1–${SERIES_MAX_OPENS} times`, code: 'TOO_MANY_OPENS', maxOpens: SERIES_MAX_OPENS }, 400);
+    }
+    if (!lifetimeMs || !endMs) {
+      return c.json({ error: 'Invalid lifetime or series end' }, 400);
+    }
+    const textContent = typeof metadata.textContentCiphertext === 'string' && metadata.textContentCiphertext ? metadata.textContentCiphertext : null;
+    const urlContent = typeof metadata.urlContentCiphertext === 'string' && metadata.urlContentCiphertext ? metadata.urlContentCiphertext : null;
+    if (!textContent && !urlContent && files.length === 0) {
+      return c.json({ error: 'At least a file, text or URL is required' }, 400);
+    }
+    const problem = fileProblem(files, MAX_FILE_BYTES);
+    if (problem) {
+      return c.json({ error: problem }, 400);
+    }
+    const bytes = contentBytes(files.map((file) => file.size));
+    if (bytes * opens * codeCount > SERIES_MAX_TRAFFIC_BYTES) {
+      return c.json({ error: 'These files are too big for this many codes and opens', code: 'TOO_MUCH_TRAFFIC' }, 400);
+    }
+
+    // SECURITY: A client-chosen ID must never replace someone else's series
+    const { data: existing, error: existingError } = await supabase.from('qr_series').select('id').eq('id', id).maybeSingle();
+    if (existingError) throw new Error(existingError.message);
+    if (existing) {
+      return c.json({ error: 'Series ID already in use' }, 409);
+    }
+
+    // Done before charging so a hashing failure can't cost coins
+    const passwordHash = typeof metadata.password === 'string' && metadata.password ? await hashPasswordSecure(metadata.password) : null;
+    const cost = seriesPriceKr(codeCount, bytes, opens);
+    const coinBalance = await deductCoins(userId, cost);
+    if (coinBalance === null) return insufficientCoinsResponse(c, cost);
+
+    const now = Date.now();
+    const expiresAt = toIso(now + endMs);
+    const uploadedFiles: Array<{ name: string; type: string; size: number; path: string }> = [];
+    let seriesStored = false;
+    try {
+      await storeFiles(`series-${id}`, files, metadata.originalFileTypes, uploadedFiles);
+
+      const seriesRow = {
+        id,
+        user_id: userId,
+        title: typeof metadata.title === 'string' ? metadata.title.slice(0, 80) || null : null,
+        content_type: 'bundle',
+        text_content: textContent,
+        url_content: urlContent,
+        files: uploadedFiles,
+        code_count: codeCount,
+        max_scans: opens,
+        lifetime_ms: lifetimeMs,
+        view_only: metadata.viewOnly === true,
+        qr_style: metadata.qrStyle || null,
+        expires_at: expiresAt,
+        created_at: toIso(now),
+      };
+      const { error: seriesError } = await supabase.from('qr_series').insert(seriesRow);
+      if (seriesError?.code === '23505') throw Object.assign(new Error('Series ID already in use'), { status: 409 });
+      if (seriesError) throw new Error(seriesError.message);
+      seriesStored = true;
+
+      // The codes: ordinary drops without content of their own. Until its first scan a code
+      // lives as long as the series.
+      const codes = Array.from({ length: codeCount }, (_, i) => ({ id: crypto.randomUUID(), number: i + 1 }));
+      for (let start = 0; start < codes.length; start += SERIES_INSERT_CHUNK) {
+        const rows = codes.slice(start, start + SERIES_INSERT_CHUNK).map((code) => ({
+          id: code.id,
+          user_id: userId,
+          series_id: id,
+          series_number: code.number,
+          content_type: 'bundle',
+          files: [],
+          expiry_type: metadata.lifetime,
+          expires_at: expiresAt,
+          lifetime_ms: lifetimeMs,
+          max_scans: opens,
+          view_only: seriesRow.view_only,
+          password_hash: passwordHash,
+          qr_style: seriesRow.qr_style,
+          encrypted: true,
+          single_qr_mode: true,
+          created_at: seriesRow.created_at,
+        }));
+        const { error } = await supabase.from('qr_drops').insert(rows);
+        if (error) throw new Error(error.message);
+      }
+
+      return c.json({
+        success: true,
+        series: seriesForOwner(seriesRow, 0),
+        codes,
+        coinsCharged: cost,
+        coins: coinBalance,
+      });
+    } catch (error) {
+      // Deleting the series takes its codes and queues its files; before that, remove them here
+      if (seriesStored) await deleteSeries(id);
+      else if (uploadedFiles.length > 0) await supabase.storage.from(BUCKET_NAME).remove(uploadedFiles.map((f) => f.path));
+      await refundCoins(userId, cost);
+      if (error?.status === 409) return c.json({ error: error.message }, 409);
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error creating series:', error);
+    return c.json({ error: 'Server error while creating series' }, 500);
+  }
+});
+
+// The caller's series, newest first, with how many codes have been opened
+app.get('/make-server-c3c9181e/series', async (c) => {
+  try {
+    const userId = await getRequestUserId(c);
+    if (!userId) {
+      return c.json({ series: [] });
+    }
+    const { data, error } = await supabase
+      .from('qr_series')
+      .select('id, title, code_count, max_scans, lifetime_ms, view_only, files, qr_style, expires_at, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(QRDROPS_PAGE_SIZE);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    let opened: Record<string, number> = {};
+    if (rows.length > 0) {
+      const { data: counts, error: countError } = await supabase.rpc('qr_series_opened', { p_series_ids: rows.map((row: any) => row.id) });
+      if (countError) throw new Error(countError.message);
+      opened = counts ?? {};
+    }
+    return c.json({ series: rows.map((row: any) => seriesForOwner(row, opened[row.id] ?? 0)) });
+  } catch (error) {
+    console.error('Error getting series:', error);
+    return c.json({ error: 'Failed to get series' }, 500);
+  }
+});
+
+// Delete a series with all its codes and files (logged-in owner only)
+app.delete('/make-server-c3c9181e/series/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid series ID format' }, 400);
+    }
+    const userId = await getRequestUserId(c);
+    if (!userId) {
+      return c.json({ error: 'Authentication required' }, 401);
+    }
+    const { data, error } = await supabase.from('qr_series').select('user_id').eq('id', id).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) {
+      return c.json({ error: 'Series not found' }, 404);
+    }
+    if (data.user_id !== userId) {
+      return c.json({ error: 'Unauthorized: You can only delete your own series' }, 403);
+    }
+    await deleteSeries(id);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting series:', error);
+    return c.json({ error: 'Failed to delete series' }, 500);
   }
 });
 

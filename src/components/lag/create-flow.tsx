@@ -7,6 +7,7 @@ import { useAuth } from '../../utils/auth-context';
 import { fromLocalInputValue, isValidActivationDate } from '../../utils/activation';
 import { shrinkImages } from '../../utils/shrink-image';
 import { calculatePriceKr, createDrop, maxOpensFor, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT } from '../../utils/create-drop';
+import { createSeries, seriesPriceKr, seriesTooMuchTraffic, SERIES_MAX_CODES, SERIES_MAX_OPENS, SERIES_MIN_CODES, type CreatedSeries, type SeriesEnd, type SeriesLifetime } from '../../utils/create-series';
 import { KEYS_BY_WHO, MAX_TIMES, templateById, type Rules, type TemplateId } from './rules';
 import { STYLE_PRESETS, type StylePreset } from './key-preview';
 import { StepStart, type PastedContent } from './step-start';
@@ -24,6 +25,13 @@ export interface Draft {
   maxDownloads: string;
   preset: StylePreset;
   style: QrStyle;
+  series: SeriesRules; // Only used by the series template
+}
+
+export interface SeriesRules {
+  count: number;
+  lifetime: SeriesLifetime; // Each code's lifetime, from its first scan
+  end: SeriesEnd; // When the whole series stops working
 }
 
 const emptyDraft = (loggedIn: boolean): Draft => ({
@@ -38,27 +46,45 @@ const emptyDraft = (loggedIn: boolean): Draft => ({
   maxDownloads: '',
   preset: 'standard',
   style: STYLE_PRESETS.standard,
+  series: { count: 100, lifetime: '30d', end: '1y' },
 });
 
 // What stands between the draft and the server, in the order the person should fix it
 export function draftCost(draft: Draft, loggedIn: boolean) {
   const totalFileSize = draft.files.reduce((sum, file) => sum + file.size, 0);
   const hasFiles = draft.files.length > 0;
+  const tooLarge = totalFileSize > MAX_SIZE_LOGGED_IN;
+  if (draft.template === 'series') {
+    // A series is always paid, so it needs an account; files count for every code
+    const opens = draft.rules.times === 'inf' ? SERIES_MAX_OPENS + 1 : draft.rules.times;
+    const { count } = draft.series;
+    return {
+      cost: seriesPriceKr(count, totalFileSize, Math.min(opens, SERIES_MAX_OPENS)),
+      totalFileSize,
+      hasFiles,
+      maxOpens: SERIES_MAX_OPENS,
+      tooManyOpens: opens > SERIES_MAX_OPENS,
+      tooLarge,
+      tooMuchTraffic: seriesTooMuchTraffic(count, totalFileSize, opens),
+      badCount: !Number.isInteger(count) || count < SERIES_MIN_CODES || count > SERIES_MAX_CODES,
+      needsLogin: true,
+    };
+  }
   // The bigger the files, the fewer opens (none of it applies without files)
   const maxOpens = hasFiles ? maxOpensFor(totalFileSize, loggedIn) : MAX_TIMES;
   const opens = draft.rules.times === 'inf' ? maxOpens : draft.rules.times;
   const cost = hasFiles ? calculatePriceKr({ totalFileSize, opens, loggedIn }) : 0;
   const tooManyOpens = hasFiles && (draft.rules.times === 'inf' || draft.rules.times > maxOpens);
-  const tooLarge = totalFileSize > MAX_SIZE_LOGGED_IN;
   // Only files over 5 MB need an account
-  return { cost, totalFileSize, hasFiles, maxOpens, tooManyOpens, tooLarge, needsLogin: totalFileSize > FREE_SIZE_LIMIT };
+  return { cost, totalFileSize, hasFiles, maxOpens, tooManyOpens, tooLarge, tooMuchTraffic: false, badCount: false, needsLogin: totalFileSize > FREE_SIZE_LIMIT };
 }
 
 interface CreateFlowProps {
   onQrCreated: (qrDrop: QrDrop) => void;
+  onSeriesCreated: (series: CreatedSeries) => void;
 }
 
-export function CreateFlow({ onQrCreated }: CreateFlowProps) {
+export function CreateFlow({ onQrCreated, onSeriesCreated }: CreateFlowProps) {
   const { t } = useTranslation();
   const { user, coins, refreshCoins } = useAuth();
   const [step, setStep] = useState<1 | 2>(1);
@@ -109,7 +135,20 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
       toast.error(t('lag.errors.terms'));
       return;
     }
-    const { cost, totalFileSize, maxOpens, tooManyOpens } = draftCost(draft, !!user);
+    const { cost, totalFileSize, maxOpens, tooManyOpens, tooMuchTraffic, badCount } = draftCost(draft, !!user);
+    const isSeries = draft.template === 'series';
+    if (isSeries && !user) {
+      toast.error(t('upload.mustBeLoggedIn'));
+      return;
+    }
+    if (badCount) {
+      toast.error(t('lag.series.errors.count', { min: SERIES_MIN_CODES, max: SERIES_MAX_CODES }));
+      return;
+    }
+    if (tooMuchTraffic) {
+      toast.error(t('lag.series.errors.traffic'));
+      return;
+    }
     const maxSize = user ? MAX_SIZE_LOGGED_IN : FREE_SIZE_LIMIT;
     if (totalFileSize > maxSize) {
       toast.error(t('upload.fileSizeExceeded', { maxSize: user ? '20 MB' : '5 MB', loginPrompt: user ? '' : t('upload.loginPrompt') }));
@@ -141,6 +180,28 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
 
     setCreating(true);
     try {
+      if (isSeries) {
+        const { created, coinsCharged } = await createSeries({
+          title: draft.title,
+          files: draft.files,
+          textContent: draft.text,
+          urls: draft.urls,
+          codeCount: draft.series.count,
+          maxScans: rules.times as number,
+          lifetime: draft.series.lifetime,
+          seriesEnd: draft.series.end,
+          viewOnly: rules.mode === 'view',
+          password: rules.who === 'password' ? draft.password : undefined,
+          qrStyle: draft.style,
+        });
+        await refreshCoins();
+        toast.success(t('lag.preview.charged', { kr: coinsCharged }));
+        setDraft(emptyDraft(!!user));
+        setAcceptedTerms(false);
+        setStep(1);
+        onSeriesCreated(created);
+        return;
+      }
       const { qrDrop, coinsCharged } = await createDrop(
         {
           title: draft.title,

@@ -34,6 +34,7 @@ class Query {
   delete() { this.op = 'delete'; return this; }
   eq(c, v) { this.filters.push(['=', c, v]); return this; }
   in(c, v) { this.filters.push(['in', c, v]); return this; }
+  is(c, v) { if (v !== null) throw new Error('mock only supports is(col, null)'); this.filters.push(['is null', c]); return this; }
   like(c, v) { this.filters.push(['like', c, v]); return this; }
   single() { this.mode = 'single'; return this; }
   maybeSingle() { this.mode = 'maybe'; return this; }
@@ -46,6 +47,7 @@ class Query {
         if (v.length === 0) return 'false';
         return `${c} in (${v.map((x) => { params.push(x); return '$' + params.length; }).join(',')})`;
       }
+      if (op === 'is null') return `${c} is null`;
       params.push(v);
       // PostgREST JSON path: value->>userId  ->  value->>'userId'
       return `${c.replace(/->>(\w+)$/, "->>'$1'")} ${op} $${params.length}`;

@@ -10,7 +10,9 @@ import { AppHeader } from './components/lag/app-header';
 import { CreateFlow } from './components/lag/create-flow';
 import { StepReady, leaveReadyGuard } from './components/lag/step-ready';
 import { Keyring } from './components/lag/keyring';
-import { getAllQrDrops, deleteQrDrop, type QrDropData } from './utils/api-client';
+import { StepSeriesReady } from './components/lag/step-series-ready';
+import { getAllQrDrops, deleteQrDrop, getAllSeries, deleteSeries, type QrDropData, type SeriesData } from './utils/api-client';
+import type { CreatedSeries } from './utils/create-series';
 import { toast, Toaster } from 'sonner@2.0.3';
 import { keyPartsFromHash, rememberKeyParts, purgeStaleKeyParts } from './utils/key-handover';
 import type { KeyDelivery } from './utils/create-drop';
@@ -87,8 +89,10 @@ function AppContent() {
   const { user, loading: authLoading } = useAuth();
   const { t } = useTranslation();
   const [qrDrops, setQrDrops] = useState<QrDrop[]>([]);
-  const [currentView, setCurrentView] = useState<'upload' | 'list' | 'ready' | 'success' | 'legal' | 'how-it-works'>('upload');
+  const [currentView, setCurrentView] = useState<'upload' | 'list' | 'ready' | 'seriesReady' | 'success' | 'legal' | 'how-it-works'>('upload');
   const [selectedQrDrop, setSelectedQrDrop] = useState<QrDrop | null>(null);
+  const [series, setSeries] = useState<SeriesData[]>([]);
+  const [createdSeries, setCreatedSeries] = useState<CreatedSeries | null>(null);
   const [isLoading, setIsLoading] = useState(false); // Start as false, will be set to true when actually loading
   const [scanId, setScanId] = useState<string | null>(null);
   const [keyArrivals, setKeyArrivals] = useState(0); // Restarts ScanView when a QR key arrives in the same tab
@@ -198,9 +202,15 @@ function AppContent() {
     // Don't load if user is not logged in (will get empty array anyway)
     if (!user) {
       setQrDrops([]);
+      setSeries([]);
       setIsLoading(false);
       return;
     }
+
+    // Series are listed on their own; a failure there must not hide the keys
+    getAllSeries()
+      .then(({ series }) => setSeries(series ?? []))
+      .catch((error) => console.error('Failed to load series:', error?.message));
 
     try {
       setIsLoadingQrDrops(true);
@@ -311,6 +321,24 @@ function AppContent() {
     }, 1000); // 1 second delay to allow backend to index
   };
 
+  const handleSeriesCreated = (created: CreatedSeries) => {
+    setCreatedSeries(created);
+    setSeries((list) => [created.series, ...list]);
+    setCurrentView('seriesReady');
+    window.scrollTo({ top: 0 });
+  };
+
+  const handleDeleteSeries = async (id: string) => {
+    try {
+      await deleteSeries(id);
+      setSeries((list) => list.filter((s) => s.id !== id));
+      toast.success(t('app.qrDeleted'));
+    } catch (error) {
+      console.error('Failed to delete series:', error);
+      toast.error(t('app.couldNotDeleteQr'));
+    }
+  };
+
   const handleActivationChanged = (id: string, changes: { activatesAt?: Date; expiryDate?: Date }) => {
     setQrDrops((drops) => drops.map((qr) => (qr.id === id ? { ...qr, ...changes } : qr)));
     setSelectedQrDrop((qr) => (qr?.id === id ? { ...qr, ...changes } : qr));
@@ -342,21 +370,25 @@ function AppContent() {
   };
 
   // The create flow, the key ring and the terms use the new look; scan and the rest keep theirs for now
-  const newLook = !scanId && ['upload', 'list', 'ready', 'legal'].includes(currentView);
+  const newLook = !!scanId || ['upload', 'list', 'ready', 'seriesReady', 'legal'].includes(currentView);
 
   return (
     <div className="lg-app relative">
       {!newLook && <DecorativeBackground />}
 
       <AppHeader
-        section={scanId ? null : currentView === 'list' ? 'keyring' : ['upload', 'ready'].includes(currentView) ? 'create' : null}
-        keyCount={qrDrops.length}
+        section={scanId ? null : currentView === 'list' ? 'keyring' : ['upload', 'ready', 'seriesReady'].includes(currentView) ? 'create' : null}
+        keyCount={qrDrops.length + series.length}
         showNav={!scanId}
         onNavigate={navigate}
         onHome={goHome}
       />
 
-      {currentView === 'upload' && !scanId && <CreateFlow key={homeVisits} onQrCreated={handleQrCreated} />}
+      {currentView === 'upload' && !scanId && <CreateFlow key={homeVisits} onQrCreated={handleQrCreated} onSeriesCreated={handleSeriesCreated} />}
+
+      {currentView === 'seriesReady' && !scanId && createdSeries && (
+        <StepSeriesReady created={createdSeries} onNew={() => navigate('create')} onKeyring={() => navigate('keyring')} />
+      )}
 
       {currentView === 'ready' && !scanId && selectedQrDrop && (
         <StepReady qrDrop={selectedQrDrop} onNew={() => navigate('create')} onKeyring={() => navigate('keyring')} />
@@ -371,28 +403,30 @@ function AppContent() {
           onDelete={handleDelete}
           onActivationChanged={handleActivationChanged}
           onCreate={() => navigate('create')}
+          series={series}
+          onDeleteSeries={handleDeleteSeries}
         />
+      )}
+
+      {scanId && (
+        // Public scan page
+        <main className="lg-wrap lg-main lg-tight">
+          <ScanView
+            key={`${scanId}:${keyArrivals}`}
+            qrDropId={scanId}
+            isDirectScan={true}
+            onBack={() => {
+              window.location.href = '/';
+            }}
+          />
+        </main>
       )}
 
       {!newLook && (
         <main className="relative z-10 max-w-5xl mx-auto px-4 py-8">
-          {scanId ? (
-            // Public scan page
-            <ScanView
-              key={`${scanId}:${keyArrivals}`}
-              qrDropId={scanId}
-              isDirectScan={true}
-              onBack={() => {
-                window.location.href = '/';
-              }}
-            />
-          ) : (
-            <>
-              {currentView === 'success' && <SuccessPage />}
+          {currentView === 'success' && <SuccessPage />}
 
-              {currentView === 'how-it-works' && <HowItWorksPage onBack={() => navigate('create')} onHome={goHome} />}
-            </>
-          )}
+          {currentView === 'how-it-works' && <HowItWorksPage onBack={() => navigate('create')} onHome={goHome} />}
         </main>
       )}
 

@@ -132,7 +132,11 @@ export function StepStart({ onPick }: StepStartProps) {
                 <span className="lg-tag">{tpl.soon ? t('lag.start.soon') : t(`lag.templates.${tpl.id}.tag`)}</span>
               </span>
               <span className="lg-tpl-desc">{t(`lag.templates.${tpl.id}.desc`)}</span>
-              {!tpl.soon && <span className="lg-tpl-rule">{shortRuleLine(t, tpl.rules(!!user), i18n.language)}</span>}
+              {!tpl.soon && (
+                <span className="lg-tpl-rule">
+                  {tpl.id === 'series' ? t('lag.templates.series.rule') : shortRuleLine(t, tpl.rules(!!user), i18n.language)}
+                </span>
+              )}
             </span>
           </button>
         ))}

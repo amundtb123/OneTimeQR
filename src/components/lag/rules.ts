@@ -30,7 +30,7 @@ export const EXPIRY: Expiry[] = ['10m', '30m', '1h', '24h', '7d'];
 export const MODE: Mode[] = ['download', 'view'];
 
 
-export type TemplateId = 'once' | 'secret' | 'two' | 'gift' | 'many' | 'authenticity';
+export type TemplateId = 'once' | 'secret' | 'two' | 'gift' | 'many' | 'series' | 'authenticity';
 
 export interface Template {
   id: TemplateId;
@@ -60,6 +60,11 @@ export const TEMPLATES: Template[] = [
   {
     id: 'many', mark: '50', tone: 'blue',
     rules: () => ({ times: 50, who: 'code', expiry: '7d', mode: 'download', opensAt: null }),
+  },
+  {
+    // Many unique codes with the same content; its own rules live in Draft.series
+    id: 'series', mark: '#', tone: 'ink',
+    rules: () => ({ times: 1, who: 'code', expiry: '7d', mode: 'download', opensAt: null }),
   },
   { id: 'authenticity', mark: '✓', tone: 'ink', soon: true, rules: (l) => TEMPLATES[0].rules(l) },
 ];

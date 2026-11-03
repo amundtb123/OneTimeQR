@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Download, Eye, Lock, AlertCircle, CheckCircle, Loader2, Clock, FileText, Link as LinkIcon, ExternalLink, Copy, Shield, CalendarClock } from 'lucide-react';
+import { ArrowLeft, Download, Eye, Lock, AlertCircle, Loader2, Clock, Link as LinkIcon, ExternalLink, Copy, Shield, CalendarClock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -75,6 +75,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const [activatesAt, setActivatesAt] = useState<number | null>(null); // While scheduled
   const [attempt, setAttempt] = useState(0); // Restarts loading once a scheduled drop opens
   const [error, setError] = useState<string | null>(null);
+  const [gone, setGone] = useState(false); // Used up, expired or deleted: nothing went wrong
   const [meta, setMeta] = useState<any>(null); // From GET /qr/:id: no content, doesn't use a view
   const [qrDrop, setQrDrop] = useState<any>(null); // From /open: with content
   const [keyParts, setKeyParts] = useState<KeyParts>({});
@@ -102,8 +103,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       return;
     }
     if (err instanceof DecryptError) setError(t('scanView.couldNotDecrypt'));
-    else if (err?.status === 410) setError(t('scanView.qrExpired'));
-    else if (err?.status === 404) setError(t('scanView.qrNotFound'));
+    else if (err?.status === 410 || err?.status === 404) setGone(true);
     else setError(t('scanView.couldNotLoad'));
     setStatus('error');
   };
@@ -145,7 +145,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
 
   // Uses up a view: the server verifies the password, counts the view and returns the content
   const open = async (password?: string) => {
-    const opened = await openQrDrop(qrDropId, password);
+    const opened = await openQrDrop(qrDropId, password, isPreview);
     forgetKeyParts(qrDropId);
     const drop = opened.qrDrop as any;
     const e2e = drop.secureMode || drop.singleQrMode;
@@ -155,8 +155,10 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     if (e2e) {
       try {
         const master = hexToBytes(keyRef.current!);
-        text = drop.textContent ? await decryptTextWithSplitKey(JSON.parse(drop.textContent), master, drop.id) : undefined;
-        urls = drop.urlContent ? parseUrls(await decryptTextWithSplitKey(JSON.parse(drop.urlContent), master, drop.id)) : [];
+        // A series code carries its series' content, encrypted with the series' id
+        const contentId = drop.contentId || drop.id;
+        text = drop.textContent ? await decryptTextWithSplitKey(JSON.parse(drop.textContent), master, contentId) : undefined;
+        urls = drop.urlContent ? parseUrls(await decryptTextWithSplitKey(JSON.parse(drop.urlContent), master, contentId)) : [];
       } catch {
         throw new DecryptError('Could not decrypt content');
       }
@@ -331,13 +333,21 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
 
   if (status === 'error') {
     return (
-      <div className="max-w-3xl mx-auto">
+      <div className="lg-open">
         {backButton}
-        <Card className="p-12 text-center">
-          <AlertCircle className="size-12 text-red-600 mx-auto mb-4" />
-          <h3 className="text-gray-900 mb-2">{t('scanView.couldNotLoadQr')}</h3>
-          <p className="text-gray-600">{error}</p>
-        </Card>
+        <header className="lg-stack" style={{ gap: 14 }}>
+          <div className="lg-open-seal is-gone" aria-hidden="true">
+            <AlertCircle className="size-6" />
+          </div>
+          <h1 className="lg-h1 lg-open-title">{gone ? t('scanView.opened.goneTitle') : t('scanView.couldNotLoadQr')}</h1>
+          <p className="lg-lead">{gone ? t('scanView.opened.goneBody') : error}</p>
+        </header>
+        <a href="/" className="lg-open-cta">
+          <span className="lg-stack" style={{ gap: 2 }}>
+            <strong>{t('scanView.opened.cta')} →</strong>
+            <span className="lg-small lg-muted">{t('scanView.opened.ctaHint')}</span>
+          </span>
+        </a>
       </div>
     );
   }
@@ -418,131 +428,98 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const hasText = !!content.text;
   const hasUrls = content.urls.length > 0;
   const hasFiles = files.length > 0;
+  // From the server's count after this view was used up
+  const viewsLeft = qrDrop?.maxScans ? Math.max(0, qrDrop.maxScans - (qrDrop.scanCount || 0)) : null;
+  const lastView = !isPreview && viewsLeft === 0;
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="lg-open">
       {backButton}
 
-      <div className="space-y-4 pb-24"> {/* pb-24 for space for sticky download button */}
-        {/* Success Message */}
-        {!isDirectScan && (
-          <Alert>
-            <CheckCircle className="size-4 text-green-600" />
-            <AlertDescription className="text-green-800">
-              {t('scanView.accessGranted')}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Content Preview */}
-        <Card className="p-4 sm:p-6">
-          {/* Secure Mode Badge - content was decrypted in this browser */}
+      <header className="lg-stack" style={{ gap: 14 }}>
+        <div className="lg-open-seal" aria-hidden="true">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <rect x="4" y="11" width="16" height="10" />
+            <path d="M8 11V7a4 4 0 0 1 7.6-1.7" />
+          </svg>
+        </div>
+        <div className="lg-eyebrow">{isPreview ? t('scanView.opened.preview') : t('scanView.opened.eyebrow')}</div>
+        <h1 className="lg-h1 lg-open-title">{qrDrop?.title || t('scanView.opened.title')}</h1>
+        <div className="lg-open-meta">
           {isE2E && (
-            <div
-              className="mb-4 inline-flex px-3 py-1.5 rounded-xl border backdrop-blur-sm items-center gap-2"
-              style={{
-                backgroundColor: 'rgba(245, 229, 225, 0.95)',
-                borderColor: '#E8927E',
-                color: '#E8927E'
-              }}
-            >
+            <span className="lg-chip">
               <Shield className="size-3.5" />
-              <span className="text-sm">{t('scanView.secureModeDecrypted')}</span>
-            </div>
+              {t('scanView.opened.e2e')}
+            </span>
           )}
-
-          {/* Expiry Time Tag */}
-          {qrDrop?.expiresAt && (
-            <div
-              className="mb-4 inline-flex px-3 py-1.5 rounded-xl border backdrop-blur-sm items-center gap-2 ml-2"
-              style={{
-                backgroundColor: 'rgba(226, 239, 250, 0.95)',
-                borderColor: '#D5C5BD',
-                color: '#4A6FA5'
-              }}
-            >
+          {qrDrop?.expiresAt && !lastView && (
+            <span className="lg-chip">
               <Clock className="size-3.5" />
-              <span className="text-sm">{formatTimeLeft(t, qrDrop.expiresAt, now)}</span>
-            </div>
+              {formatTimeLeft(t, qrDrop.expiresAt, now)}
+            </span>
           )}
-
-          {/* Show title if exists */}
-          {qrDrop?.title && (
-            <div className="mb-4 pb-4 border-b border-gray-200">
-              <h2 className="text-gray-900 text-lg">{qrDrop.title}</h2>
-            </div>
+          {viewsLeft !== null && !lastView && (
+            <span className="lg-chip">
+              <Eye className="size-3.5" />
+              {t('scanView.opened.viewsLeft', { count: viewsLeft })}
+            </span>
           )}
+        </div>
+      </header>
 
+      {lastView && (
+        <p className="lg-open-warning">
+          <AlertCircle className="size-4" style={{ flexShrink: 0, marginTop: 2 }} />
+          {t('scanView.opened.lastView')}
+        </p>
+      )}
+
+      <div className="space-y-4 pb-24"> {/* pb-24 for space for sticky download button */}
+        <section className="lg-open-card">
           {/* Text Content */}
           {hasText && (
-            <div className="mb-4">
-              <div className="flex items-center gap-2 mb-3">
-                <FileText className="size-5 text-[#4A6FA5]" />
-                <h3 className="text-gray-900">{t('scanView.textMessage')}</h3>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <p className="text-gray-900 whitespace-pre-wrap">
-                  {content.text}
-                </p>
-              </div>
-              <Button
+            <div className="lg-stack" style={{ gap: 16 }}>
+              <p className="lg-open-message">{content.text}</p>
+              <button
+                type="button"
+                className="lg-btn lg-btn-ink"
                 onClick={() => {
                   navigator.clipboard.writeText(content.text!);
                   toast.success(t('scanView.textCopied'));
                 }}
-                className="w-full mt-4"
-                size="lg"
-                variant="outline"
               >
-                <Copy className="size-5 mr-2" />
+                <Copy className="size-4" />
                 {t('scanView.copyText')}
-              </Button>
+              </button>
             </div>
           )}
 
           {/* URL Content */}
           {hasUrls && (
-            <div className="mb-4">
-              <div className="flex items-center gap-2 mb-3">
-                <LinkIcon className="size-5 text-[#4A6FA5]" />
-                <h3 className="text-gray-900">{content.urls.length > 1 ? t('scanView.urlsPlural') : t('scanView.urls')}</h3>
-              </div>
-              <div className="space-y-2">
-                {content.urls.map((url, index) => (
-                  <div key={index} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[#5D8CC9] hover:underline break-all flex items-center gap-2"
-                    >
-                      {url}
-                      <ExternalLink className="size-4 flex-shrink-0" />
-                    </a>
-                  </div>
-                ))}
-                <div className="grid grid-cols-2 gap-3 mt-4">
-                  <Button
-                    onClick={() => {
-                      navigator.clipboard.writeText(content.urls.join('\n'));
-                      toast.success(t('scanView.linksCopied'));
-                    }}
-                    variant="outline"
-                    size="lg"
-                  >
-                    <Copy className="size-5 mr-2" />
-                    {content.urls.length > 1 ? t('scanView.copyAll') : t('scanView.copy')}
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      content.urls.forEach((url) => window.open(url, '_blank'));
-                    }}
-                    size="lg"
-                  >
-                    <ExternalLink className="size-5 mr-2" />
-                    {content.urls.length > 1 ? t('scanView.openAll') : t('scanView.open')}
-                  </Button>
-                </div>
+            <div className="lg-stack" style={{ gap: 10 }}>
+              {content.urls.map((url, index) => (
+                <a key={index} href={url} target="_blank" rel="noopener noreferrer" className="lg-open-link">
+                  <LinkIcon className="size-4" style={{ flexShrink: 0 }} />
+                  <span>{url}</span>
+                  <ExternalLink className="size-4" style={{ flexShrink: 0 }} />
+                </a>
+              ))}
+              <div className="lg-row" style={{ gap: 8 }}>
+                <button
+                  type="button"
+                  className="lg-btn"
+                  onClick={() => {
+                    navigator.clipboard.writeText(content.urls.join('\n'));
+                    toast.success(t('scanView.linksCopied'));
+                  }}
+                >
+                  <Copy className="size-4" />
+                  {content.urls.length > 1 ? t('scanView.copyAll') : t('scanView.copy')}
+                </button>
+                <button type="button" className="lg-btn lg-btn-primary" onClick={() => content.urls.forEach((url) => window.open(url, '_blank'))}>
+                  <ExternalLink className="size-4" />
+                  {content.urls.length > 1 ? t('scanView.openAll') : t('scanView.open')}
+                </button>
               </div>
             </div>
           )}
@@ -662,7 +639,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               </AlertDescription>
             </Alert>
           )}
-        </Card>
+        </section>
 
         {/* Sticky Download Button - Fixed at bottom */}
         {hasFiles && (
@@ -718,6 +695,16 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               </div>
             </div>
           </Card>
+        )}
+
+        {/* The person who got a key is the likeliest to make one */}
+        {!isPreview && (
+          <a href="/" className="lg-open-cta">
+            <span className="lg-stack" style={{ gap: 2 }}>
+              <strong>{t('scanView.opened.cta')} →</strong>
+              <span className="lg-small lg-muted">{t('scanView.opened.ctaHint')}</span>
+            </span>
+          </a>
         )}
       </div>
     </div>

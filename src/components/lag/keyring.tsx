@@ -9,6 +9,8 @@ import { ActivationEditor } from '../activation-editor';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/alert-dialog';
 import { dropRuleLine } from './rules';
 import { downloadImage, lockImage, shareLink } from './step-ready';
+import { KeyringSeries } from './keyring-series';
+import type { SeriesData } from '../../utils/api-client';
 
 type KeyState = 'sealed' | 'opened' | 'invalid' | 'scheduled';
 
@@ -49,9 +51,11 @@ interface KeyringProps {
   onDelete: (id: string) => void;
   onActivationChanged: (id: string, changes: { activatesAt?: Date; expiryDate?: Date }) => void;
   onCreate: () => void;
+  series: SeriesData[];
+  onDeleteSeries: (id: string) => void;
 }
 
-export function Keyring({ qrDrops, isLoading, onDelete, onActivationChanged, onCreate }: KeyringProps) {
+export function Keyring({ qrDrops, isLoading, onDelete, onActivationChanged, onCreate, series, onDeleteSeries }: KeyringProps) {
   const { t, i18n } = useTranslation();
   const { user, signInWithGoogle } = useAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -82,7 +86,7 @@ export function Keyring({ qrDrops, isLoading, onDelete, onActivationChanged, onC
     );
   }
 
-  if (sorted.length === 0) {
+  if (sorted.length === 0 && series.length === 0) {
     return (
       <main className="lg-wrap lg-main">
         <div className="lg-empty">
@@ -121,7 +125,9 @@ export function Keyring({ qrDrops, isLoading, onDelete, onActivationChanged, onC
         </div>
       </div>
 
-      <div className="lg-cols" style={{ gap: 24 }}>
+      <KeyringSeries series={series} onDelete={onDeleteSeries} />
+
+      {sorted.length > 0 && <div className="lg-cols" style={{ gap: 24 }}>
         <div className="lg-col-main lg-keys" style={{ gap: 8 }}>
           {sorted.map((q) => {
             const s = keyState(q, now);
@@ -241,7 +247,7 @@ export function Keyring({ qrDrops, isLoading, onDelete, onActivationChanged, onC
             </AlertDialog>
           </aside>
         )}
-      </div>
+      </div>}
     </main>
   );
 }

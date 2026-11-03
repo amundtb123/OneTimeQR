@@ -219,12 +219,17 @@ console.log('\nS1: files and downloads');
 console.log('\nS1: ownership');
 {
   const { id } = await create({}, { token: 'tok-A' });
-  const ownerOpen = await call('POST', `/qr/${id}/open`, { body: {}, token: 'tok-A' });
+  const ownerOpen = await call('POST', `/qr/${id}/open`, { body: {}, token: 'tok-A', headers: { 'X-Owner-Preview': '1' } });
   check('owner preview works', ownerOpen.status === 200);
   check('owner preview does not use a view', ((await rawDrop(id)).scanCount || 0) === 0);
-  check('owner previews without files are not limited', (await Promise.all(Array.from({ length: 5 }, () => call('POST', `/qr/${id}/open`, { body: {}, token: 'tok-A' })))).every((r) => r.status === 200));
-  await call('POST', `/qr/${id}/open`, { body: {}, token: 'tok-B' });
-  check('other user\'s open is counted', (await rawDrop(id)).scanCount === 1);
+  await call('POST', `/qr/${id}/open`, { body: {}, token: 'tok-B', headers: { 'X-Owner-Preview': '1' } });
+  check('other user\'s open is counted, even when asking for a preview', (await rawDrop(id)).scanCount === 1);
+  // Scanning your own key opens it like anyone else; only the preview button asks for a preview
+  await call('POST', `/qr/${id}/open`, { body: {}, token: 'tok-A' });
+  check('owner who scans their own key uses a view', (await rawDrop(id)).scanCount === 2);
+  const textPreviews = [];
+  for (let i = 0; i < 3; i++) textPreviews.push((await call('POST', `/qr/${id}/open`, { body: {}, token: 'tok-A', headers: { 'X-Owner-Preview': '1' } })).status);
+  check('owner previews without files: 2 more free (3 in all)', textPreviews.join() === '200,200,200' && (await rawDrop(id)).scanCount === 3, textPreviews);
 
   const list = await call('GET', '/qrdrops', { token: 'tok-A' });
   check('/qrdrops returns own drops only', list.json.qrDrops.length >= 1 && list.json.qrDrops.every((q) => q.userId === USER_A), list.json.qrDrops.length);
@@ -248,9 +253,9 @@ console.log('\nOwner token (anonymous creator preview)');
   check('create returns owner token', typeof created.ownerToken === 'string');
   check('owner token hash is not exposed', created.qrDrop.ownerTokenHash === undefined && (await meta(created.id)).json.qrDrop.ownerTokenHash === undefined);
   const call2 = (h) => globalThis.__handler(new Request(`http://local/make-server-c3c9181e/qr/${created.id}/open`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: '{}' }));
-  check('preview with owner token 200', (await call2({ 'X-Owner-Token': created.ownerToken })).status === 200);
+  check('preview with owner token 200', (await call2({ 'X-Owner-Token': created.ownerToken, 'X-Owner-Preview': '1' })).status === 200);
   check('preview with owner token does not use the view', ((await rawDrop(created.id)).scanCount || 0) === 0);
-  check('wrong owner token is a normal view', (await call2({ 'X-Owner-Token': crypto.randomUUID() })).status === 200 && (await rawDrop(created.id)).scanCount === 1);
+  check('wrong owner token is a normal view', (await call2({ 'X-Owner-Token': crypto.randomUUID(), 'X-Owner-Preview': '1' })).status === 200 && (await rawDrop(created.id)).scanCount === 1);
   check('recipient after that gets 410', (await call2({})).status === 410);
   const other = await create({});
   check('owner token of another drop does not grant access', (await call('POST', `/qr/${other.id}/download`, { headers: { 'X-Owner-Token': created.ownerToken } })).status === 403);
@@ -260,7 +265,7 @@ console.log('\nOwner token (anonymous creator preview)');
   form.append('file', new Blob([new Uint8Array(10)]), 'a.bin');
   form.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', maxScans: 2 }));
   const withFile = (await call('POST', '/upload', { form })).json;
-  const preview = () => globalThis.__handler(new Request(`http://local/make-server-c3c9181e/qr/${withFile.id}/open`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Owner-Token': withFile.ownerToken }, body: '{}' }));
+  const preview = () => globalThis.__handler(new Request(`http://local/make-server-c3c9181e/qr/${withFile.id}/open`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Owner-Token': withFile.ownerToken, 'X-Owner-Preview': '1' }, body: '{}' }));
   const previews = [];
   for (let i = 0; i < 3; i++) previews.push((await preview()).status);
   check('owner previews with files: 3 free', previews.join() === '200,200,200' && ((await rawDrop(withFile.id)).scanCount || 0) === 0, previews);
@@ -423,7 +428,8 @@ console.log('\nScheduled release');
     && (await db.query(`select 1 from public.qr_password_attempts where qr_drop_id = $1`, [id])).rows.length === 0);
   check('no view is used before activation', (await rawDrop(id)).scanCount === 0);
   check('the database refuses a scan before activation too', (await db.query(`select public.qr_drop_consume($1, 'scan', $2) as r`, [id, Date.now()])).rows[0].r === null);
-  const ownerEarly = await call('POST', `/qr/${id}/open`, { token: 'tok-P', body: { password: 'pw' } });
+  check('owner who scans before activation waits like everyone else', (await call('POST', `/qr/${id}/open`, { token: 'tok-P', body: { password: 'pw' } })).status === 403);
+  const ownerEarly = await call('POST', `/qr/${id}/open`, { token: 'tok-P', body: { password: 'pw' }, headers: { 'X-Owner-Preview': '1' } });
   check('owner can preview before activation', ownerEarly.status === 200 && ownerEarly.json.qrDrop.textContent === 'hemmelig', ownerEarly);
   check('owner preview does not use a view', (await rawDrop(id)).scanCount === 0);
   check('scheduled drop is not cleaned up', (await db.query(`select public.cleanup_expired_qr_drops() as n`), !!(await rawDrop(id))));
@@ -631,6 +637,85 @@ console.log('\nSaldo packages');
     check(`${pkg}: ${kr} kr gives ${kr} kr of balance`, r.status === 200 && s?.line_items[0].price_data.unit_amount === kr * 100 && s?.metadata.kr === String(kr), { status: r.status, s });
   }
   check('checkout needs login', (await call('POST', '/checkout', { body: { package: 'saldo50' } })).status === 401);
+}
+
+console.log('\nSeries');
+{
+  const USER_S = '77777777-7777-4777-8777-777777777777';
+  await db.query(`insert into auth.users (id) values ($1)`, [USER_S]);
+  await setCoins(USER_S, 100);
+  globalThis.__users['tok-S'] = USER_S;
+  const seriesForm = (extra = {}, files = []) => {
+    const form = new FormData();
+    form.append('metadata', JSON.stringify({
+      clientId: crypto.randomUUID(), codeCount: 150, maxScans: 1, lifetime: '30d', seriesEnd: '1y',
+      textContentCiphertext: '{"ct":"hemmelig"}', viewOnly: false, ...extra,
+    }));
+    files.forEach((f, i) => form.append(i === 0 ? 'file' : `file${i}`, f));
+    return form;
+  };
+  const makeSeries = (extra, files, token = 'tok-S') => call('POST', '/series', { token, form: seriesForm(extra, files) });
+
+  check('series needs login', (await makeSeries({}, [], null)).status === 401);
+  check('too few codes is 400', (await makeSeries({ codeCount: 5 })).json?.code === 'INVALID_CODE_COUNT');
+  check('too many codes is 400', (await makeSeries({ codeCount: 5001 })).json?.code === 'INVALID_CODE_COUNT');
+  check('too many opens per code is 400', (await makeSeries({ maxScans: 51 })).json?.code === 'TOO_MANY_OPENS');
+  check('unknown lifetime is 400', (await makeSeries({ lifetime: 'constructor' })).status === 400);
+  check('no content is 400', (await makeSeries({ textContentCiphertext: undefined })).status === 400);
+  check('rejected series cost nothing', (await coinsOf(USER_S)) === 100);
+
+  const made = await makeSeries({ title: 'Boka', password: 'bok' });
+  const codes = made.json?.codes ?? [];
+  check('series is created with 150 codes', made.status === 200 && codes.length === 150 && codes[149].number === 150, made.json?.series);
+  check('150 codes cost 20 kr (10 kr per started 100)', made.json?.coinsCharged === 20 && (await coinsOf(USER_S)) === 80, made.json);
+  const seriesId = made.json.series.id;
+  check('codes are not in the key ring list', (await call('GET', '/qrdrops', { token: 'tok-S' })).json.qrDrops.length === 0);
+
+  const code = codes[41];
+  const m = await meta(code.id);
+  check('a code shows the series title, no content', m.status === 200 && m.json.qrDrop.title === 'Boka' && m.json.qrDrop.textContent === undefined && m.json.qrDrop.hasTextContent === true, m.json);
+  check('a code tells the client to decrypt with the series id', m.json.qrDrop.contentId === seriesId && m.json.qrDrop.seriesNumber === 42);
+  check('a code needs the series password', (await call('POST', `/qr/${code.id}/open`, { body: {} })).status === 401);
+  const before = (await db.query(`select expires_at from public.qr_drops where id = $1`, [code.id])).rows[0].expires_at.getTime();
+  check('an unscanned code lives until the series ends', Math.abs(before - (Date.now() + 365 * 864e5)) < 60_000);
+  const opened = await call('POST', `/qr/${code.id}/open`, { body: { password: 'bok' } });
+  check('opening a code returns the series content', opened.status === 200 && opened.json.qrDrop.textContent === '{"ct":"hemmelig"}', opened.json);
+  const after = (await db.query(`select expires_at, scan_count from public.qr_drops where id = $1`, [code.id])).rows[0];
+  check('first scan starts the code\'s 30 days', Math.abs(after.expires_at.getTime() - (Date.now() + 30 * 864e5)) < 60_000 && after.scan_count === 1, after);
+  check('a used code is used up, the next code still opens', (await call('POST', `/qr/${code.id}/open`, { body: { password: 'bok' } })).status === 410
+    && (await call('POST', `/qr/${codes[0].id}/open`, { body: { password: 'bok' } })).status === 200);
+
+  const list = await call('GET', '/series', { token: 'tok-S' });
+  check('owner lists the series with 2 opened codes', list.json?.series?.length === 1 && list.json.series[0].opened === 2 && list.json.series[0].codeCount === 150, list.json);
+  await db.query(`select public.cleanup_expired_qr_drops(0)`);
+  check('cleanup of used codes keeps the opened count', (await call('GET', '/series', { token: 'tok-S' })).json.series[0].opened === 2);
+  check('others see no series', (await call('GET', '/series', { token: 'tok-A' })).json.series.length === 0);
+  check('others cannot delete the series', (await call('DELETE', `/series/${seriesId}`, { token: 'tok-A' })).status === 403);
+
+  const withFile = await makeSeries({ codeCount: 10 }, [new File([new Uint8Array(2048)], 'bonus.pdf')]);
+  const fileSeriesId = withFile.json?.series?.id;
+  const filePath = (await db.query(`select files from public.qr_series where id = $1`, [fileSeriesId])).rows[0]?.files[0]?.path;
+  check('series files are stored once, on the series', withFile.status === 200 && globalThis.__files.has(filePath)
+    && (await db.query(`select 1 from public.qr_drops where series_id = $1 and files <> '[]'::jsonb`, [fileSeriesId])).rows.length === 0, withFile.json);
+  const fileCode = withFile.json.codes[0].id;
+  const fileOpen = await call('POST', `/qr/${fileCode}/open`, { body: {} });
+  check('a code hands out the series files', fileOpen.json?.files?.length === 1);
+  await call('DELETE', `/qr/${fileCode}`, { token: 'tok-S' });
+  check('deleting one code leaves the series files', globalThis.__files.has(filePath));
+  check('owner deletes the series', (await call('DELETE', `/series/${fileSeriesId}`, { token: 'tok-S' })).status === 200);
+  check('deleting the series removes its codes and files', !globalThis.__files.has(filePath)
+    && (await db.query(`select 1 from public.qr_drops where series_id = $1`, [fileSeriesId])).rows.length === 0);
+
+  await db.query(`update public.qr_series set expires_at = now() - interval '1 second' where id = $1`, [seriesId]);
+  await db.query(`select public.cleanup_expired_qr_drops()`);
+  check('an ended series goes with all its codes', (await db.query(`select 1 from public.qr_drops where series_id = $1`, [seriesId])).rows.length === 0
+    && (await db.query(`select 1 from public.qr_series where id = $1`, [seriesId])).rows.length === 0);
+
+  await setCoins(USER_S, 5);
+  const poor = await makeSeries({});
+  check('series costs more than the balance is 402', poor.status === 402 && (await coinsOf(USER_S)) === 5, poor.json);
+  check('anon/authenticated cannot read qr_series', !(await asRole('authenticated', USER_S, `select * from public.qr_series`)).ok
+    || (await asRole('authenticated', USER_S, `select * from public.qr_series`)).res?.rows.length === 0);
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

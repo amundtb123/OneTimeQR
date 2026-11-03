@@ -123,6 +123,23 @@ export interface QrDropData {
   singleQrMode?: boolean; // Single QR Mode flag (single QR with K1)
   createdAt: number;
   expiredAt?: number; // Timestamp when marked as expired
+  contentId?: string; // The id the content is encrypted with: the series' for a series code
+  seriesNumber?: number | null;
+}
+
+// A series as its owner's list shows it: rules and status, no content or key
+export interface SeriesData {
+  id: string;
+  title: string | null;
+  codeCount: number;
+  opened: number;
+  maxScans: number;
+  lifetimeMs: number;
+  viewOnly: boolean;
+  fileCount: number;
+  qrStyle?: any;
+  expiresAt: number;
+  createdAt: number;
 }
 
 async function fetchApi(endpoint: string, options: RequestInit = {}, requireAuth: boolean = false) {
@@ -270,8 +287,9 @@ function viewTokenHeaders(id: string): Record<string, string> {
 }
 
 // Open a QR drop: the server verifies the password (if any), counts the view
-// and returns the content. Each successful call uses up one view.
-export async function openQrDrop(id: string, password?: string): Promise<{
+// and returns the content. Each successful call uses up one view, unless the owner
+// asks for a preview (the first few previews are free).
+export async function openQrDrop(id: string, password?: string, preview = false): Promise<{
   qrDrop: QrDropData & { encryptionKey?: string | null };
   files: Array<{fileUrl: string; fileName: string; fileType: string; fileSize: number; fileIndex: number}> | null;
   fileUrl: string | null;
@@ -281,7 +299,7 @@ export async function openQrDrop(id: string, password?: string): Promise<{
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...ownerTokenHeaders(id),
+      ...(preview ? { ...ownerTokenHeaders(id), 'X-Owner-Preview': '1' } : {}),
     },
     body: JSON.stringify(password ? { password } : {}),
   });
@@ -313,6 +331,26 @@ export async function deleteQrDrop(id: string): Promise<{ success: boolean }> {
   return fetchApi(`/qr/${id}`, {
     method: 'DELETE',
   });
+}
+
+// Files go as file, file1, ...; Content-Type is left to the browser (it adds the boundary)
+export async function createSeries(files: File[], metadata: Record<string, unknown>): Promise<{
+  series: SeriesData;
+  codes: Array<{ id: string; number: number }>;
+  coinsCharged: number;
+}> {
+  const formData = new FormData();
+  files.forEach((file, index) => formData.append(index === 0 ? 'file' : `file${index}`, file));
+  formData.append('metadata', JSON.stringify(metadata));
+  return fetchApi('/series', { method: 'POST', body: formData }, true);
+}
+
+export async function getAllSeries(): Promise<{ series: SeriesData[] }> {
+  return fetchApi('/series');
+}
+
+export async function deleteSeries(id: string): Promise<{ success: boolean }> {
+  return fetchApi(`/series/${id}`, { method: 'DELETE' }, true);
 }
 
 export async function createCheckoutSession(pkg: string): Promise<{ url: string }> {

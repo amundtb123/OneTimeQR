@@ -11,8 +11,12 @@ import { draftCost, type Draft } from './create-flow';
 import { FREE_FILE_SIZE, FREE_TRAFFIC_PER_MONTH_GB, KR_PER_GB, MIN_PRICE_KR } from '../../utils/create-drop';
 import { CoinShop } from '../coin-shop';
 import { wasShrunk } from '../../utils/shrink-image';
+import { SERIES_COUNTS, SERIES_ENDS, SERIES_KR_PER_100, SERIES_LIFETIMES, SERIES_MAX_CODES, SERIES_MAX_OPENS, SERIES_MIN_CODES } from '../../utils/create-series';
 
-type Token = 'times' | 'who' | 'opens' | 'expiry' | 'mode';
+type Token = 'times' | 'who' | 'opens' | 'expiry' | 'mode' | 'lifetime' | 'end';
+
+// A series is printed, so the key travels in each code's link; a password is the only extra lock
+const SERIES_WHO = WHO.filter((v) => v === 'code' || v === 'password');
 
 interface StepRulesProps {
   draft: Draft;
@@ -50,6 +54,9 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
 
   const { rules } = draft;
   const setRules = (changes: Partial<Rules>) => update({ rules: { ...rules, ...changes } });
+  const series = draft.template === 'series';
+  const setSeries = (changes: Partial<Draft['series']>) => update({ series: { ...draft.series, ...changes } });
+  const [countInput, setCountInput] = useState(String(draft.series.count));
 
   // Thumbnails for pictures, released when they leave the list
   useEffect(() => {
@@ -73,7 +80,7 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
     }
   };
 
-  const { cost, needsLogin, hasFiles, maxOpens: maxTimes, tooManyOpens, tooLarge } = draftCost(draft, !!user);
+  const { cost, needsLogin, hasFiles, maxOpens: maxTimes, tooManyOpens, tooLarge, tooMuchTraffic, badCount } = draftCost(draft, !!user);
   const [shopOpen, setShopOpen] = useState(false);
   const blockedByLogin = !user && needsLogin;
   const notEnough = !!user && cost > 0 && coins !== null && coins < cost;
@@ -102,7 +109,7 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
       case 'times':
         return [
           // Files are downloaded again on every open, so bigger files can be opened fewer times
-          ...TIMES.filter((v) => !hasFiles || (v !== 'inf' && v <= maxTimes)).map((v) => option(String(v), timesLabel(t, v, 'lag.rules.times'), !customTimes && rules.times === v, () => {
+          ...TIMES.filter((v) => (series ? v !== 'inf' && v <= SERIES_MAX_OPENS : !hasFiles || (v !== 'inf' && v <= maxTimes))).map((v) => option(String(v), timesLabel(t, v, 'lag.rules.times'), !customTimes && rules.times === v, () => {
             setCustomTimes(false);
             setRules({ times: v });
           })),
@@ -112,7 +119,7 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
           }),
         ];
       case 'who':
-        return WHO.map((v) => option(v, t(`lag.rules.who.${v}`), rules.who === v, () => setRules({ who: v })));
+        return (series ? SERIES_WHO : WHO).map((v) => option(v, t(`lag.rules.who.${v}`), rules.who === v, () => setRules({ who: v })));
       case 'opens':
         return [
           option('now', t('lag.rules.opens.now'), !rules.opensAt, () => setRules({ opensAt: null })),
@@ -122,12 +129,22 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
         return EXPIRY.map((v) => option(v, t(`lag.rules.expiry.${v}`), rules.expiry === v, () => setRules({ expiry: v })));
       case 'mode':
         return MODE.map((v) => option(v, t(`lag.rules.mode.${v}`), rules.mode === v, () => setRules({ mode: v })));
+      case 'lifetime':
+        return SERIES_LIFETIMES.map((v) => option(v, t(`lag.series.lifetime.${v}`), draft.series.lifetime === v, () => setSeries({ lifetime: v })));
+      case 'end':
+        return SERIES_ENDS.map((v) => option(v, t(`lag.series.end.${v}`), draft.series.end === v, () => setSeries({ end: v })));
       default:
         return null;
     }
   };
 
-  const badges = [
+  const badges = series ? [
+    t('lag.series.badges.count', { count: draft.series.count.toLocaleString(i18n.language) }),
+    timesLabel(t, rules.times, 'lag.preview.badges.times'),
+    rules.who === 'password' && t('lag.preview.badges.password'),
+    t(`lag.series.badges.lifetime.${draft.series.lifetime}`),
+    rules.mode === 'view' && t('lag.preview.badges.view'),
+  ].filter(Boolean) as string[] : [
     timesLabel(t, rules.times, 'lag.preview.badges.times'),
     rules.who === 'two' && t('lag.preview.badges.two'),
     rules.who === 'password' && t('lag.preview.badges.password'),
@@ -231,6 +248,45 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
               <h2 id="lg-rules-title" className="lg-h2">{t('lag.rules.title')}</h2>
               <span className="lg-small lg-muted">{t('lag.rules.hint')}</span>
             </div>
+            {series && (
+              <div className="lg-stack" style={{ gap: 8 }}>
+                <label className="lg-label" htmlFor="lg-count" style={{ marginBottom: 0 }}>{t('lag.series.count')}</label>
+                <div className="lg-opts-list">
+                  {SERIES_COUNTS.map((n) => (
+                    <button key={n} type="button" className="lg-opt" aria-pressed={draft.series.count === n} onClick={() => { setSeries({ count: n }); setCountInput(String(n)); }}>
+                      {n.toLocaleString(i18n.language)}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ maxWidth: 260 }}>
+                  <input
+                    id="lg-count"
+                    className="lg-input"
+                    type="number"
+                    min={SERIES_MIN_CODES}
+                    max={SERIES_MAX_CODES}
+                    inputMode="numeric"
+                    value={countInput}
+                    onChange={(e) => {
+                      setCountInput(e.target.value);
+                      setSeries({ count: parseInt(e.target.value, 10) || 0 });
+                    }}
+                  />
+                </div>
+                <span className="lg-small lg-muted">{t('lag.series.countNote', { min: SERIES_MIN_CODES, max: SERIES_MAX_CODES.toLocaleString(i18n.language) })}</span>
+              </div>
+            )}
+
+            {series ? (
+              <p className="lg-sentence">
+                {t('lag.series.canOpen')} {token('times', timesLabel(t, rules.times, 'lag.rules.times'))}{' '}
+                {t('lag.rules.by')} {token('who', t(`lag.rules.who.${rules.who}`))},{' '}
+                {token('lifetime', t(`lag.series.lifetime.${draft.series.lifetime}`))}{' '}
+                {t('lag.series.fromFirstScan')},{' '}
+                {t('lag.rules.and')} {token('mode', t(`lag.rules.mode.${rules.mode}`))}.{' '}
+                {t('lag.series.worksFor')} {token('end', t(`lag.series.end.${draft.series.end}`))}.
+              </p>
+            ) : (
             <p className="lg-sentence">
               {t('lag.rules.canOpen')} {token('times', timesLabel(t, rules.times, 'lag.rules.times'))}{' '}
               {t('lag.rules.by')} {token('who', t(`lag.rules.who.${rules.who}`))}{' '}
@@ -238,6 +294,7 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
               {token('expiry', t(`lag.rules.expiry.${rules.expiry}`))},{' '}
               {t('lag.rules.and')} {token('mode', t(`lag.rules.mode.${rules.mode}`))}.
             </p>
+            )}
 
             {open && (
               <div className="lg-opts">
@@ -245,6 +302,8 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
                 <div className="lg-opts-list">{options()}</div>
                 {open === 'who' && <span className="lg-small lg-muted">{t(`lag.rules.whoNote.${rules.who}`)}</span>}
                 {open === 'opens' && <span className="lg-small lg-muted">{t('lag.rules.opensNote')}</span>}
+                {open === 'lifetime' && <span className="lg-small lg-muted">{t('lag.series.lifetimeNote')}</span>}
+                {open === 'end' && <span className="lg-small lg-muted">{t('lag.series.endNote')}</span>}
               </div>
             )}
 
@@ -256,13 +315,13 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
                   className="lg-input"
                   type="number"
                   min="1"
-                  max={maxTimes}
+                  max={series ? SERIES_MAX_OPENS : maxTimes}
                   inputMode="numeric"
                   value={timesInput}
                   onChange={(e) => {
                     setTimesInput(e.target.value);
                     const n = parseInt(e.target.value, 10);
-                    if (n >= 1) setRules({ times: Math.min(n, maxTimes) });
+                    if (n >= 1) setRules({ times: Math.min(n, series ? SERIES_MAX_OPENS : maxTimes) });
                   }}
                 />
               </div>
@@ -290,10 +349,10 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
               </div>
             )}
 
-            <button type="button" className="lg-link" style={{ alignSelf: 'flex-start', color: 'var(--lg-ink)', padding: '10px 0' }} aria-expanded={more} onClick={() => setMore(!more)}>
+            {!series && <button type="button" className="lg-link" style={{ alignSelf: 'flex-start', color: 'var(--lg-ink)', padding: '10px 0' }} aria-expanded={more} onClick={() => setMore(!more)}>
               {more ? t('lag.rules.less') : t('lag.rules.more')}
-            </button>
-            {more && (
+            </button>}
+            {more && !series && (
               <div className="lg-more">
                 <label className="lg-check">
                   <input type="checkbox" checked={draft.noPreview} onChange={(e) => update({ noPreview: e.target.checked })} />
@@ -339,10 +398,13 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
             <strong>{cost === 0 ? t('lag.preview.free') : t('lag.preview.price', { kr: cost })}</strong>
             {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
           </div>
-          {cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.priceNote', { free: FREE_FILE_SIZE / (1024 * 1024), perGb: KR_PER_GB.toLocaleString(i18n.language), min: MIN_PRICE_KR })}</span>}
+          {series && <span className="lg-xs lg-muted">{t('lag.series.priceNote', { per100: SERIES_KR_PER_100, perGb: KR_PER_GB.toLocaleString(i18n.language) })}</span>}
+          {!series && cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.priceNote', { free: FREE_FILE_SIZE / (1024 * 1024), perGb: KR_PER_GB.toLocaleString(i18n.language), min: MIN_PRICE_KR })}</span>}
           {cost === 0 && user && hasFiles && <span className="lg-xs lg-muted">{t('lag.preview.freeNote', { free: FREE_FILE_SIZE / (1024 * 1024), month: FREE_TRAFFIC_PER_MONTH_GB })}</span>}
           {tooLarge && <span className="lg-warn">{t('lag.errors.tooLarge', { max: '20 MB' })}</span>}
-          {tooManyOpens && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: maxTimes })}</span>}
+          {tooManyOpens && !series && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: maxTimes })}</span>}
+          {badCount && <span className="lg-warn">{t('lag.series.errors.count', { min: SERIES_MIN_CODES, max: SERIES_MAX_CODES })}</span>}
+          {tooMuchTraffic && <span className="lg-warn">{t('lag.series.errors.traffic')}</span>}
           {notEnough && (
             <span className="lg-warn">
               {t('lag.preview.notEnough')}{' '}
@@ -363,11 +425,11 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
               <button type="button" className="lg-btn lg-btn-primary" onClick={() => signInWithGoogle().catch(() => toast.error(t('common.loginError')))}>
                 {t('common.login')}
               </button>
-              <span className="lg-xs lg-muted" style={{ textAlign: 'center' }}>{t('lag.preview.loginToPay')}</span>
+              <span className="lg-xs lg-muted" style={{ textAlign: 'center' }}>{series ? t('lag.series.loginToCreate') : t('lag.preview.loginToPay')}</span>
             </>
           ) : (
-            <button type="button" className="lg-btn lg-btn-primary" disabled={creating || !acceptedTerms || notEnough || tooManyOpens || tooLarge} onClick={onCreate}>
-              {creating ? t('lag.preview.creating') : t('lag.preview.create')}
+            <button type="button" className="lg-btn lg-btn-primary" disabled={creating || !acceptedTerms || notEnough || tooManyOpens || tooLarge || tooMuchTraffic || badCount} onClick={onCreate}>
+              {creating ? t('lag.preview.creating') : series ? t('lag.series.create', { count: draft.series.count.toLocaleString(i18n.language) }) : t('lag.preview.create')}
             </button>
           )}
           <span className="lg-xs lg-muted" style={{ textAlign: 'center' }}>{t('lag.preview.encrypted')}</span>
@@ -382,7 +444,7 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
         <button
           type="button"
           className="lg-btn lg-btn-primary"
-          disabled={creating || (!blockedByLogin && (notEnough || tooManyOpens || tooLarge))}
+          disabled={creating || (!blockedByLogin && (notEnough || tooManyOpens || tooLarge || tooMuchTraffic || badCount))}
           onClick={() => {
             if (blockedByLogin) {
               signInWithGoogle().catch(() => toast.error(t('common.loginError')));
@@ -397,7 +459,7 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
             }
           }}
         >
-          {blockedByLogin ? t('common.login') : creating ? t('lag.preview.creating') : t('lag.preview.create')}
+          {blockedByLogin ? t('common.login') : creating ? t('lag.preview.creating') : series ? t('lag.series.create', { count: draft.series.count.toLocaleString(i18n.language) }) : t('lag.preview.create')}
         </button>
       </div>
 

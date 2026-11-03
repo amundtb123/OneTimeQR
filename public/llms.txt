@@ -1,0 +1,24 @@
+# OneTimeQR
+
+> OneTimeQR (https://onetimeqr.com) lets you share files, text and links behind a QR code that expires after a set time or a number of scans. Content is stored encrypted and deleted automatically. Free to start, no account needed.
+
+## What it does
+- Share once (default): the content can be opened one time, then it is gone. Or choose a number of opens.
+- Time-limited QR codes: expiry from 10 minutes up to 7 days.
+- One QR code can hold files (images, PDFs, documents), a message of up to 200 characters and links.
+- Optional rules: password, a separate QR key sent another way, download limit, view-only, no preview.
+- Two must unlock: the key is split across two QR keys; both must be scanned.
+- Share with many: one code the first 50 people can open.
+- Gift with a date: the code works now, but the content opens on a chosen date (up to 3 months ahead).
+- Encrypted and decrypted in the browser; the key is in the link fragment and never reaches the server.
+
+## Good for
+Sharing Wi-Fi passwords, contracts, invoices, tickets, vouchers and other content that should not stay online.
+
+## Pricing
+Text, links and all settings are free. Files are free up to 5 MB without an account and up to 10 MB when logged in (max 20 MB per code). Larger files or many downloads cost 1.5 kr per GB of traffic, minimum 2 kr.
+
+## Links
+- [Create a QR code](https://onetimeqr.com/)
+- [How it works](https://onetimeqr.com/how-it-works)
+- [Terms and privacy](https://onetimeqr.com/terms)

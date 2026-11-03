@@ -18,6 +18,7 @@ export function StepStart({ onPick }: StepStartProps) {
   const { user } = useAuth();
   const fileInput = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
+  const [text, setText] = useState('');
 
   // Pasting anywhere on the page starts "Share once" with what was pasted
   useEffect(() => {
@@ -53,6 +54,33 @@ export function StepStart({ onPick }: StepStartProps) {
         <h1 className="lg-h1">{t('lag.start.title')}</h1>
         <p className="lg-lead">{t('lag.start.lead')}</p>
       </div>
+
+      {/* The quickest way to try it: a short message, no file and no account */}
+      <form
+        className="lg-card"
+        style={{ gap: 12 }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (text.trim()) onPick('once', { text: text.trim() });
+        }}
+      >
+        <label className="lg-label" htmlFor="lg-start-text" style={{ marginBottom: 0 }}>{t('lag.start.textLabel')}</label>
+        <textarea
+          id="lg-start-text"
+          className="lg-textarea"
+          maxLength={200}
+          value={text}
+          placeholder={t('lag.start.textPlaceholder')}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit();
+          }}
+        />
+        <div className="lg-between">
+          <span className="lg-xs lg-muted">{text.length}/200</span>
+          <button type="submit" className="lg-btn lg-btn-primary" disabled={!text.trim()}>{t('lag.start.textGo')}</button>
+        </div>
+      </form>
 
       <button
         type="button"

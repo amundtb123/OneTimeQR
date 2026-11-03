@@ -51,7 +51,7 @@ export const unlockQrStyle: QrStyle = {
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
-export const FREE_SIZE_LIMIT = 1 * MB;
+export const FREE_SIZE_LIMIT = 5 * MB; // Without an account
 export const MAX_SIZE_LOGGED_IN = 20 * MB;
 
 export const EXPIRY_MINUTES: Record<string, number> = {
@@ -68,24 +68,33 @@ export const SALDO_PACKAGES = [
   { id: 'saldo100', kr: 100 },
 ] as const;
 
-// A Pluss key costs PLUSS_PRICE_KR and covers PLUSS_TRAFFIC_GB of downloads (file size × opens);
-// beyond that each GB costs EXTRA_KR_PER_GB. Free keys may be downloaded FREE_TRAFFIC in all.
-export const PLUSS_PRICE_KR = 5;
-export const PLUSS_TRAFFIC_GB = 3;
-export const EXTRA_KR_PER_GB = 1.5;
-const FREE_TRAFFIC = 100 * MB;
+// Same rules as the server. Every choice is free; only files cost, because downloads are what
+// storage bills for. Without an account: files up to 5 MB, downloaded at most ANON_TRAFFIC per key.
+// With an account: files up to FREE_FILE_SIZE are free while the key may be downloaded at most
+// FREE_KEY_TRAFFIC (and the user has free traffic left this month, which only the server knows).
+// Anything else costs KR_PER_GB of downloads (file size × opens), at least MIN_PRICE_KR.
+const ANON_TRAFFIC = 100 * MB;
+export const FREE_FILE_SIZE = 10 * MB;
+const FREE_KEY_TRAFFIC = 1 * GB;
+export const FREE_TRAFFIC_PER_MONTH_GB = 10;
+const MAX_TRAFFIC = 3 * GB;
+export const KR_PER_GB = 1.5;
+export const MIN_PRICE_KR = 2;
 
 // Every open downloads the files again, so a key with files must have a number of opens
 export const MAX_OPENS_WITH_FILES = 1000;
 
-// Same rule as the server: a key that goes beyond the free one (1 MB, 10 minutes, the link or
-// link + QR key) is a Pluss key; its price follows how much it may be downloaded
-export function calculatePriceKr(opts: { totalFileSize: number; opens: number; expiryType: string; password: boolean; scheduled: boolean; twoKeys: boolean }): number {
-  const minutes = EXPIRY_MINUTES[opts.expiryType] ?? 10;
+// The most opens a key with files of this size may have: the bigger the files, the fewer
+export function maxOpensFor(totalFileSize: number, loggedIn: boolean): number {
+  const traffic = loggedIn ? MAX_TRAFFIC : ANON_TRAFFIC;
+  return Math.max(1, Math.min(MAX_OPENS_WITH_FILES, Math.floor(traffic / Math.max(1, totalFileSize))));
+}
+
+export function calculatePriceKr(opts: { totalFileSize: number; opens: number; loggedIn: boolean }): number {
   const traffic = opts.totalFileSize * opts.opens;
-  const pluss = opts.password || opts.scheduled || opts.twoKeys || opts.totalFileSize > FREE_SIZE_LIMIT || traffic > FREE_TRAFFIC || minutes > 10;
-  if (!pluss) return 0;
-  return PLUSS_PRICE_KR + Math.ceil(Math.max(0, traffic - PLUSS_TRAFFIC_GB * GB) / GB * EXTRA_KR_PER_GB);
+  if (!opts.loggedIn || traffic === 0) return 0;
+  if (opts.totalFileSize <= FREE_FILE_SIZE && traffic <= FREE_KEY_TRAFFIC) return 0;
+  return Math.max(MIN_PRICE_KR, Math.ceil(traffic / GB * KR_PER_GB));
 }
 
 const toBase64Url = (bytes: Uint8Array) =>

@@ -5,8 +5,9 @@ import type { QrDrop } from '../../App';
 import type { QrStyle } from '../qr-style-picker';
 import { useAuth } from '../../utils/auth-context';
 import { fromLocalInputValue, isValidActivationDate } from '../../utils/activation';
-import { calculatePriceKr, createDrop, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT, MAX_OPENS_WITH_FILES } from '../../utils/create-drop';
-import { KEYS_BY_WHO, loginOnlyWho, templateById, type Rules, type TemplateId } from './rules';
+import { shrinkImages } from '../../utils/shrink-image';
+import { calculatePriceKr, createDrop, maxOpensFor, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT } from '../../utils/create-drop';
+import { KEYS_BY_WHO, MAX_TIMES, templateById, type Rules, type TemplateId } from './rules';
 import { STYLE_PRESETS, type StylePreset } from './key-preview';
 import { StepStart, type PastedContent } from './step-start';
 import { StepRules } from './step-rules';
@@ -40,20 +41,17 @@ const emptyDraft = (loggedIn: boolean): Draft => ({
 });
 
 // What stands between the draft and the server, in the order the person should fix it
-export function draftCost(draft: Draft) {
+export function draftCost(draft: Draft, loggedIn: boolean) {
   const totalFileSize = draft.files.reduce((sum, file) => sum + file.size, 0);
   const hasFiles = draft.files.length > 0;
-  const opens = draft.rules.times === 'inf' ? MAX_OPENS_WITH_FILES : draft.rules.times;
-  const cost = calculatePriceKr({
-    totalFileSize,
-    opens,
-    expiryType: draft.rules.expiry,
-    password: draft.rules.who === 'password',
-    scheduled: !!draft.rules.opensAt,
-    twoKeys: draft.rules.who === 'two',
-  });
-  const tooManyOpens = hasFiles && (draft.rules.times === 'inf' || draft.rules.times > MAX_OPENS_WITH_FILES);
-  return { cost, totalFileSize, hasFiles, tooManyOpens, needsLogin: cost > 0 || loginOnlyWho(draft.rules.who) || totalFileSize > FREE_SIZE_LIMIT };
+  // The bigger the files, the fewer opens (none of it applies without files)
+  const maxOpens = hasFiles ? maxOpensFor(totalFileSize, loggedIn) : MAX_TIMES;
+  const opens = draft.rules.times === 'inf' ? maxOpens : draft.rules.times;
+  const cost = hasFiles ? calculatePriceKr({ totalFileSize, opens, loggedIn }) : 0;
+  const tooManyOpens = hasFiles && (draft.rules.times === 'inf' || draft.rules.times > maxOpens);
+  const tooLarge = totalFileSize > MAX_SIZE_LOGGED_IN;
+  // Only files over 5 MB need an account
+  return { cost, totalFileSize, hasFiles, maxOpens, tooManyOpens, tooLarge, needsLogin: totalFileSize > FREE_SIZE_LIMIT };
 }
 
 interface CreateFlowProps {
@@ -81,18 +79,25 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
 
   const update = useCallback((changes: Partial<Draft>) => setDraft((d) => ({ ...d, ...changes })), []);
 
+  // Without an account big pictures are made smaller, so a phone photo fits the free limit
+  const addFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+    const added = user ? files : await shrinkImages(files);
+    setDraft((d) => ({ ...d, files: [...d.files, ...added] }));
+  }, [user]);
+
   const pickTemplate = useCallback((id: TemplateId, content?: PastedContent) => {
     setDraft((d) => ({
       ...d,
       template: id,
       rules: templateById(id).rules(!!user),
-      files: content?.files ? [...d.files, ...content.files] : d.files,
       text: content?.text ?? d.text,
       urls: content?.url ? [...d.urls, content.url] : d.urls,
     }));
+    if (content?.files) addFiles(content.files);
     setStep(2);
     window.scrollTo({ top: 0 });
-  }, [user]);
+  }, [user, addFiles]);
 
   const handleCreate = async () => {
     const { rules } = draft;
@@ -104,18 +109,14 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
       toast.error(t('lag.errors.terms'));
       return;
     }
-    const { cost, totalFileSize, tooManyOpens } = draftCost(draft);
+    const { cost, totalFileSize, maxOpens, tooManyOpens } = draftCost(draft, !!user);
     const maxSize = user ? MAX_SIZE_LOGGED_IN : FREE_SIZE_LIMIT;
     if (totalFileSize > maxSize) {
-      toast.error(t('upload.fileSizeExceeded', { maxSize: user ? '20 MB' : '1 MB', loginPrompt: user ? '' : t('upload.loginPrompt') }));
+      toast.error(t('upload.fileSizeExceeded', { maxSize: user ? '20 MB' : '5 MB', loginPrompt: user ? '' : t('upload.loginPrompt') }));
       return;
     }
     if (tooManyOpens) {
-      toast.error(t('lag.errors.tooManyOpens', { max: MAX_OPENS_WITH_FILES }));
-      return;
-    }
-    if (!user && (cost > 0 || loginOnlyWho(rules.who))) {
-      toast.error(t('lag.preview.loginToPay'));
+      toast.error(t('lag.errors.tooManyOpens', { max: maxOpens }));
       return;
     }
     if (rules.who === 'password' && !draft.password) {
@@ -174,7 +175,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
         toast.error(t('lag.preview.notEnough'));
       } else if (error?.code === 'RATE_LIMITED') toast.error(t('upload.rateLimited'));
       else if (error?.code === 'INVALID_ACTIVATION_DATE') toast.error(t('activation.invalid'));
-      else if (error?.code === 'TOO_MANY_OPENS') toast.error(t('lag.errors.tooManyOpens', { max: MAX_OPENS_WITH_FILES }));
+      else if (error?.code === 'TOO_MANY_OPENS') toast.error(t('lag.errors.tooManyOpens', { max: maxOpens }));
       else toast.error(error?.message || t('upload.createQrError'));
     } finally {
       setCreating(false);
@@ -187,6 +188,7 @@ export function CreateFlow({ onQrCreated }: CreateFlowProps) {
     <StepRules
       draft={draft}
       update={update}
+      addFiles={addFiles}
       acceptedTerms={acceptedTerms}
       setAcceptedTerms={setAcceptedTerms}
       creating={creating}

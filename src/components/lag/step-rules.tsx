@@ -3,19 +3,21 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../utils/auth-context';
 import { defaultActivationDate, formatActivationDate, fromLocalInputValue, maxActivationDate, toLocalInputValue } from '../../utils/activation';
-import { FREE_EXPIRY, EXPIRY, MAX_TIMES, MODE, TIMES, WHO, loginOnlyWho, timesLabel, type Rules } from './rules';
+import { EXPIRY, MODE, TIMES, WHO, timesLabel, type Rules } from './rules';
 import { KeyPreview, PREVIEW_URL, STYLE_PRESETS, type StylePreset } from './key-preview';
 import { QrStylePicker } from '../qr-style-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { draftCost, type Draft } from './create-flow';
+import { FREE_FILE_SIZE, FREE_TRAFFIC_PER_MONTH_GB, KR_PER_GB, MIN_PRICE_KR } from '../../utils/create-drop';
 import { CoinShop } from '../coin-shop';
-import { MAX_OPENS_WITH_FILES } from '../../utils/create-drop';
+import { wasShrunk } from '../../utils/shrink-image';
 
 type Token = 'times' | 'who' | 'opens' | 'expiry' | 'mode';
 
 interface StepRulesProps {
   draft: Draft;
   update: (changes: Partial<Draft>) => void;
+  addFiles: (files: File[]) => void;
   acceptedTerms: boolean;
   setAcceptedTerms: (accepted: boolean) => void;
   creating: boolean;
@@ -31,7 +33,7 @@ const formatSize = (bytes: number) => {
 
 const fileKind = (file: File) => (file.name.split('.').pop() || file.type.split('/')[1] || '').slice(0, 4).toUpperCase();
 
-export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, creating, onCreate, onBack }: StepRulesProps) {
+export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedTerms, creating, onCreate, onBack }: StepRulesProps) {
   const { t, i18n } = useTranslation();
   const { user, coins, signInWithGoogle } = useAuth();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -59,8 +61,6 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     return () => Object.values(next).forEach((url) => URL.revokeObjectURL(url));
   }, [draft.files]);
 
-  const addFiles = (files: File[]) => files.length > 0 && update({ files: [...draft.files, ...files] });
-
   const addLink = () => {
     const value = link.trim();
     if (!value) return;
@@ -73,16 +73,12 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     }
   };
 
-  const { cost, needsLogin, hasFiles, tooManyOpens } = draftCost(draft);
-  const maxTimes = hasFiles ? MAX_OPENS_WITH_FILES : MAX_TIMES;
+  const { cost, needsLogin, hasFiles, maxOpens: maxTimes, tooManyOpens, tooLarge } = draftCost(draft, !!user);
   const [shopOpen, setShopOpen] = useState(false);
   const blockedByLogin = !user && needsLogin;
   const notEnough = !!user && cost > 0 && coins !== null && coins < cost;
   const opensDate = rules.opensAt ? fromLocalInputValue(rules.opensAt) : null;
   const opensLabel = opensDate ? formatActivationDate(opensDate, i18n.language) : '';
-
-  // A choice that makes it a Pluss key is marked
-  const plussTag = (pluss: boolean) => (pluss ? <small>{t('lag.rules.pluss')}</small> : null);
 
   const token = (key: Token, label: string) => (
     <button
@@ -95,10 +91,9 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     </button>
   );
 
-  const option = (key: string, label: string, pressed: boolean, pick: () => void, pluss = false) => (
+  const option = (key: string, label: string, pressed: boolean, pick: () => void) => (
     <button key={key} type="button" className="lg-opt" aria-pressed={pressed} onClick={() => { pick(); setOpen(null); }}>
       {label}
-      {plussTag(pluss)}
     </button>
   );
 
@@ -106,8 +101,8 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
     switch (open) {
       case 'times':
         return [
-          // Files are downloaded again on every open, so they can't be opened without limit
-          ...TIMES.filter((v) => !hasFiles || v !== 'inf').map((v) => option(String(v), timesLabel(t, v, 'lag.rules.times'), !customTimes && rules.times === v, () => {
+          // Files are downloaded again on every open, so bigger files can be opened fewer times
+          ...TIMES.filter((v) => !hasFiles || (v !== 'inf' && v <= maxTimes)).map((v) => option(String(v), timesLabel(t, v, 'lag.rules.times'), !customTimes && rules.times === v, () => {
             setCustomTimes(false);
             setRules({ times: v });
           })),
@@ -117,14 +112,14 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
           }),
         ];
       case 'who':
-        return WHO.map((v) => option(v, t(`lag.rules.who.${v}`), rules.who === v, () => setRules({ who: v }), loginOnlyWho(v)));
+        return WHO.map((v) => option(v, t(`lag.rules.who.${v}`), rules.who === v, () => setRules({ who: v })));
       case 'opens':
         return [
           option('now', t('lag.rules.opens.now'), !rules.opensAt, () => setRules({ opensAt: null })),
-          option('later', t('lag.rules.opens.later'), !!rules.opensAt, () => setRules({ opensAt: rules.opensAt || toLocalInputValue(defaultActivationDate()) }), true),
+          option('later', t('lag.rules.opens.later'), !!rules.opensAt, () => setRules({ opensAt: rules.opensAt || toLocalInputValue(defaultActivationDate()) })),
         ];
       case 'expiry':
-        return EXPIRY.map((v) => option(v, t(`lag.rules.expiry.${v}`), rules.expiry === v, () => setRules({ expiry: v }), v !== FREE_EXPIRY));
+        return EXPIRY.map((v) => option(v, t(`lag.rules.expiry.${v}`), rules.expiry === v, () => setRules({ expiry: v })));
       case 'mode':
         return MODE.map((v) => option(v, t(`lag.rules.mode.${v}`), rules.mode === v, () => setRules({ mode: v })));
       default:
@@ -171,7 +166,7 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
                     </div>
                     <div className="lg-file-name">
                       <span>{file.name}</span>
-                      <span className="lg-xs lg-muted">{formatSize(file.size)}</span>
+                      <span className="lg-xs lg-muted">{formatSize(file.size)}{wasShrunk(file) && ` · ${t('lag.content.shrunk')}`}</span>
                     </div>
                     <button type="button" className="lg-icon-btn" aria-label={t('lag.content.remove', { name: file.name })} onClick={() => update({ files: draft.files.filter((_, j) => j !== i) })}>×</button>
                   </div>
@@ -341,11 +336,13 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
           </div>
 
           <div className="lg-price">
-            <strong>{cost === 0 ? t('lag.preview.free') : t('lag.preview.pluss', { kr: cost })}</strong>
+            <strong>{cost === 0 ? t('lag.preview.free') : t('lag.preview.price', { kr: cost })}</strong>
             {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
           </div>
-          {cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.plussNote')}</span>}
-          {tooManyOpens && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: MAX_OPENS_WITH_FILES })}</span>}
+          {cost > 0 && <span className="lg-xs lg-muted">{t('lag.preview.priceNote', { free: FREE_FILE_SIZE / (1024 * 1024), perGb: KR_PER_GB.toLocaleString(i18n.language), min: MIN_PRICE_KR })}</span>}
+          {cost === 0 && user && hasFiles && <span className="lg-xs lg-muted">{t('lag.preview.freeNote', { free: FREE_FILE_SIZE / (1024 * 1024), month: FREE_TRAFFIC_PER_MONTH_GB })}</span>}
+          {tooLarge && <span className="lg-warn">{t('lag.errors.tooLarge', { max: '20 MB' })}</span>}
+          {tooManyOpens && <span className="lg-warn">{t('lag.errors.tooManyOpens', { max: maxTimes })}</span>}
           {notEnough && (
             <span className="lg-warn">
               {t('lag.preview.notEnough')}{' '}
@@ -369,7 +366,7 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
               <span className="lg-xs lg-muted" style={{ textAlign: 'center' }}>{t('lag.preview.loginToPay')}</span>
             </>
           ) : (
-            <button type="button" className="lg-btn lg-btn-primary" disabled={creating || !acceptedTerms || notEnough || tooManyOpens} onClick={onCreate}>
+            <button type="button" className="lg-btn lg-btn-primary" disabled={creating || !acceptedTerms || notEnough || tooManyOpens || tooLarge} onClick={onCreate}>
               {creating ? t('lag.preview.creating') : t('lag.preview.create')}
             </button>
           )}
@@ -379,13 +376,13 @@ export function StepRules({ draft, update, acceptedTerms, setAcceptedTerms, crea
 
       <div className="lg-bar">
         <div className="lg-stack" style={{ gap: 0 }}>
-          <strong style={{ fontSize: 16 }}>{cost === 0 ? t('lag.preview.free') : t('lag.preview.pluss', { kr: cost })}</strong>
+          <strong style={{ fontSize: 16 }}>{cost === 0 ? t('lag.preview.free') : t('lag.preview.price', { kr: cost })}</strong>
           {user && coins !== null && <span className="lg-xs lg-muted">{t('lag.preview.balance', { kr: coins })}</span>}
         </div>
         <button
           type="button"
           className="lg-btn lg-btn-primary"
-          disabled={creating || (!blockedByLogin && (notEnough || tooManyOpens))}
+          disabled={creating || (!blockedByLogin && (notEnough || tooManyOpens || tooLarge))}
           onClick={() => {
             if (blockedByLogin) {
               signInWithGoogle().catch(() => toast.error(t('common.loginError')));

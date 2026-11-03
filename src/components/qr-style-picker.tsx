@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react';
-import { Palette, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { Palette, Image as ImageIcon } from 'lucide-react';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
-import { Card } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Switch } from './ui/switch';
 import { prepareLogo } from '../utils/logo-image';
@@ -177,18 +176,13 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
   };
 
   return (
-    <Card className="p-6">
-      <div className="flex items-center gap-2 mb-6">
-        <Sparkles className="size-5 text-indigo-600" />
-        <h3 className="text-gray-900">Tilpass QR-kode</h3>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-start">
+    // Shown in a dialog that already has a title: side by side when there is room, else stacked
+    <div className="lg-style-picker">
         {/* Preview */}
         <div className="flex items-center justify-center">
-          <div 
-            ref={canvasRef} 
-            className="bg-white rounded-lg p-3 w-[250px] h-[250px] flex items-center justify-center overflow-hidden"
+          <div
+            ref={canvasRef}
+            className="w-[250px] h-[250px] flex items-center justify-center overflow-hidden"
           />
         </div>
 
@@ -418,7 +412,6 @@ export function QrStylePicker({ style, onChange, qrUrl }: QrStylePickerProps) {
             </TabsContent>
           </Tabs>
         </div>
-      </div>
-    </Card>
+    </div>
   );
 }

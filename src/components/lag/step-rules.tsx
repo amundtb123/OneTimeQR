@@ -11,7 +11,7 @@ import { draftCost, type Draft } from './create-flow';
 import { FREE_FILE_SIZE, FREE_TRAFFIC_PER_MONTH_GB, KR_PER_GB, MIN_PRICE_KR } from '../../utils/create-drop';
 import { CoinShop } from '../coin-shop';
 import { wasShrunk } from '../../utils/shrink-image';
-import { SERIES_COUNTS, SERIES_ENDS, SERIES_KR_PER_100, SERIES_LIFETIMES, SERIES_MAX_CODES, SERIES_MAX_OPENS, SERIES_MIN_CODES } from '../../utils/create-series';
+import { SERIES_COUNTS, SERIES_ENDS, SERIES_ENDS_WITH_FILES, SERIES_KR_PER_100, SERIES_LIFETIMES, SERIES_LIFETIMES_WITH_FILES, SERIES_MAX_CODES, SERIES_MAX_OPENS, SERIES_MIN_CODES, seriesRulesWithFiles } from '../../utils/create-series';
 
 type Token = 'times' | 'who' | 'opens' | 'expiry' | 'mode' | 'lifetime' | 'end';
 
@@ -81,6 +81,7 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
   };
 
   const { cost, needsLogin, hasFiles, maxOpens: maxTimes, tooManyOpens, tooLarge, tooMuchTraffic, badCount } = draftCost(draft, !!user);
+  const seriesRules = seriesRulesWithFiles(draft.series, hasFiles);
   const [shopOpen, setShopOpen] = useState(false);
   const blockedByLogin = !user && needsLogin;
   const notEnough = !!user && cost > 0 && coins !== null && coins < cost;
@@ -130,9 +131,9 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
       case 'mode':
         return MODE.map((v) => option(v, t(`lag.rules.mode.${v}`), rules.mode === v, () => setRules({ mode: v })));
       case 'lifetime':
-        return SERIES_LIFETIMES.map((v) => option(v, t(`lag.series.lifetime.${v}`), draft.series.lifetime === v, () => setSeries({ lifetime: v })));
+        return (hasFiles ? SERIES_LIFETIMES_WITH_FILES : SERIES_LIFETIMES).map((v) => option(v, t(`lag.series.lifetime.${v}`), seriesRules.lifetime === v, () => setSeries({ lifetime: v })));
       case 'end':
-        return SERIES_ENDS.map((v) => option(v, t(`lag.series.end.${v}`), draft.series.end === v, () => setSeries({ end: v })));
+        return (hasFiles ? SERIES_ENDS_WITH_FILES : SERIES_ENDS).map((v) => option(v, t(`lag.series.end.${v}`), seriesRules.end === v, () => setSeries({ end: v })));
       default:
         return null;
     }
@@ -142,7 +143,7 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
     t('lag.series.badges.count', { count: draft.series.count.toLocaleString(i18n.language) }),
     timesLabel(t, rules.times, 'lag.preview.badges.times'),
     rules.who === 'password' && t('lag.preview.badges.password'),
-    t(`lag.series.badges.lifetime.${draft.series.lifetime}`),
+    t(`lag.series.badges.lifetime.${seriesRules.lifetime}`),
     rules.mode === 'view' && t('lag.preview.badges.view'),
   ].filter(Boolean) as string[] : [
     timesLabel(t, rules.times, 'lag.preview.badges.times'),
@@ -281,10 +282,10 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
               <p className="lg-sentence">
                 {t('lag.series.canOpen')} {token('times', timesLabel(t, rules.times, 'lag.rules.times'))}{' '}
                 {t('lag.rules.by')} {token('who', t(`lag.rules.who.${rules.who}`))},{' '}
-                {token('lifetime', t(`lag.series.lifetime.${draft.series.lifetime}`))}{' '}
+                {token('lifetime', t(`lag.series.lifetime.${seriesRules.lifetime}`))}{' '}
                 {t('lag.series.fromFirstScan')},{' '}
                 {t('lag.rules.and')} {token('mode', t(`lag.rules.mode.${rules.mode}`))}.{' '}
-                {t('lag.series.worksFor')} {token('end', t(`lag.series.end.${draft.series.end}`))}.
+                {t('lag.series.worksFor')} {token('end', t(`lag.series.end.${seriesRules.end}`))}.
               </p>
             ) : (
             <p className="lg-sentence">
@@ -303,7 +304,7 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
                 {open === 'who' && <span className="lg-small lg-muted">{t(`lag.rules.whoNote.${rules.who}`)}</span>}
                 {open === 'opens' && <span className="lg-small lg-muted">{t('lag.rules.opensNote')}</span>}
                 {open === 'lifetime' && <span className="lg-small lg-muted">{t('lag.series.lifetimeNote')}</span>}
-                {open === 'end' && <span className="lg-small lg-muted">{t('lag.series.endNote')}</span>}
+                {open === 'end' && <span className="lg-small lg-muted">{t(hasFiles ? 'lag.series.endNoteFiles' : 'lag.series.endNote')}</span>}
               </div>
             )}
 
@@ -343,7 +344,7 @@ export function StepRules({ draft, update, addFiles, acceptedTerms, setAcceptedT
                   type="datetime-local"
                   value={rules.opensAt}
                   min={toLocalInputValue(new Date())}
-                  max={toLocalInputValue(maxActivationDate())}
+                  max={toLocalInputValue(maxActivationDate(hasFiles))}
                   onChange={(e) => setRules({ opensAt: e.target.value || null })}
                 />
               </div>

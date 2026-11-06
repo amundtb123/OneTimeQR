@@ -296,8 +296,10 @@ const EXPIRY_DURATIONS_MS: Record<string, number> = {
   '7d': 7 * 24 * 60 * 60 * 1000,
   'scan': 7 * 24 * 60 * 60 * 1000, // Scan-once drops live at most 7 days
 };
-// Scheduled release: at most 3 months ahead
+// Scheduled release: at most 3 months after the drop was made, and 14 days with files, which
+// must not wait long on the server. Counted from creation, so moving the date can't extend it.
 const MAX_ACTIVATION_DELAY_MS = 92 * 24 * 60 * 60 * 1000;
+const MAX_ACTIVATION_DELAY_WITH_FILES_MS = 14 * 24 * 60 * 60 * 1000;
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
 const ANON_FILE_BYTES = 5 * MB;
@@ -347,16 +349,17 @@ function toPositiveInt(value: unknown): number | null {
 }
 
 // A requested activation time in ms: null for "open right away", undefined if it is not
-// a valid time in the future (at most MAX_ACTIVATION_DELAY_MS ahead)
-function parseActivatesAt(value: unknown, now = Date.now()): number | null | undefined {
+// a valid time in the future, within the limit counted from when the drop was made
+function parseActivatesAt(value: unknown, hasFiles: boolean, createdAt: number, now = Date.now()): number | null | undefined {
   if (value === undefined || value === null || value === '') return null;
   const ms = typeof value === 'number' ? value : Date.parse(String(value));
-  if (!Number.isFinite(ms) || ms <= now || ms > now + MAX_ACTIVATION_DELAY_MS) return undefined;
+  const maxDelay = hasFiles ? MAX_ACTIVATION_DELAY_WITH_FILES_MS : MAX_ACTIVATION_DELAY_MS;
+  if (!Number.isFinite(ms) || ms <= now || ms > createdAt + maxDelay) return undefined;
   return ms;
 }
 
 function invalidActivationResponse(c: any) {
-  return c.json({ error: 'Activation date must be in the future and at most 3 months ahead', code: 'INVALID_ACTIVATION_DATE' }, 400);
+  return c.json({ error: 'Activation date must be in the future, at most 3 months ahead (14 days with files)', code: 'INVALID_ACTIVATION_DATE' }, 400);
 }
 
 // Rejects options the creator isn't allowed to pick, or returns the price (0 = free), how much
@@ -365,7 +368,8 @@ async function priceQrDrop(c: any, userId: string | null, metadata: any, fileSiz
   if (!(metadata.expiryType in EXPIRY_DURATIONS_MS)) {
     return c.json({ error: 'Invalid expiry type' }, 400);
   }
-  const activatesAt = parseActivatesAt(metadata.activatesAt);
+  const now = Date.now();
+  const activatesAt = parseActivatesAt(metadata.activatesAt, fileSizes.length > 0, now, now);
   if (activatesAt === undefined) return invalidActivationResponse(c);
   if (fileSizes.length === 0) return { cost: 0, freeTraffic: 0, activatesAt };
 
@@ -638,6 +642,18 @@ initStorage();
 cleanupExpired();
 // Run cleanup every 10 minutes
 setInterval(cleanupExpired, 10 * 60 * 1000);
+
+// pg_cron calls this every 10 minutes, so files are removed from Storage even when nobody uses
+// the service (the timer above only runs while the function is awake). It only deletes what has
+// expired, so it needs no login; once a minute is enough.
+let lastCleanupCall = 0;
+app.post('/make-server-c3c9181e/cleanup', async (c) => {
+  const now = Date.now();
+  if (now - lastCleanupCall < 60 * 1000) return c.json({ skipped: true });
+  lastCleanupCall = now;
+  const deleted = await cleanupExpired();
+  return c.json({ deleted });
+});
 
 // Health check
 app.get('/make-server-c3c9181e/health', (c) => {
@@ -1234,7 +1250,7 @@ app.post('/make-server-c3c9181e/qr/:id/activation', async (c) => {
       return c.json({ error: 'activatesAt is required' }, 400);
     }
     const now = Date.now();
-    const activatesAt = parseActivatesAt(body.activatesAt, now);
+    const activatesAt = parseActivatesAt(body.activatesAt, !!qrDrop.files, qrDrop.createdAt, now);
     if (activatesAt === undefined) return invalidActivationResponse(c);
 
     const lifetimeMs = qrDrop.expiresAt - qrDrop.activatesAt;
@@ -1327,7 +1343,9 @@ app.delete('/make-server-c3c9181e/qr/:id', async (c) => {
 // A code's lifetime starts at its first scan; the series' end is the latest any code can live.
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SERIES_LIFETIMES_MS: Record<string, number> = { '24h': DAY_MS, '7d': 7 * DAY_MS, '30d': 30 * DAY_MS, '365d': 365 * DAY_MS };
-const SERIES_ENDS_MS: Record<string, number> = { '6mo': 183 * DAY_MS, '1y': 365 * DAY_MS, '2y': 730 * DAY_MS };
+const SERIES_ENDS_MS: Record<string, number> = { '1mo': 30 * DAY_MS, '6mo': 183 * DAY_MS, '1y': 365 * DAY_MS, '2y': 730 * DAY_MS };
+// Files must not wait long on the server for codes nobody scans, so a series with files ends sooner
+const SERIES_MAX_END_WITH_FILES_MS = 30 * DAY_MS;
 const SERIES_MIN_CODES = 10;
 const SERIES_MAX_CODES = 5000;
 const SERIES_MAX_OPENS = 50;
@@ -1411,6 +1429,9 @@ app.post('/make-server-c3c9181e/series', async (c) => {
     }
     if (!lifetimeMs || !endMs) {
       return c.json({ error: 'Invalid lifetime or series end' }, 400);
+    }
+    if (files.length > 0 && endMs > SERIES_MAX_END_WITH_FILES_MS) {
+      return c.json({ error: 'A series with files ends after at most 30 days', code: 'SERIES_END_TOO_LONG' }, 400);
     }
     const textContent = typeof metadata.textContentCiphertext === 'string' && metadata.textContentCiphertext ? metadata.textContentCiphertext : null;
     const urlContent = typeof metadata.urlContentCiphertext === 'string' && metadata.urlContentCiphertext ? metadata.urlContentCiphertext : null;

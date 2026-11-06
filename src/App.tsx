@@ -24,6 +24,7 @@ export interface QrDrop {
   fileName: string; // For files, or used as display name for text/url
   fileType: string;
   fileSize: number;
+  hasFiles?: boolean; // Files wait on the server, so a release date can be at most 14 days ahead
   textContent?: string; // For text type
   urlContent?: string; // For url type (JSON string of array for multiple URLs)
   expiryType: string;
@@ -58,6 +59,7 @@ function convertToQrDrop(data: QrDropData, qrCodeUrl: string): QrDrop {
     fileName: data.fileName,
     fileType: data.fileType,
     fileSize: data.fileSize,
+    hasFiles: !!data.filePath,
     textContent: data.textContent || undefined,
     urlContent: data.urlContent || undefined,
     expiryType: data.expiryType,

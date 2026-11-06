@@ -48,9 +48,9 @@ const resources = {
       activation: {
         label: 'Open later',
         cost: '+1 coin',
-        description: 'The code can be shared and scanned right away, but the content only opens on the date you choose (at most 3 months ahead). The time limit starts then. You can change the date afterwards.',
+        description: 'The code can be shared and scanned right away, but the content only opens on the date you choose (at most 3 months ahead, 14 days with files, counted from when you made it). The time limit starts then. You can change the date afterwards.',
         dateLabel: 'Opens',
-        invalid: 'Pick a time in the future, at most 3 months ahead.',
+        invalid: 'Pick a time in the future, at most 3 months ahead (14 days with files).',
         opensAt: 'Opens {{date}}',
         opensIn: 'Opens in {{time}}',
         countdownDays: '{{days}}d {{hours}}h',
@@ -415,9 +415,9 @@ const resources = {
       activation: {
         label: 'Åpne senere',
         cost: '+1 coin',
-        description: 'Koden kan deles og skannes med en gang, men innholdet åpnes først på datoen du velger (maks 3 måneder frem). Tidsbegrensningen starter da. Du kan endre datoen i etterkant.',
+        description: 'Koden kan deles og skannes med en gang, men innholdet åpnes først på datoen du velger (maks 3 måneder frem, 14 dager med filer, regnet fra da du lagde den). Tidsbegrensningen starter da. Du kan endre datoen i etterkant.',
         dateLabel: 'Åpnes',
-        invalid: 'Velg et tidspunkt frem i tid, maks 3 måneder frem.',
+        invalid: 'Velg et tidspunkt frem i tid, maks 3 måneder frem (14 dager med filer).',
         opensAt: 'Åpnes {{date}}',
         opensIn: 'Åpnes om {{time}}',
         countdownDays: '{{days}}d {{hours}}t',

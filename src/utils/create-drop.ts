@@ -212,6 +212,7 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
     fileName: title || fallbackName,
     fileType: 'bundle',
     fileSize: totalSize,
+    hasFiles: req.files.length > 0,
     expiryType: req.expiryType,
     // The server's times: with a release date the lifetime starts then
     expiryDate: response.qrDrop?.expiresAt ? new Date(response.qrDrop.expiresAt) : expiryDate,
@@ -222,7 +223,7 @@ export async function createDrop(req: DropRequest, fallbackName: string): Promis
     downloadCount: 0,
     viewOnly: req.viewOnly,
     password: req.password || undefined,
-    createdAt: new Date(),
+    createdAt: response.qrDrop?.createdAt ? new Date(response.qrDrop.createdAt) : new Date(),
     qrCodeUrl,
     secureMode,
     singleQrMode,

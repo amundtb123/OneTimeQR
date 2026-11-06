@@ -67,7 +67,8 @@ const SECTIONS: Section[] = [
           tx('Hvem: den som har lenken, den som har lenken og QR-nøkkelen, den som har lenken og passordet, eller den som har begge QR-nøklene', 'Who: whoever has the link, whoever has the link and the QR key, whoever has the link and the password, or whoever has both QR keys'),
           tx('Antall åpninger: fra 1 til 1000, eller ubegrenset', 'Number of opens: from 1 to 1000, or unlimited'),
           tx('Utløpstid: 10 minutter, 30 minutter, 1 time, 24 timer eller 7 dager', 'Expiry: 10 minutes, 30 minutes, 1 hour, 24 hours or 7 days'),
-          tx('Planlagt åpning: inntil 3 måneder frem i tid. Utløpstiden regnes fra åpningsdatoen', 'Scheduled opening: up to 3 months ahead. The expiry counts from the opening date'),
+          tx('Planlagt åpning: inntil 3 måneder etter at nøkkelen ble laget, og inntil 14 dager med filer. Utløpstiden regnes fra åpningsdatoen', 'Scheduled opening: up to 3 months after the key was made, and up to 14 days with files. The expiry counts from the opening date'),
+          tx('Serier: hele serien slutter etter 1 måned, 6 måneder, 1 år eller 2 år, men med filer etter maks 1 måned', 'Series: the whole series ends after 1 month, 6 months, 1 year or 2 years, but with files after at most 1 month'),
           tx('Bare visning: innholdet vises, men tilbys ikke som nedlasting', 'View only: the content is shown, but not offered as a download'),
         ],
       },
@@ -116,7 +117,8 @@ const SECTIONS: Section[] = [
       {
         list: [
           tx('Saldoen kan bare brukes til nøkler i OneTimeQR og kan ikke tas ut som penger', 'The balance can only be used for keys in OneTimeQR and cannot be withdrawn as money'),
-          tx('Saldo refunderes ikke', 'The balance is not refunded'),
+          tx(`Ubrukt saldo kan betales tilbake hvis du tar kontakt på ${CONTACT_EMAIL}`, `Unused balance can be refunded if you contact us at ${CONTACT_EMAIL}`),
+          tx('Har du ikke brukt kontoen på 3 år, kan vi slette den, og saldoen faller da bort', 'If you have not used your account for 3 years, we may delete it, and the balance then lapses'),
           tx('Priser og hva som koster kan endres', 'Prices and what costs money may change'),
           tx('Saldoen oppdateres etter vellykket betaling, men vi garanterer ikke umiddelbar levering', 'The balance is updated after a successful payment, but we do not guarantee immediate delivery'),
         ],

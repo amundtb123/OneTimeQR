@@ -7,7 +7,7 @@ import { useAuth } from '../../utils/auth-context';
 import { fromLocalInputValue, isValidActivationDate } from '../../utils/activation';
 import { shrinkImages } from '../../utils/shrink-image';
 import { calculatePriceKr, createDrop, maxOpensFor, MAX_SIZE_LOGGED_IN, FREE_SIZE_LIMIT } from '../../utils/create-drop';
-import { createSeries, seriesPriceKr, seriesTooMuchTraffic, SERIES_MAX_CODES, SERIES_MAX_OPENS, SERIES_MIN_CODES, type CreatedSeries, type SeriesEnd, type SeriesLifetime } from '../../utils/create-series';
+import { createSeries, seriesPriceKr, seriesRulesWithFiles, seriesTooMuchTraffic, SERIES_MAX_CODES, SERIES_MAX_OPENS, SERIES_MIN_CODES, type CreatedSeries, type SeriesEnd, type SeriesLifetime } from '../../utils/create-series';
 import { KEYS_BY_WHO, MAX_TIMES, templateById, type Rules, type TemplateId } from './rules';
 import { STYLE_PRESETS, type StylePreset } from './key-preview';
 import { StepStart, type PastedContent } from './step-start';
@@ -163,7 +163,7 @@ export function CreateFlow({ onQrCreated, onSeriesCreated }: CreateFlowProps) {
       return;
     }
     const activatesAt = rules.opensAt ? fromLocalInputValue(rules.opensAt) : null;
-    if (rules.opensAt && !isValidActivationDate(activatesAt)) {
+    if (rules.opensAt && !isValidActivationDate(activatesAt, draft.files.length > 0)) {
       toast.error(t('activation.invalid'));
       return;
     }
@@ -181,6 +181,7 @@ export function CreateFlow({ onQrCreated, onSeriesCreated }: CreateFlowProps) {
     setCreating(true);
     try {
       if (isSeries) {
+        const seriesRules = seriesRulesWithFiles(draft.series, draft.files.length > 0);
         const { created, coinsCharged } = await createSeries({
           title: draft.title,
           files: draft.files,
@@ -188,8 +189,8 @@ export function CreateFlow({ onQrCreated, onSeriesCreated }: CreateFlowProps) {
           urls: draft.urls,
           codeCount: draft.series.count,
           maxScans: rules.times as number,
-          lifetime: draft.series.lifetime,
-          seriesEnd: draft.series.end,
+          lifetime: seriesRules.lifetime,
+          seriesEnd: seriesRules.end,
           viewOnly: rules.mode === 'view',
           password: rules.who === 'password' ? draft.password : undefined,
           qrStyle: draft.style,

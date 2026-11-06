@@ -8,9 +8,18 @@ import { KR_PER_GB } from './create-drop';
 
 // Same rules as the server (SERIES_* in the Edge Function)
 export type SeriesLifetime = '24h' | '7d' | '30d' | '365d';
-export type SeriesEnd = '6mo' | '1y' | '2y';
+export type SeriesEnd = '1mo' | '6mo' | '1y' | '2y';
 export const SERIES_LIFETIMES: SeriesLifetime[] = ['24h', '7d', '30d', '365d'];
-export const SERIES_ENDS: SeriesEnd[] = ['6mo', '1y', '2y'];
+export const SERIES_ENDS: SeriesEnd[] = ['1mo', '6mo', '1y', '2y'];
+// Files must not wait long on the server for codes nobody scans, so a series with files ends after a month
+export const SERIES_ENDS_WITH_FILES: SeriesEnd[] = ['1mo'];
+export const SERIES_LIFETIMES_WITH_FILES: SeriesLifetime[] = ['24h', '7d', '30d'];
+
+// The rules a series really gets: with files, the end and each code's lifetime are cut to a month
+export function seriesRulesWithFiles<T extends { lifetime: SeriesLifetime; end: SeriesEnd }>(rules: T, hasFiles: boolean): T {
+  if (!hasFiles) return rules;
+  return { ...rules, end: '1mo', lifetime: SERIES_LIFETIMES_WITH_FILES.includes(rules.lifetime) ? rules.lifetime : '30d' };
+}
 export const SERIES_COUNTS = [10, 50, 100, 500, 1000];
 export const SERIES_MIN_CODES = 10;
 export const SERIES_MAX_CODES = 5000;

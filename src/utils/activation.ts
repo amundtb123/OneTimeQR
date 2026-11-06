@@ -1,15 +1,19 @@
-// Scheduled release: a QR drop can open at a later date, at most 3 months ahead.
-// The server enforces the same limit (MAX_ACTIVATION_DELAY_MS in the Edge Function).
+// Scheduled release: a QR drop can open at a later date, at most 3 months after it was made,
+// and 14 days with files, which must not wait long on the server.
+// The server enforces the same limits (MAX_ACTIVATION_DELAY_* in the Edge Function).
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 const MAX_ACTIVATION_MONTHS = 3;
 const MAX_ACTIVATION_DELAY_MS = 92 * 24 * 60 * 60 * 1000;
+const MAX_ACTIVATION_DELAY_WITH_FILES_MS = 14 * 24 * 60 * 60 * 1000;
 
-export function maxActivationDate(now = new Date()): Date {
-  const max = new Date(now);
+// Counted from when the drop was made, so moving the date later can't extend it
+export function maxActivationDate(hasFiles: boolean, createdAt = new Date()): Date {
+  if (hasFiles) return new Date(createdAt.getTime() + MAX_ACTIVATION_DELAY_WITH_FILES_MS);
+  const max = new Date(createdAt);
   max.setMonth(max.getMonth() + MAX_ACTIVATION_MONTHS);
-  return new Date(Math.min(max.getTime(), now.getTime() + MAX_ACTIVATION_DELAY_MS));
+  return new Date(Math.min(max.getTime(), createdAt.getTime() + MAX_ACTIVATION_DELAY_MS));
 }
 
 // Tomorrow at the next full hour: a sensible first suggestion in the picker
@@ -20,8 +24,8 @@ export function defaultActivationDate(now = new Date()): Date {
   return date;
 }
 
-export function isValidActivationDate(date: Date | null, now = new Date()): date is Date {
-  return !!date && !Number.isNaN(date.getTime()) && date > now && date <= maxActivationDate(now);
+export function isValidActivationDate(date: Date | null, hasFiles: boolean, createdAt = new Date(), now = new Date()): date is Date {
+  return !!date && !Number.isNaN(date.getTime()) && date > now && date <= maxActivationDate(hasFiles, createdAt);
 }
 
 // <input type="datetime-local"> works in local time without a time zone: "2026-11-03T14:00"

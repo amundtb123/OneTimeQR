@@ -439,6 +439,10 @@ console.log('\nScheduled release');
   check('change without auth is 401', (await change({ activatesAt: inDays(10) }, {})).status === 401);
   check('change by another user is 403', (await change({ activatesAt: inDays(10) }, { token: 'tok-B' })).status === 403);
   check('change to a date more than 3 months ahead is 400', (await change({ activatesAt: inDays(93) })).status === 400);
+  // The limit counts from creation, so moving the date again and again can't keep it waiting
+  await db.query(`update public.qr_drops set created_at = now() - interval '85 days' where id = $1`, [id]);
+  check('change past 3 months after creation is 400', (await change({ activatesAt: inDays(10) })).status === 400);
+  await db.query(`update public.qr_drops set created_at = now() where id = $1`, [id]);
   check('change without activatesAt is 400', (await change({})).status === 400);
   const coinsBefore = await coinsOf(USER_P);
   const newAt = Date.parse(inDays(10));
@@ -472,6 +476,13 @@ console.log('\nScheduled release');
   const upload = await call('POST', '/upload', { ...paid, form });
   check('file drop: scheduled small upload is free', upload.status === 200 && upload.json.coinsCharged === 0, upload);
   check('file drop: /open before activation is 403', (await call('POST', `/qr/${upload.json.id}/open`, { body: {} })).status === 403);
+  const lateForm = new FormData();
+  lateForm.append('file', new Blob([Buffer.alloc(10)]), 'a.png');
+  lateForm.append('metadata', JSON.stringify({ contentType: 'file', expiryType: '10m', maxScans: 1, activatesAt: inDays(15) }));
+  const late = await call('POST', '/upload', { ...paid, form: lateForm });
+  check('file drop: opening more than 14 days ahead is 400', late.status === 400 && late.json.code === 'INVALID_ACTIVATION_DATE', late);
+  check('file drop: the date cannot be moved past 14 days', (await call('POST', `/qr/${upload.json.id}/activation`, { ...paid, body: { activatesAt: inDays(15) } })).status === 400);
+  check('file drop: the date can be moved within 14 days', (await call('POST', `/qr/${upload.json.id}/activation`, { ...paid, body: { activatesAt: inDays(13) } })).status === 200);
 }
 
 console.log('\nClient-chosen IDs');
@@ -570,6 +581,18 @@ console.log('\nTables: tokens, files and cleanup');
   await db.query(`update public.qr_drops set last_opened_at = now() - interval '16 minutes' where id = $1`, [once.id]);
   await db.query(`select public.cleanup_expired_qr_drops()`);
   check('cleanup deletes it afterwards', !(await rawDrop(once.id)));
+
+  // pg_cron calls /cleanup so files leave Storage even when nobody uses the service
+  const gone = await create({});
+  const goneForm = new FormData();
+  goneForm.append('file', new Blob([new Uint8Array(10)]), 'b.bin');
+  goneForm.append('metadata', JSON.stringify({ contentType: 'bundle', expiryType: '10m', maxScans: 1 }));
+  const goneUp = await call('POST', '/upload', { form: goneForm, token: 'tok-A' });
+  const gonePath = [...globalThis.__files.keys()].find((k) => k.includes(goneUp.json.id));
+  await db.query(`update public.qr_drops set expires_at = now() - interval '1 minute' where id = any($1)`, [[gone.id, goneUp.json.id]]);
+  const swept = await call('POST', '/cleanup', {});
+  check('/cleanup removes expired files from Storage', swept.status === 200 && !globalThis.__files.has(gonePath) && !(await rawDrop(goneUp.json.id)), swept);
+  check('/cleanup runs at most once a minute', (await call('POST', '/cleanup', {})).json?.skipped === true);
 }
 
 console.log('\nCORS');
@@ -692,7 +715,12 @@ console.log('\nSeries');
   check('others see no series', (await call('GET', '/series', { token: 'tok-A' })).json.series.length === 0);
   check('others cannot delete the series', (await call('DELETE', `/series/${seriesId}`, { token: 'tok-A' })).status === 403);
 
-  const withFile = await makeSeries({ codeCount: 10 }, [new File([new Uint8Array(2048)], 'bonus.pdf')]);
+  const bonus = () => [new File([new Uint8Array(2048)], 'bonus.pdf')];
+  const coinsBeforeLong = await coinsOf(USER_S);
+  check('a series with files cannot last more than a month', (await makeSeries({ codeCount: 10 }, bonus())).json?.code === 'SERIES_END_TOO_LONG');
+  check('the refused series with files cost nothing', (await coinsOf(USER_S)) === coinsBeforeLong);
+  const withFile = await makeSeries({ codeCount: 10, seriesEnd: '1mo' }, bonus());
+  check('a series with files ends after 30 days', Math.abs(withFile.json?.series?.expiresAt - (Date.now() + 30 * 864e5)) < 60e3, withFile.json?.series);
   const fileSeriesId = withFile.json?.series?.id;
   const filePath = (await db.query(`select files from public.qr_series where id = $1`, [fileSeriesId])).rows[0]?.files[0]?.path;
   check('series files are stored once, on the series', withFile.status === 200 && globalThis.__files.has(filePath)

@@ -49,7 +49,7 @@ export function ActivationEditor({ qrDrop, onChanged }: ActivationEditorProps) {
 
   const handleSave = () => {
     const date = fromLocalInputValue(inputValue);
-    if (!isValidActivationDate(date)) {
+    if (!isValidActivationDate(date, !!qrDrop.hasFiles, qrDrop.createdAt)) {
       toast.error(t('activation.invalid'));
       return;
     }
@@ -81,7 +81,7 @@ export function ActivationEditor({ qrDrop, onChanged }: ActivationEditorProps) {
                 type="datetime-local"
                 value={inputValue}
                 min={toLocalInputValue(new Date())}
-                max={toLocalInputValue(maxActivationDate())}
+                max={toLocalInputValue(maxActivationDate(!!qrDrop.hasFiles, qrDrop.createdAt))}
                 onChange={(e) => setInputValue(e.target.value)}
                 className="flex-1 min-w-0 px-3 py-2 rounded-xl border bg-white text-[#3F3F3F]"
                 style={{ borderColor: '#D5C5BD' }}

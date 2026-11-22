@@ -1,24 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import QRCode from 'qrcode';
 import { getDrawBoard, type DrawBoard as Board } from '../../utils/api-client';
+import { ticketUrl } from '../../utils/create-draw';
 
 const POLL_MS = 2500;
+const POLL_QUEUE_MS = 1200; // A screen handing out tickets shows the next one quickly
 const CELEBRATE_MS = 6000;
 
 interface DrawBoardProps {
   drawId: string;
   displayToken?: string; // From the screen link; without it the owner's login is used
+  ticketKey?: string; // With it the screen hands out the tickets itself, one QR code at a time
 }
 
-// The board of a draw, for a TV or a projector: every ticket, lit up as it is scanned, and a
-// moment of celebration when a prize is found. It only ever learns a ticket's prize once the
-// ticket has been opened.
-export function DrawBoard({ drawId, displayToken }: DrawBoardProps) {
+// The screen of a draw, for a TV or a projector. It never shows which tickets won, only how many
+// are taken, plus a moment of celebration when a prize is found. With the tickets' key it hands
+// out the tickets itself: one big QR code, and the next as soon as it is scanned.
+export function DrawBoard({ drawId, displayToken, ticketKey }: DrawBoardProps) {
   const { t, i18n } = useTranslation();
   const [board, setBoard] = useState<Board | null>(null);
   const [failed, setFailed] = useState(false);
-  const [celebrate, setCelebrate] = useState<{ number: number; label: string } | null>(null);
-  const seen = useRef<Set<number> | null>(null); // Tickets already shown, so only new prizes are celebrated
+  const [qr, setQr] = useState<string | null>(null);
+  const [celebrate, setCelebrate] = useState<string | null>(null);
+  const seen = useRef<Set<number> | null>(null); // Tickets already counted, so only new prizes are celebrated
 
   useEffect(() => {
     let cancelled = false;
@@ -31,16 +36,16 @@ export function DrawBoard({ drawId, displayToken }: DrawBoardProps) {
         seen.current ??= new Set();
         for (const [number, prize] of next.opened) {
           if (!seen.current.has(number) && prize !== null && !first) {
-            setCelebrate({ number, label: next.prizes[prize]?.label || t('lag.draw.board.prize') });
+            setCelebrate(next.prizes[prize]?.label || t('lag.draw.board.prize'));
           }
           seen.current.add(number);
         }
         setBoard(next);
         setFailed(false);
       } catch (error: any) {
-        if (!cancelled && (error?.status === 404 || !board)) setFailed(true);
+        if (!cancelled && error?.status === 404) setFailed(true);
       } finally {
-        if (!cancelled) timer = setTimeout(load, POLL_MS);
+        if (!cancelled) timer = setTimeout(load, ticketKey ? POLL_QUEUE_MS : POLL_MS);
       }
     };
     load();
@@ -48,7 +53,21 @@ export function DrawBoard({ drawId, displayToken }: DrawBoardProps) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [drawId, displayToken]);
+  }, [drawId, displayToken, ticketKey]);
+
+  // The QR code of the next ticket, drawn here: its key never leaves this screen
+  const nextId = board?.next?.id;
+  useEffect(() => {
+    if (!ticketKey || !nextId) {
+      setQr(null);
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(ticketUrl(nextId, ticketKey), { width: 900, margin: 1, errorCorrectionLevel: 'M' })
+      .then((src) => { if (!cancelled) setQr(src); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [ticketKey, nextId]);
 
   useEffect(() => {
     if (!celebrate) return;
@@ -63,13 +82,11 @@ export function DrawBoard({ drawId, displayToken }: DrawBoardProps) {
     return <main className="lg-board lg-board-empty"><p>{t('lag.draw.board.loading')}</p></main>;
   }
 
-  const opened = new Map(board.opened);
-  const winners = board.opened.filter(([, prize]) => prize !== null);
-  const totalPrizes = board.prizes.reduce((sum, p) => sum + p.count, 0);
-  const latest = winners[winners.length - 1];
   const fmt = (n: number) => n.toLocaleString(i18n.language);
-  // Fewer tickets get bigger squares; a few hundred still fit on one screen
-  const cell = board.codeCount <= 30 ? 120 : board.codeCount <= 100 ? 76 : board.codeCount <= 300 ? 48 : 30;
+  const taken = board.opened.length;
+  const totalPrizes = board.prizes.reduce((sum, p) => sum + p.count, 0);
+  const prizesLeft = totalPrizes - board.opened.filter(([, prize]) => prize !== null).length;
+  const prizeLine = prizesLeft > 0 ? t('lag.draw.board.prizesLeft', { count: prizesLeft }) : t('lag.draw.board.noPrizesLeft');
 
   return (
     <main className="lg-board">
@@ -78,68 +95,47 @@ export function DrawBoard({ drawId, displayToken }: DrawBoardProps) {
           <span className="lg-board-eyebrow">{t('lag.templates.draw.name')}</span>
           <h1 className="lg-board-title">{board.title || t('keyring.series.drawUntitled')}</h1>
         </div>
-        <div className="lg-board-stats">
-          <strong>{winners.length === totalPrizes ? t('lag.draw.board.allFound') : t('lag.draw.board.found', { found: winners.length, total: totalPrizes })}</strong>
-          <span>{t('lag.draw.board.scanned', { opened: fmt(board.opened.length), count: fmt(board.codeCount) })}</span>
-          <button
-            type="button"
-            className="lg-board-full"
-            onClick={() => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {})}
-          >
-            {t('lag.draw.board.fullscreen')}
-          </button>
-        </div>
+        <button
+          type="button"
+          className="lg-board-full"
+          onClick={() => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {})}
+        >
+          {t('lag.draw.board.fullscreen')}
+        </button>
       </header>
 
-      <div className="lg-board-body">
-        <ol className="lg-board-grid" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cell}px, 1fr))` }} aria-label={t('lag.draw.board.scanned', { opened: fmt(board.opened.length), count: fmt(board.codeCount) })}>
-          {Array.from({ length: board.codeCount }, (_, i) => {
-            const number = i + 1;
-            const state = !opened.has(number) ? '' : opened.get(number) === null ? ' is-open' : ' is-win';
-            return (
-              <li key={number} className={`lg-board-cell${state}`} style={{ fontSize: Math.max(10, cell / 4) }}>
-                {cell >= 48 ? number : ''}
-                {state === ' is-win' && cell >= 76 && <span className="lg-board-star" aria-hidden="true">★</span>}
-              </li>
-            );
-          })}
-        </ol>
-
-        <aside className="lg-board-side">
-          <section>
-            <h2>{t('lag.draw.board.latest')}</h2>
-            {latest ? (
-              <p className="lg-board-latest">
-                <span>{t('lag.draw.scan.ticket', { number: latest[0] })}</span>
-                <strong>{board.prizes[latest[1]!]?.label || t('lag.draw.board.prize')}</strong>
-              </p>
-            ) : (
-              <p className="lg-board-wait">{t('lag.draw.board.noWinnerYet')}</p>
-            )}
-          </section>
-          <section>
-            <h2>{t('lag.draw.prizes')}</h2>
-            <ul className="lg-board-prizes">
-              {board.prizes.map((prize, i) => {
-                const found = winners.filter(([, p]) => p === i).length;
-                return (
-                  <li key={i} className={found === prize.count ? 'is-done' : ''}>
-                    <span>{prize.label || `${t('lag.draw.board.prize')} ${i + 1}`}</span>
-                    <span>{found}/{prize.count}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        </aside>
-      </div>
+      {ticketKey ? (
+        <div className="lg-board-queue">
+          {board.next ? (
+            <figure className="lg-board-qr">
+              {qr ? <img key={board.next.id} src={qr} alt={t('lag.draw.board.scanToTake', { number: board.next.number })} /> : <div className="lg-board-qr-blank" />}
+              <figcaption>{t('lag.draw.board.scanToTake', { number: board.next.number })}</figcaption>
+            </figure>
+          ) : (
+            <p className="lg-board-done">{t('lag.draw.board.allTaken')}</p>
+          )}
+          <div className="lg-board-tally">
+            <strong>{fmt(taken)}</strong>
+            <span>{t('lag.draw.board.taken', { count: fmt(board.codeCount) })}</span>
+            <span className="lg-board-prizesleft">{prizeLine}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="lg-board-count">
+          <strong>{fmt(taken)}</strong>
+          <span>{t('lag.draw.board.taken', { count: fmt(board.codeCount) })}</span>
+          <div className="lg-board-bar" aria-hidden="true">
+            <span style={{ width: `${board.codeCount ? (taken / board.codeCount) * 100 : 0}%` }} />
+          </div>
+          <span className="lg-board-prizesleft">{prizeLine}</span>
+        </div>
+      )}
 
       {celebrate && (
         <div className="lg-board-celebrate" role="status" aria-live="assertive">
           <div>
             <span className="lg-board-celebrate-star" aria-hidden="true">★</span>
-            <strong>{celebrate.label}</strong>
-            <span>{t('lag.draw.scan.ticket', { number: celebrate.number })}</span>
+            <strong>{celebrate}</strong>
           </div>
         </div>
       )}

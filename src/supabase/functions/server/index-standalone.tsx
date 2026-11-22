@@ -1411,15 +1411,19 @@ function secureRandomInt(n: number): number {
 }
 
 // Which variant each code gets (index = code number - 1): prize n for prizes[n - 1].count codes,
-// 0 for the rest, shuffled (Fisher–Yates) so nobody, the owner included, picks the winners
-function drawVariants(codeCount: number, prizeCounts: number[]): number[] {
+// 0 for the rest, shuffled (Fisher–Yates) so nobody, the owner included, picks the winners.
+// holdPrizes keeps the prizes out of the first half: a screen hands out tickets in number order,
+// and a prize on the very first ticket would end the fun.
+function drawVariants(codeCount: number, prizeCounts: number[], holdPrizes = false): number[] {
+  const prizeCodes = prizeCounts.reduce((sum, n) => sum + n, 0);
+  const start = holdPrizes ? Math.min(Math.floor(codeCount / 2), codeCount - prizeCodes) : 0;
   const variants = new Array(codeCount).fill(0);
-  let next = 0;
+  let next = start;
   prizeCounts.forEach((count, i) => {
     for (let k = 0; k < count; k++) variants[next++] = i + 1;
   });
-  for (let i = codeCount - 1; i > 0; i--) {
-    const j = secureRandomInt(i + 1);
+  for (let i = codeCount - 1; i > start; i--) {
+    const j = start + secureRandomInt(i - start + 1);
     [variants[i], variants[j]] = [variants[j], variants[i]];
   }
   return variants;
@@ -1634,7 +1638,7 @@ app.post('/make-server-c3c9181e/series', async (c) => {
       // The codes: ordinary drops without content of their own. Until its first scan a code
       // lives as long as the series.
       const codes = Array.from({ length: codeCount }, (_, i) => ({ id: crypto.randomUUID(), number: i + 1 }));
-      const variants = isDraw ? drawVariants(codeCount, prizeRequests.map((p) => p.count)) : null;
+      const variants = isDraw ? drawVariants(codeCount, prizeRequests.map((p) => p.count), metadata.holdPrizes === true) : null;
       for (let start = 0; start < codes.length; start += SERIES_INSERT_CHUNK) {
         const rows = codes.slice(start, start + SERIES_INSERT_CHUNK).map((code) => ({
           id: code.id,
@@ -1735,7 +1739,18 @@ app.get('/make-server-c3c9181e/series/:id/board', async (c) => {
     }
     const { data: opened, error: boardError } = await supabase.rpc('qr_draw_board', { p_series_id: id });
     if (boardError) throw new Error(boardError.message);
+    // The next ticket a screen hands out: the lowest number nobody has scanned. Its id is no use
+    // without the key, which only the screen's own link carries.
+    const { data: next, error: nextError } = await supabase
+      .from('qr_drops')
+      .select('id, series_number')
+      .eq('series_id', id)
+      .eq('scan_count', 0)
+      .order('series_number', { ascending: true })
+      .limit(1);
+    if (nextError) throw new Error(nextError.message);
     return c.json({
+      next: next?.[0] ? { id: next[0].id, number: next[0].series_number } : null,
       title: row.title,
       codeCount: row.code_count,
       prizes: (row.prizes ?? []).map((p: any) => ({ label: p.label ?? null, count: p.count })),

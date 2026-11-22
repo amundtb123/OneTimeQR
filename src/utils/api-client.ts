@@ -365,13 +365,22 @@ export interface DrawBoard {
   codeCount: number;
   prizes: Array<{ label: string | null; count: number }>;
   opened: Array<[number, number | null]>; // [code number, prize index or null], in the order opened
-  next: { id: string; number: number } | null; // The next ticket a screen hands out
+  next?: { id: string; number: number } | null; // The next ticket a screen hands out (missing from an old server)
+  free?: Array<{ id: string; number: number }>; // Every ticket nobody has scanned, when asked for a grid
+  // The first picture of the draw's own content and of each prize (encrypted), when asked for
+  pictures?: { base: DrawPicture | null; prizes: Array<DrawPicture | null> };
   expiresAt: number;
 }
 
 // The owner's own login, or a screen's display secret
-export async function getDrawBoard(id: string, displayToken?: string): Promise<DrawBoard> {
-  return fetchApi(`/series/${id}/board`, displayToken ? { headers: { 'X-Display-Token': displayToken } } : {});
+export interface DrawPicture {
+  url: string; // Short-lived link to the encrypted file
+  type: string;
+}
+
+export async function getDrawBoard(id: string, displayToken?: string, withCodes = false, withPictures = false): Promise<DrawBoard> {
+  const query = [withCodes && 'codes=1', withPictures && 'pictures=1'].filter(Boolean).join('&');
+  return fetchApi(`/series/${id}/board${query ? `?${query}` : ''}`, displayToken ? { headers: { 'X-Display-Token': displayToken } } : {});
 }
 
 export async function newDisplayToken(id: string): Promise<{ displayToken: string }> {

@@ -6,7 +6,7 @@ import { KR_PER_GB, MAX_SIZE_LOGGED_IN } from '../../utils/create-drop';
 import { SERIES_KR_PER_100, type SeriesEnd } from '../../utils/create-series';
 import {
   createDraw, drawPriceKr, drawTooMuchTraffic, DRAW_COUNTS, DRAW_ENDS, DRAW_ENDS_WITH_FILES, DRAW_LABEL_MAX,
-  DRAW_MAX_CODES, DRAW_MAX_PRIZES, DRAW_MIN_CODES, type CreatedDraw, type DrawPrize,
+  DRAW_GRID_MAX, DRAW_MAX_CODES, DRAW_MAX_PRIZES, DRAW_MIN_CODES, type CreatedDraw, type DrawHandout, type DrawPrize,
 } from '../../utils/create-draw';
 import { STYLE_PRESETS } from './key-preview';
 import { CoinShop } from '../coin-shop';
@@ -66,7 +66,7 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
   const [noPrizeText, setNoPrizeText] = useState(() => t('lag.draw.noPrizeDefault'));
   const [noPrizeFiles, setNoPrizeFiles] = useState<File[]>([]);
   const [end, setEnd] = useState<SeriesEnd>('1mo');
-  const [fromScreen, setFromScreen] = useState(true);
+  const [handout, setHandout] = useState<DrawHandout>('one');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [creating, setCreating] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
@@ -81,7 +81,8 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
   const tooLarge = allFiles.reduce((sum, f) => sum + f.size, 0) > MAX_SIZE_LOGGED_IN;
   const tooMuchTraffic = drawTooMuchTraffic(count, noPrizeFiles, prizes);
   const notEnough = !!user && coins !== null && coins < cost;
-  const blocked = badCount || tooManyPrizes || tooLarge || tooMuchTraffic || notEnough;
+  const gridTooBig = handout === 'grid' && count > DRAW_GRID_MAX;
+  const blocked = badCount || tooManyPrizes || tooLarge || tooMuchTraffic || notEnough || gridTooBig;
 
   const setPrize = (i: number, changes: Partial<DrawPrize>) => setPrizes((list) => list.map((p, j) => (j === i ? { ...p, ...changes } : p)));
 
@@ -93,6 +94,7 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
     if (badCount) return toast.error(t('lag.draw.errors.count', { min: DRAW_MIN_CODES, max: DRAW_MAX_CODES }));
     if (prizes.some((p) => !p.label.trim())) return toast.error(t('lag.draw.errors.prizeLabel'));
     if (tooManyPrizes) return toast.error(t('lag.draw.errors.tooManyPrizes'));
+    if (gridTooBig) return toast.error(t('lag.draw.handoutGridTooMany', { max: DRAW_GRID_MAX }));
     if (!noPrizeText.trim() && noPrizeFiles.length === 0) return toast.error(t('lag.draw.errors.noPrize'));
     if (tooLarge) return toast.error(t('lag.errors.tooLarge', { max: '20 MB' }));
     if (tooMuchTraffic) return toast.error(t('lag.draw.errors.traffic'));
@@ -109,7 +111,7 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
         prizes,
         end: realEnd,
         qrStyle: STYLE_PRESETS.standard,
-        fromScreen,
+        handout,
       });
       await refreshCoins();
       toast.success(t('lag.preview.charged', { kr: coinsCharged }));
@@ -148,13 +150,21 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
           <section className="lg-card" aria-labelledby="lg-draw-handout" style={{ gap: 12 }}>
             <h2 id="lg-draw-handout" className="lg-h2">{t('lag.draw.handout')}</h2>
             <div className="lg-draw-handout">
-              {[true, false].map((screen) => (
-                <button key={String(screen)} type="button" className="lg-draw-handout-opt" aria-pressed={fromScreen === screen} onClick={() => setFromScreen(screen)}>
-                  <strong>{t(screen ? 'lag.draw.handoutScreen' : 'lag.draw.handoutPrint')}</strong>
-                  <span>{t(screen ? 'lag.draw.handoutScreenNote' : 'lag.draw.handoutPrintNote')}</span>
-                </button>
-              ))}
+              {(['one', 'grid', 'print'] as DrawHandout[]).map((option) => {
+                const name = { one: 'handoutOne', grid: 'handoutGrid', print: 'handoutPrint' }[option];
+                return (
+                  <button key={option} type="button" className="lg-draw-handout-opt" aria-pressed={handout === option} onClick={() => {
+                    setHandout(option);
+                    // A grid shows every ticket at once, so start from a size that fits
+                    if (option === 'grid' && count > DRAW_GRID_MAX) { setCount(DRAW_GRID_MAX); setCountInput(String(DRAW_GRID_MAX)); }
+                  }}>
+                    <strong>{t(`lag.draw.${name}`)}</strong>
+                    <span>{t(`lag.draw.${name}Note`, { max: DRAW_GRID_MAX })}</span>
+                  </button>
+                );
+              })}
             </div>
+            {gridTooBig && <span className="lg-warn">{t('lag.draw.handoutGridTooMany', { max: DRAW_GRID_MAX })}</span>}
           </section>
 
           <section className="lg-card" aria-labelledby="lg-draw-basics">

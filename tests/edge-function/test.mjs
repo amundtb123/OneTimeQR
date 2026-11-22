@@ -855,6 +855,26 @@ console.log('\nDraws');
   for (const code of queue.json.codes) await call('POST', `/qr/${code.id}/open`, { body: {} });
   check('when every ticket is taken there is no next', (await queueBoard()).json?.next === null);
 
+  // Every ticket on the screen at once
+  const grid = await makeDraw({ codeCount: 6, prizes: [prize({ count: 1 })] });
+  const gridBoard = (q = '?codes=1') => call('GET', `/series/${grid.json.series.id}/board${q}`, { headers: { 'X-Display-Token': grid.json.displayToken } });
+  check('the board lists every free ticket for a grid', (await gridBoard()).json?.free?.map((c) => c.number).join() === '1,2,3,4,5,6');
+  await call('POST', `/qr/${grid.json.codes[3].id}/open`, { body: {} });
+  const afterTake = (await gridBoard()).json;
+  check('a taken ticket leaves the grid, with no word on whether it won', afterTake.free.map((c) => c.number).join() === '1,2,3,5,6'
+    && afterTake.free.every((c) => Object.keys(c).sort().join() === 'id,number'), afterTake.free);
+  check('without ?codes=1 the board sends no list', !('free' in (await gridBoard('')).json));
+  check('without ?pictures=1 there are no pictures', !('pictures' in (await gridBoard()).json));
+  const pic = (name) => new File([new Uint8Array(2048)], name, { type: 'image/png' });
+  const withPics = await makeDraw({ codeCount: 6, originalFileTypes: { file: 'image/png' },
+    prizes: [prize({ count: 1, originalFileTypes: { file: 'application/pdf', file1: 'image/jpeg' } }), prize({ count: 1 })] },
+    [pic('takk.png')], { 0: [new File([new Uint8Array(2048)], 'vilkar.pdf'), pic('premie.jpg')] });
+  const pics = (await call('GET', `/series/${withPics.json.series.id}/board?codes=1&pictures=1`, { headers: { 'X-Display-Token': withPics.json.displayToken } })).json?.pictures;
+  check('the grid gets the first picture of the draw and of each prize, skipping other files', pics?.base?.url?.endsWith('takk.png')
+    && pics.prizes[0]?.url?.endsWith('premie.jpg') && pics.prizes[0].type === 'image/jpeg' && pics.prizes[1] === null, pics);
+  const big = await makeDraw({ codeCount: 61, prizes: [prize({ count: 1 })] });
+  check('a draw too big for a grid gets no list', !('free' in (await call('GET', `/series/${big.json.series.id}/board?codes=1`, { headers: { 'X-Display-Token': big.json.displayToken } })).json));
+
   check('a draw can be made from 2 codes', (await makeDraw({ codeCount: 2, prizes: [prize({ count: 1 })] })).status === 200);
   check('an ordinary series still needs 10 codes', (await call('POST', '/series', { token: 'tok-D', form: (() => {
     const f = new FormData();

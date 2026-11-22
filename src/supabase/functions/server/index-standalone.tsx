@@ -1394,6 +1394,8 @@ const DRAW_MIN_CODES = 2;
 const DRAW_MAX_PRIZES = 10;
 const DRAW_LABEL_MAX = 40;
 const DRAW_MAX_METADATA_BYTES = 64 * 1024;
+// A screen can show every ticket at once in a grid, up to this many
+const DRAW_GRID_MAX = 60;
 
 // Like a series, but every code is opened once and shows either the series' files or a prize's
 function drawPriceKr(codeCount: number, baseBytes: number, prizes: Array<{ count: number; bytes: number }>): number {
@@ -1714,6 +1716,17 @@ app.get('/make-server-c3c9181e/series', async (c) => {
   }
 });
 
+type Picture = { url: string; type: string };
+
+// A short-lived download link to the first picture among a draw's or a prize's files
+async function firstPicture(files: any): Promise<Picture | null> {
+  const picture = (Array.isArray(files) ? files : []).find((f: any) => typeof f?.type === 'string' && f.type.startsWith('image/'));
+  if (!picture) return null;
+  const { data, error } = await supabase.storage.from(BUCKET_NAME).createSignedUrl(picture.path, 300);
+  if (error || !data) return null;
+  return { url: data.signedUrl, type: picture.type };
+}
+
 // The board of a draw, for the owner or a screen holding the draw's display secret
 // (X-Display-Token). Shows which codes have been opened and which of those held a prize;
 // an unopened code's prize is never told.
@@ -1725,7 +1738,7 @@ app.get('/make-server-c3c9181e/series/:id/board', async (c) => {
     }
     const { data: row, error } = await supabase
       .from('qr_series')
-      .select('id, user_id, kind, title, code_count, prizes, display_token_hash, expires_at, created_at')
+      .select('id, user_id, kind, title, code_count, files, prizes, display_token_hash, expires_at, created_at')
       .eq('id', id)
       .maybeSingle();
     if (error) throw new Error(error.message);
@@ -1749,8 +1762,31 @@ app.get('/make-server-c3c9181e/series/:id/board', async (c) => {
       .order('series_number', { ascending: true })
       .limit(1);
     if (nextError) throw new Error(nextError.message);
+    // ?codes=1: every ticket nobody has scanned, for a screen showing them all at once
+    let free: Array<{ id: string; number: number }> | undefined;
+    if (c.req.query('codes') === '1' && row.code_count <= DRAW_GRID_MAX) {
+      const { data: rows, error: freeError } = await supabase
+        .from('qr_drops')
+        .select('id, series_number')
+        .eq('series_id', id)
+        .eq('scan_count', 0)
+        .order('series_number', { ascending: true });
+      if (freeError) throw new Error(freeError.message);
+      free = (rows ?? []).map((r: any) => ({ id: r.id, number: r.series_number }));
+    }
+    // ?pictures=1: the first picture of the draw's own content and of each prize, so a grid can
+    // show what a taken ticket held. Encrypted, so of no use without the key on the screen.
+    let pictures: { base: Picture | null; prizes: Array<Picture | null> } | undefined;
+    if (c.req.query('pictures') === '1' && row.code_count <= DRAW_GRID_MAX) {
+      pictures = {
+        base: await firstPicture(row.files),
+        prizes: await Promise.all((row.prizes ?? []).map((p: any) => firstPicture(p.files))),
+      };
+    }
     return c.json({
       next: next?.[0] ? { id: next[0].id, number: next[0].series_number } : null,
+      ...(free ? { free } : {}),
+      ...(pictures ? { pictures } : {}),
       title: row.title,
       codeCount: row.code_count,
       prizes: (row.prizes ?? []).map((p: any) => ({ label: p.label ?? null, count: p.count })),

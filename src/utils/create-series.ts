@@ -56,6 +56,7 @@ export interface SeriesRequest {
 export interface SeriesCode {
   number: number;
   url: string; // Opens the content: the key is in the fragment
+  round?: number; // A draw with rounds: the round this ticket belongs to
 }
 
 export interface CreatedSeries {

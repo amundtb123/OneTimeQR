@@ -9,6 +9,8 @@ import { createBrandedQrCode } from './qr-with-branding';
 export type Progress = (done: number, total: number) => void;
 
 export const codeLabel = (n: number) => String(n).padStart(4, '0');
+// A ticket's label: "0005", or "R2-0005" in a draw with rounds
+const ticketLabel = (code: SeriesCode) => (code.round ? `R${code.round}-` : '') + codeLabel(code.number);
 
 // Lets the page repaint (and show progress) between codes
 const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -16,7 +18,7 @@ const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 0));
 const dataUrlBytes = (dataUrl: string) => Uint8Array.from(atob(dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
 
 export function seriesCsv(codes: SeriesCode[]): Blob {
-  const rows = ['number,url', ...codes.map((code) => `${codeLabel(code.number)},${code.url}`)];
+  const rows = ['number,url', ...codes.map((code) => `${ticketLabel(code)},${code.url}`)];
   return new Blob([rows.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
 }
 
@@ -81,7 +83,7 @@ export async function seriesZip(codes: SeriesCode[], style: QrStyle, onProgress:
   const entries: Array<{ name: string; data: Uint8Array }> = [];
   for (const code of codes) {
     const png = await createBrandedQrCode(await generateStyledQrCode(code.url, style));
-    entries.push({ name: `onetimeqr-${codeLabel(code.number)}.png`, data: dataUrlBytes(png) });
+    entries.push({ name: `onetimeqr-${ticketLabel(code)}.png`, data: dataUrlBytes(png) });
     onProgress(entries.length, codes.length);
     if (entries.length % 10 === 0) await nextFrame();
   }
@@ -178,7 +180,7 @@ export async function seriesPdf(codes: SeriesCode[], style: QrStyle, title: stri
       const row = Math.floor(i / COLS);
       const x = MARGIN + col * cellW + (cellW - QR_PT) / 2;
       const y = PAGE_H - MARGIN - (row + 1) * cellH + (cellH - QR_PT) / 2 + 6;
-      const label = `${heading ? `${heading} · ` : ''}Nr. ${codeLabel(code.number)}`;
+      const label = `${heading ? `${heading} · ` : ''}${code.round ? `Runde ${code.round} · ` : ''}Nr. ${codeLabel(code.number)}`;
       content += `q ${QR_PT} 0 0 ${QR_PT} ${x.toFixed(2)} ${y.toFixed(2)} cm /Im${i} Do Q\n`;
       content += `BT /F1 7 Tf ${(x).toFixed(2)} ${(y - 10).toFixed(2)} Td (${pdfText(label)}) Tj ET\n`;
       done++;

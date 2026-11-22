@@ -16,6 +16,20 @@ export const DRAW_COUNTS = [20, 50, 100, 200, 500];
 export const DRAW_ENDS: SeriesEnd[] = ['1mo', '6mo', '1y'];
 export const DRAW_ENDS_WITH_FILES: SeriesEnd[] = ['1mo'];
 export const DRAW_GRID_MAX = 60; // Same as the server: a grid shows every ticket on one screen
+export const DRAW_MAX_PER_PERSON = 100;
+export const DRAW_PER_PERSON_CHOICES = [1, 2, 3, 5];
+// The waits a draw can set between one phone's tickets (same as DRAW_COOLDOWNS_MS on the server)
+export type DrawCooldown = '1m' | '5m' | '15m' | '1h' | '24h';
+export const DRAW_COOLDOWNS: DrawCooldown[] = ['1m', '5m', '15m', '1h', '24h'];
+// Rounds (same as the server): each a fresh set of tickets, paid for upfront. The next starts when
+// every ticket is taken, or at its time when an interval is set.
+export type DrawRoundInterval = '15m' | '30m' | '1h' | '3h' | '1d' | '1w';
+export const DRAW_ROUND_INTERVALS: DrawRoundInterval[] = ['15m', '30m', '1h', '3h', '1d', '1w'];
+export const DRAW_ROUND_INTERVAL_MS: Record<DrawRoundInterval, number> = { '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '3h': 10_800_000, '1d': 86_400_000, '1w': 604_800_000 };
+export const DRAW_ROUND_CHOICES = [1, 2, 3, 5, 10];
+// How long a draw works (same as SERIES_ENDS_MS on the server), to check its rounds fit
+export const SERIES_ENDS_MS_CLIENT: Record<SeriesEnd, number> = { '1mo': 30 * 86_400_000, '6mo': 183 * 86_400_000, '1y': 365 * 86_400_000, '2y': 730 * 86_400_000 };
+export const DRAW_MAX_ROUNDS = 50;
 
 // How the tickets are handed out: one QR code at a time on the screen, all of them in a grid on
 // the screen, or printed (the screen then only counts)
@@ -38,6 +52,11 @@ export interface DrawRequest {
   end: SeriesEnd;
   qrStyle: QrStyle;
   handout: DrawHandout; // 'one' holds the prizes back to the second half
+  maxPerPerson: number | null; // At most this many tickets per phone; null = no limit
+  cooldown: DrawCooldown | null; // A wait between one phone's tickets; null = none
+  rounds: number;
+  roundInterval: DrawRoundInterval | null; // null = a round only ends when every ticket is taken
+  firstRoundAt: number | null; // When round 1 starts; null = now
 }
 
 const fileBytes = (files: File[]) => files.reduce((sum, file) => sum + file.size, 0);
@@ -48,14 +67,14 @@ function drawTraffic(codeCount: number, noPrizeFiles: File[], prizes: DrawPrize[
   return fileBytes(noPrizeFiles) * Math.max(0, codeCount - prizeCodes) + prizes.reduce((sum, p) => sum + fileBytes(p.files) * p.count, 0);
 }
 
-// 10 kr per started 100 codes, plus the downloads the files can cause
-export function drawPriceKr(codeCount: number, noPrizeFiles: File[], prizes: DrawPrize[]): number {
-  const traffic = drawTraffic(codeCount, noPrizeFiles, prizes);
-  return Math.ceil(Math.max(1, codeCount) / 100) * SERIES_KR_PER_100 + (traffic > 0 ? Math.ceil(traffic / (1024 * 1024 * 1024) * KR_PER_GB) : 0);
+// 10 kr per started 100 tickets (every round's), plus the downloads the files can cause
+export function drawPriceKr(codeCount: number, noPrizeFiles: File[], prizes: DrawPrize[], rounds = 1): number {
+  const traffic = drawTraffic(codeCount, noPrizeFiles, prizes) * rounds;
+  return Math.ceil(Math.max(1, codeCount * rounds) / 100) * SERIES_KR_PER_100 + (traffic > 0 ? Math.ceil(traffic / (1024 * 1024 * 1024) * KR_PER_GB) : 0);
 }
 
-export const drawTooMuchTraffic = (codeCount: number, noPrizeFiles: File[], prizes: DrawPrize[]) =>
-  drawTraffic(codeCount, noPrizeFiles, prizes) > MAX_TRAFFIC;
+export const drawTooMuchTraffic = (codeCount: number, noPrizeFiles: File[], prizes: DrawPrize[], rounds = 1) =>
+  drawTraffic(codeCount, noPrizeFiles, prizes) * rounds > MAX_TRAFFIC;
 
 export interface CreatedDraw extends CreatedSeries {
   displayToken: string; // The secret a screen shows the board with; only shown now
@@ -100,6 +119,11 @@ export async function createDraw(req: DrawRequest): Promise<{ created: CreatedDr
     seriesEnd: req.end,
     viewOnly: false,
     holdPrizes: req.handout === 'one',
+    maxPerPerson: req.maxPerPerson ?? undefined,
+    cooldown: req.cooldown ?? undefined,
+    rounds: req.rounds,
+    roundInterval: req.rounds > 1 ? req.roundInterval ?? undefined : undefined,
+    firstRoundAt: req.firstRoundAt ?? undefined,
     qrStyle: { ...req.qrStyle, logo: undefined },
     originalFileTypes: fileTypes(req.noPrizeFiles),
     textContentCiphertext: noPrizeText ? await encryptText(noPrizeText) : undefined,
@@ -112,7 +136,7 @@ export async function createDraw(req: DrawRequest): Promise<{ created: CreatedDr
 
   const response = await postDraw(form);
   rememberDrawScreen(response.series.id, key, req.handout);
-  const codes = response.codes.map((code) => ({ number: code.number, url: createQr1Url(window.location.origin, code.id, key) }));
+  const codes = response.codes.map((code) => ({ number: code.number, round: code.round, url: createQr1Url(window.location.origin, code.id, key) }));
   return {
     created: { series: response.series, codes, style: req.qrStyle, displayToken: response.displayToken, key, handout: req.handout },
     coinsCharged: response.coinsCharged ?? 0,
@@ -154,3 +178,20 @@ export function drawScreenOnThisDevice(drawId: string): { key: string; handout: 
     return null;
   }
 }
+
+// This phone's anonymous id in draws with a limit per person: random, made here, and only sent
+// when opening a draw's ticket. The server stores it hashed with the draw. A private tab or
+// another browser gets a new one, so the limit stops most people, not the determined.
+export function participantId(): string {
+  const storageKey = 'onetimeqr-participant';
+  try {
+    const saved = localStorage.getItem(storageKey);
+    if (saved && /^[0-9a-f-]{36}$/i.test(saved)) return saved;
+    const made = crypto.randomUUID();
+    localStorage.setItem(storageKey, made);
+    return made;
+  } catch {
+    return (participantFallback ??= crypto.randomUUID());
+  }
+}
+let participantFallback: string | undefined;

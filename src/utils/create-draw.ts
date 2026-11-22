@@ -15,6 +15,11 @@ export const DRAW_LABEL_MAX = 40;
 export const DRAW_COUNTS = [20, 50, 100, 200, 500];
 export const DRAW_ENDS: SeriesEnd[] = ['1mo', '6mo', '1y'];
 export const DRAW_ENDS_WITH_FILES: SeriesEnd[] = ['1mo'];
+export const DRAW_GRID_MAX = 60; // Same as the server: a grid shows every ticket on one screen
+
+// How the tickets are handed out: one QR code at a time on the screen, all of them in a grid on
+// the screen, or printed (the screen then only counts)
+export type DrawHandout = 'one' | 'grid' | 'print';
 const MAX_TRAFFIC = 50 * 1024 * 1024 * 1024;
 
 export interface DrawPrize {
@@ -32,7 +37,7 @@ export interface DrawRequest {
   prizes: DrawPrize[];
   end: SeriesEnd;
   qrStyle: QrStyle;
-  fromScreen: boolean; // Tickets are taken from a screen, one at a time; prizes held back to the second half
+  handout: DrawHandout; // 'one' holds the prizes back to the second half
 }
 
 const fileBytes = (files: File[]) => files.reduce((sum, file) => sum + file.size, 0);
@@ -55,7 +60,7 @@ export const drawTooMuchTraffic = (codeCount: number, noPrizeFiles: File[], priz
 export interface CreatedDraw extends CreatedSeries {
   displayToken: string; // The secret a screen shows the board with; only shown now
   key: string; // The tickets' key: a screen handing out tickets needs it to draw their QR codes
-  fromScreen: boolean;
+  handout: DrawHandout;
 }
 
 const toBase64Url = (bytes: Uint8Array) =>
@@ -94,7 +99,7 @@ export async function createDraw(req: DrawRequest): Promise<{ created: CreatedDr
     codeCount: req.codeCount,
     seriesEnd: req.end,
     viewOnly: false,
-    holdPrizes: req.fromScreen,
+    holdPrizes: req.handout === 'one',
     qrStyle: { ...req.qrStyle, logo: undefined },
     originalFileTypes: fileTypes(req.noPrizeFiles),
     textContentCiphertext: noPrizeText ? await encryptText(noPrizeText) : undefined,
@@ -106,22 +111,46 @@ export async function createDraw(req: DrawRequest): Promise<{ created: CreatedDr
   }
 
   const response = await postDraw(form);
+  rememberDrawScreen(response.series.id, key, req.handout);
   const codes = response.codes.map((code) => ({ number: code.number, url: createQr1Url(window.location.origin, code.id, key) }));
   return {
-    created: { series: response.series, codes, style: req.qrStyle, displayToken: response.displayToken, key, fromScreen: req.fromScreen },
+    created: { series: response.series, codes, style: req.qrStyle, displayToken: response.displayToken, key, handout: req.handout },
     coinsCharged: response.coinsCharged ?? 0,
   };
 }
 
 // The link a screen shows the board with. The secrets are in the fragment, so they never reach a
 // server log. With the tickets' key the screen hands out the tickets itself, one QR code at a time.
-export function boardUrl(drawId: string, displayToken?: string, key?: string): string {
+export function boardUrl(drawId: string, displayToken?: string, key?: string, handout?: DrawHandout): string {
   const fragment = new URLSearchParams();
   if (displayToken) fragment.set('t', displayToken);
   if (key) fragment.set('k', key);
+  if (key && handout === 'grid') fragment.set('v', 'grid');
   const hash = fragment.toString();
   return `${window.location.origin}/tavle/${drawId}${hash ? `#${hash}` : ''}`;
 }
 
 // A ticket's link, as printed in its QR code
 export const ticketUrl = (codeId: string, key: string) => createQr1Url(window.location.origin, codeId, key);
+
+// The creator's own device remembers how a draw's screen hands out tickets, with their key, so the
+// board can be opened from the key ring later. Nothing of it leaves this browser.
+const screenKey = (drawId: string) => `onetimeqr-draw-screen:${drawId}`;
+
+export function rememberDrawScreen(drawId: string, key: string, handout: DrawHandout) {
+  if (handout === 'print') return;
+  try {
+    localStorage.setItem(screenKey(drawId), JSON.stringify({ key, handout }));
+  } catch {
+    // Private mode or storage off: the link on the ready page still works
+  }
+}
+
+export function drawScreenOnThisDevice(drawId: string): { key: string; handout: DrawHandout } | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(screenKey(drawId)) || 'null');
+    return saved && typeof saved.key === 'string' ? saved : null;
+  } catch {
+    return null;
+  }
+}

@@ -98,7 +98,7 @@ function AppContent() {
   const [createdSeries, setCreatedSeries] = useState<CreatedSeries | null>(null);
   const [isLoading, setIsLoading] = useState(false); // Start as false, will be set to true when actually loading
   const [scanId, setScanId] = useState<string | null>(null);
-  const [board, setBoard] = useState<{ id: string; token?: string; ticketKey?: string } | null>(null); // /tavle/:id, a draw's board
+  const [board, setBoard] = useState<{ id: string; token?: string; ticketKey?: string; grid?: boolean } | null>(null); // /tavle/:id, a draw's board
   const [keyArrivals, setKeyArrivals] = useState(0); // Restarts ScanView when a QR key arrives in the same tab
   const [homeVisits, setHomeVisits] = useState(0); // Restarts the create flow at step 1 when the logo is clicked
   const [isLoadingQrDrops, setIsLoadingQrDrops] = useState(false); // Prevent multiple simultaneous loads
@@ -116,7 +116,7 @@ function AppContent() {
       const boardRoute = path.match(/^\/tavle\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i);
       if (boardRoute) {
         const fragment = new URLSearchParams(window.location.hash.slice(1));
-        setBoard({ id: boardRoute[1].toLowerCase(), token: fragment.get('t') || undefined, ticketKey: fragment.get('k') || undefined });
+        setBoard({ id: boardRoute[1].toLowerCase(), token: fragment.get('t') || undefined, ticketKey: fragment.get('k') || undefined, grid: fragment.get('v') === 'grid' });
         return;
       }
       setBoard(null);
@@ -385,7 +385,7 @@ function AppContent() {
   if (board) {
     return (
       <div className="lg-app">
-        <DrawBoard drawId={board.id} displayToken={board.token} ticketKey={board.ticketKey} />
+        <DrawBoard drawId={board.id} displayToken={board.token} ticketKey={board.ticketKey} grid={board.grid} />
       </div>
     );
   }

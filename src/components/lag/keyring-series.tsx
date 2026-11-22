@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner@2.0.3';
 import { newDisplayToken, type SeriesData } from '../../utils/api-client';
-import { boardUrl } from '../../utils/create-draw';
+import { boardUrl, drawScreenOnThisDevice } from '../../utils/create-draw';
 import { formatActivationDate } from '../../utils/activation';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/alert-dialog';
 import { timesLabel } from './rules';
@@ -45,8 +45,12 @@ export function KeyringSeries({ series, onDelete }: KeyringSeriesProps) {
               <span className="lg-xs lg-muted">{t('keyring.series.endsAt', { date: formatActivationDate(new Date(s.expiresAt), i18n.language) })}</span>
               {isDraw && (
                 <span className="lg-row" style={{ gap: 8, marginTop: 6 }}>
-                  {/* The owner sees the board with their login; a screen needs the secret link */}
-                  <a className="lg-btn" style={{ minHeight: 36, padding: '6px 12px' }} href={boardUrl(s.id)} target="_blank" rel="noopener noreferrer">{t('keyring.series.board')} ↗</a>
+                  {/* The owner sees the board with their login. On the device the draw was made on, the
+                      board also gets the tickets' key, so it can hand out the tickets. */}
+                  <a className="lg-btn" style={{ minHeight: 36, padding: '6px 12px' }} href={(() => {
+                    const local = drawScreenOnThisDevice(s.id);
+                    return boardUrl(s.id, undefined, local?.key, local?.handout);
+                  })()} target="_blank" rel="noopener noreferrer">{t('keyring.series.board')} ↗</a>
                   <button
                     type="button"
                     className="lg-btn"

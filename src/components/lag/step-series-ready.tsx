@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner@2.0.3';
 import type { CreatedSeries } from '../../utils/create-series';
-import { boardUrl } from '../../utils/create-draw';
+import { boardUrl, type DrawHandout } from '../../utils/create-draw';
 import { generateStyledQrCode } from '../../utils/qr-generator';
 import { createBrandedQrCode } from '../../utils/qr-with-branding';
 import { formatActivationDate } from '../../utils/activation';
@@ -13,7 +13,7 @@ type Export = 'csv' | 'zip' | 'pdf';
 
 interface StepSeriesReadyProps {
   // A draw has a display secret for its screen, and the tickets' key if the screen hands them out
-  created: CreatedSeries & { displayToken?: string; key?: string; fromScreen?: boolean };
+  created: CreatedSeries & { displayToken?: string; key?: string; handout?: DrawHandout };
   onNew: () => void;
   onKeyring: () => void;
 }
@@ -35,13 +35,15 @@ export function StepSeriesReady({ created, onNew, onKeyring }: StepSeriesReadyPr
   const { t, i18n } = useTranslation();
   const { series, codes, style } = created;
   const [sample, setSample] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  // A screen that hands out the tickets can be opened again from the key ring on this device
+  // (the key is remembered here), so leaving this page loses nothing
+  const [saved, setSaved] = useState(() => series.kind === 'draw' && (created.handout === 'one' || created.handout === 'grid'));
   const [busy, setBusy] = useState<Export | null>(null);
   const [progress, setProgress] = useState(0);
   const isDraw = series.kind === 'draw';
   // Tickets taken from the screen: the screen link holds the key, so it is all that must be kept
-  const queue = isDraw && !!created.fromScreen;
-  const screenLink = isDraw ? boardUrl(series.id, created.displayToken, queue ? created.key : undefined) : '';
+  const queue = isDraw && (created.handout === 'one' || created.handout === 'grid');
+  const screenLink = isDraw ? boardUrl(series.id, created.displayToken, queue ? created.key : undefined, created.handout) : '';
   const name = (series.title || (isDraw ? 'trekning' : 'serie')).replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 40);
 
   useEffect(() => {
@@ -96,7 +98,7 @@ export function StepSeriesReady({ created, onNew, onKeyring }: StepSeriesReadyPr
         <div className="lg-eyebrow">{t('lag.step', { n: 3 })}</div>
         <h1 className="lg-h1">{t(isDraw ? 'lag.draw.ready.title' : 'lag.series.ready.title', { count: series.codeCount })}</h1>
         <p className="lg-lead" style={{ maxWidth: 'none' }}>
-          {t(queue ? 'lag.draw.ready.leadQueue' : isDraw ? 'lag.draw.ready.lead' : 'lag.series.ready.lead', { count: series.codeCount })}{' '}
+          {t(created.handout === 'grid' ? 'lag.draw.ready.leadGrid' : queue ? 'lag.draw.ready.leadQueue' : isDraw ? 'lag.draw.ready.lead' : 'lag.series.ready.lead', { count: series.codeCount })}{' '}
           <button type="button" className="lg-underline" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'var(--lg-ink)' }} onClick={onNew}>
             {t('lag.ready.edit')}
           </button>
@@ -138,7 +140,7 @@ export function StepSeriesReady({ created, onNew, onKeyring }: StepSeriesReadyPr
       {isDraw && (
         <section className="lg-card lg-draw-screen" style={{ padding: 24, gap: 14 }}>
           <h2 className="lg-h2" style={{ fontSize: 20 }}>{t(queue ? 'lag.draw.ready.screenTitleQueue' : 'lag.draw.ready.screenTitle')}</h2>
-          <p className="lg-small" style={{ margin: 0 }}>{t(queue ? 'lag.draw.ready.screenBodyQueue' : 'lag.draw.ready.screenBody')}</p>
+          <p className="lg-small" style={{ margin: 0 }}>{t(created.handout === 'grid' ? 'lag.draw.ready.screenBodyGrid' : queue ? 'lag.draw.ready.screenBodyQueue' : 'lag.draw.ready.screenBody')}</p>
           <code className="lg-draw-link">{screenLink}</code>
           <div className="lg-row" style={{ gap: 8 }}>
             <a className="lg-btn lg-btn-primary" href={screenLink} target="_blank" rel="noopener noreferrer" onClick={() => queue && setSaved(true)}>{t('lag.draw.ready.openScreen')} ↗</a>

@@ -34,6 +34,9 @@ export function KeyringSeries({ series, onDelete }: KeyringSeriesProps) {
                 <span className="lg-small lg-muted">
                   {t('keyring.series.drawOpened', { opened: s.opened.toLocaleString(i18n.language), count: s.codeCount.toLocaleString(i18n.language) })}
                   {' · '}{t('keyring.series.drawPrizes', { count: prizeCount })}
+                  {(s.rounds ?? 1) > 1 ? <>{' · '}{t('keyring.series.drawRounds', { count: s.rounds })}</> : null}
+                  {s.maxPerPerson ? <>{' · '}{t('keyring.series.drawPerPerson', { count: s.maxPerPerson })}</> : null}
+                  {s.cooldownMs ? <>{' · '}{t('keyring.series.drawCooldown', { wait: s.cooldownMs >= 3_600_000 ? `${Math.round(s.cooldownMs / 3_600_000)} t` : `${Math.round(s.cooldownMs / 60_000)} min` })}</> : null}
                 </span>
               ) : (
                 <span className="lg-small lg-muted">

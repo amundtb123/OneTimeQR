@@ -4,6 +4,16 @@ import QRCode from 'qrcode';
 import { getDrawBoard, type DrawBoard as Board } from '../../utils/api-client';
 import { ticketUrl } from '../../utils/create-draw';
 import { decryptFile } from '../../utils/encryption';
+import { useNow } from '../../utils/time-left';
+
+// "4:32" or "1:04:32"
+function clock(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = String(total % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
 
 // The tickets' key from the link (base64url) as the hex the file decryption takes
 function keyHex(key: string): string {
@@ -71,7 +81,7 @@ export function DrawBoard({ drawId, displayToken, ticketKey, grid = false }: Dra
   const showGrid = grid && !!ticketKey;
   const windowSize = useWindowSize();
   const [celebrate, setCelebrate] = useState<string | null>(null);
-  const seen = useRef<Set<number> | null>(null); // Tickets already counted, so only new prizes are celebrated
+  const seen = useRef<Set<string> | null>(null); // "round:number" of tickets already counted, so only new prizes are celebrated
 
   useEffect(() => {
     let cancelled = false;
@@ -83,10 +93,11 @@ export function DrawBoard({ drawId, displayToken, ticketKey, grid = false }: Dra
         const first = seen.current === null;
         seen.current ??= new Set();
         for (const [number, prize] of next.opened) {
-          if (!seen.current.has(number) && prize !== null && !first) {
+          const key = `${next.round ?? 1}:${number}`;
+          if (!seen.current.has(key) && prize !== null && !first) {
             setCelebrate(next.prizes[prize]?.label || t('lag.draw.board.prize'));
           }
-          seen.current.add(number);
+          seen.current.add(key);
         }
         setBoard(next);
         setFailed(false);
@@ -149,6 +160,8 @@ export function DrawBoard({ drawId, displayToken, ticketKey, grid = false }: Dra
     return () => { cancelled = true; };
   }, [showGrid, freeIds]);
 
+  const now = useNow(true); // For the countdowns to the next round
+
   useEffect(() => {
     if (!celebrate) return;
     // Shorter while the screen hands out tickets: the celebration covers the QR codes
@@ -168,14 +181,26 @@ export function DrawBoard({ drawId, displayToken, ticketKey, grid = false }: Dra
   const totalPrizes = board.prizes.reduce((sum, p) => sum + p.count, 0);
   const prizesLeft = totalPrizes - board.opened.filter(([, prize]) => prize !== null).length;
   const prizeLine = prizesLeft > 0 ? t('lag.draw.board.prizesLeft', { count: prizesLeft }) : t('lag.draw.board.noPrizesLeft');
+  const rounds = board.rounds ?? 1;
+  const round = board.round ?? 1;
+  // When the next round comes: at its time, or when every ticket is taken
+  const roundLine = rounds <= 1 || round === 0 ? null
+    : round >= rounds ? t('lag.draw.board.lastRound')
+    : board.nextAt ? t('lag.draw.board.nextRoundIn', { time: clock(board.nextAt - now) })
+    : t('lag.draw.board.nextRoundSoldOut');
 
   return (
     <main className="lg-board">
       <header className="lg-board-head">
         <div className="lg-stack" style={{ gap: 6 }}>
-          <span className="lg-board-eyebrow">{t('lag.templates.draw.name')}</span>
+          <span className="lg-board-eyebrow">
+            {t('lag.templates.draw.name')}
+            {rounds > 1 && round > 0 && <> · {t('lag.draw.board.round', { round, rounds })}</>}
+          </span>
           <h1 className="lg-board-title">{board.title || t('keyring.series.drawUntitled')}</h1>
         </div>
+        <div className="lg-board-headright">
+        {roundLine && <span className="lg-board-roundline">{roundLine}</span>}
         <button
           type="button"
           className="lg-board-full"
@@ -183,9 +208,16 @@ export function DrawBoard({ drawId, displayToken, ticketKey, grid = false }: Dra
         >
           {t('lag.draw.board.fullscreen')}
         </button>
+        </div>
       </header>
 
-      {showGrid ? (
+      {round === 0 ? (
+        <div className="lg-board-count">
+          <span>{t('lag.draw.board.startsIn')}</span>
+          <strong>{board.nextAt ? clock(board.nextAt - now) : '…'}</strong>
+          <span className="lg-board-prizesleft">{t('lag.draw.board.prizesLeft', { count: totalPrizes })}</span>
+        </div>
+      ) : showGrid ? (
         board.free === undefined ? (
           <p className="lg-board-hint">{t('lag.draw.board.oldServer')}</p>
         ) : (

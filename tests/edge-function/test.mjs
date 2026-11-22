@@ -875,6 +875,119 @@ console.log('\nDraws');
   const big = await makeDraw({ codeCount: 61, prizes: [prize({ count: 1 })] });
   check('a draw too big for a grid gets no list', !('free' in (await call('GET', `/series/${big.json.series.id}/board?codes=1`, { headers: { 'X-Display-Token': big.json.displayToken } })).json));
 
+  // At most N tickets per person (per phone)
+  check('a limit outside 1–100 is 400', (await makeDraw({ maxPerPerson: 0 })).json?.code === 'INVALID_PER_PERSON'
+    && (await makeDraw({ maxPerPerson: 101 })).json?.code === 'INVALID_PER_PERSON');
+  const limited = await makeDraw({ codeCount: 6, maxPerPerson: 2, prizes: [prize({ count: 1 })] });
+  const lc = limited.json.codes;
+  const phoneA = crypto.randomUUID();
+  const phoneB = crypto.randomUUID();
+  const take = (code, phone) => call('POST', `/qr/${code.id}/open`, { body: {}, headers: phone ? { 'X-Participant': phone } : {} });
+  check('the limit is told to the scanner before opening', (await meta(lc[0].id)).json?.qrDrop?.maxPerPerson === 2);
+  check('with a limit, a ticket needs the phone\'s id', (await take(lc[0])).json?.code === 'PARTICIPANT_REQUIRED');
+  check('a phone can take as many tickets as the limit', (await take(lc[0], phoneA)).status === 200 && (await take(lc[1], phoneA)).status === 200);
+  const third = await take(lc[2], phoneA);
+  check('one more is refused, with the limit', third.status === 403 && third.json?.code === 'LIMIT_REACHED' && third.json.max === 2, third);
+  check('the refused ticket is not used up', (await db.query(`select scan_count from public.qr_drops where id = $1`, [lc[2].id])).rows[0].scan_count === 0);
+  check('another phone takes it', (await take(lc[2], phoneB)).status === 200);
+  const other = await makeDraw({ codeCount: 3, maxPerPerson: 1, prizes: [prize({ count: 1 })] });
+  check('the same phone in another draw starts again', (await take(other.json.codes[0], phoneA)).status === 200);
+  const hashes = (await db.query(`select participant_hash from public.qr_draw_participants where series_id = $1`, [limited.json.series.id])).rows.map((r) => r.participant_hash);
+  check('only a hash of the phone\'s id is stored', hashes.length === 2 && !hashes.includes(phoneA) && hashes.every((h) => /^[0-9a-f]{64}$/.test(h)), hashes);
+  const both = await Promise.all([take(lc[3], phoneB), take(lc[4], phoneB), take(lc[5], phoneB)]);
+  check('tickets taken at the same time by one phone still respect the limit', both.filter((r) => r.status === 200).length === 1
+    && both.filter((r) => r.json?.code === 'LIMIT_REACHED').length === 2, both.map((r) => r.status));
+  check('a draw without a limit needs no phone id', (await take((await makeDraw({ codeCount: 3, prizes: [prize({ count: 1 })] })).json.codes[0])).status === 200);
+  check('the owner list shows the limit', (await call('GET', '/series', { token: 'tok-D' })).json.series.some((x) => x.id === limited.json.series.id && x.maxPerPerson === 2));
+  await call('DELETE', `/series/${limited.json.series.id}`, { token: 'tok-D' });
+  check('the phones go with their draw', (await db.query(`select 1 from public.qr_draw_participants where series_id = $1`, [limited.json.series.id])).rows.length === 0);
+  check('anon/authenticated cannot read the phones', (await asRole('authenticated', USER_D, `select * from public.qr_draw_participants`)).res?.rows?.length === 0
+    || !(await asRole('authenticated', USER_D, `select * from public.qr_draw_participants`)).ok);
+
+  // A wait between one phone's tickets
+  check('an unknown wait is 400', (await makeDraw({ cooldown: '7m' })).json?.code === 'INVALID_COOLDOWN');
+  const slow = await makeDraw({ codeCount: 6, cooldown: '5m', prizes: [prize({ count: 1 })] });
+  const sc = slow.json.codes;
+  const phoneC = crypto.randomUUID();
+  const status = (code, phone = phoneC) => call('GET', `/qr/${code.id}/participant`, { headers: { 'X-Participant': phone } });
+  check('the wait is told to the scanner before opening', (await meta(sc[0].id)).json?.qrDrop?.cooldownMs === 300_000);
+  check('with a wait, a ticket needs the phone\'s id', (await take(sc[0])).json?.code === 'PARTICIPANT_REQUIRED');
+  check('a new phone has nothing to wait for', JSON.stringify((await status(sc[0])).json) === JSON.stringify({ opened: 0, max: null, waitUntil: null }));
+  check('the first ticket opens', (await take(sc[0], phoneC)).status === 200);
+  const soon = await take(sc[1], phoneC);
+  check('the next one must wait, and says until when', soon.status === 429 && soon.json?.code === 'WAIT'
+    && Math.abs(soon.json.waitUntil - (Date.now() + 300_000)) < 5_000, soon.json);
+  check('the waiting ticket is not used up', (await db.query(`select scan_count from public.qr_drops where id = $1`, [sc[1].id])).rows[0].scan_count === 0);
+  const st = (await status(sc[1])).json;
+  check('the phone can see how long it must wait', st.opened === 1 && Math.abs(st.waitUntil - soon.json.waitUntil) < 1_000, st);
+  check('another phone need not wait', (await take(sc[1], crypto.randomUUID())).status === 200);
+  await db.query(`update public.qr_draw_participants set last_opened_at = now() - interval '6 minutes' where series_id = $1`, [slow.json.series.id]);
+  check('after the wait the phone takes the next', (await status(sc[2])).json.waitUntil === null && (await take(sc[2], phoneC)).status === 200);
+  const both2 = await makeDraw({ codeCount: 6, cooldown: '1m', maxPerPerson: 2, prizes: [prize({ count: 1 })] });
+  await take(both2.json.codes[0], phoneC);
+  await db.query(`update public.qr_draw_participants set last_opened_at = now() - interval '2 minutes' where series_id = $1`, [both2.json.series.id]);
+  await take(both2.json.codes[1], phoneC);
+  await db.query(`update public.qr_draw_participants set last_opened_at = now() - interval '2 minutes' where series_id = $1`, [both2.json.series.id]);
+  check('a limit and a wait work together: after the wait, the limit still holds', (await take(both2.json.codes[2], phoneC)).json?.code === 'LIMIT_REACHED');
+  check('the status of a phone needs its id', (await call('GET', `/qr/${sc[3].id}/participant`)).status === 400);
+  check('the owner list shows the wait', (await call('GET', '/series', { token: 'tok-D' })).json.series.some((x) => x.id === slow.json.series.id && x.cooldownMs === 300_000));
+
+  // Rounds: fresh tickets with the same prizes, one round at a time
+  await setCoins(USER_D, 1000);
+  check('rounds outside 1–50 are 400', (await makeDraw({ rounds: 0 })).json?.code === 'INVALID_ROUNDS' && (await makeDraw({ rounds: 51 })).json?.code === 'INVALID_ROUNDS');
+  check('more than 5000 tickets in all is 400', (await makeDraw({ codeCount: 1000, rounds: 6 })).json?.code === 'INVALID_ROUNDS');
+  check('an unknown time between rounds is 400', (await makeDraw({ rounds: 2, roundInterval: '2h' })).json?.code === 'INVALID_ROUNDS');
+  check('a first round more than 30 days ahead is 400', (await makeDraw({ firstRoundAt: Date.now() + 31 * 864e5 })).json?.code === 'INVALID_ROUNDS');
+  check('rounds that start after the draw ends are 400', (await makeDraw({ rounds: 6, roundInterval: '1w' })).json?.code === 'ROUNDS_TOO_LONG');
+
+  const coinsBeforeRounds = await coinsOf(USER_D);
+  const r3 = await makeDraw({ codeCount: 4, rounds: 3, prizes: [prize({ count: 1 })] });
+  const byRound = (r) => r3.json.codes.filter((c) => c.round === r);
+  check('every round gets its own tickets, numbered from 1', r3.status === 200 && r3.json.codes.length === 12
+    && [1, 2, 3].every((r) => byRound(r).map((c) => c.number).join() === '1,2,3,4'), r3.json?.codes);
+  const prizesPerRound = (await db.query(`select round, count(*) filter (where variant > 0)::int as n from public.qr_drops where series_id = $1 group by round order by round`, [r3.json.series.id])).rows;
+  check('every round has the same prizes', prizesPerRound.map((r) => r.n).join() === '1,1,1', prizesPerRound);
+  check('the price counts every round\'s tickets', r3.json.coinsCharged === 10 && (await coinsOf(USER_D)) === coinsBeforeRounds - 10);
+  const r3board = () => call('GET', `/series/${r3.json.series.id}/board`, { token: 'tok-D' });
+  check('the draw starts in round 1', (await r3board()).json.round === 1 && (await r3board()).json.rounds === 3);
+  const tooSoon = await take(byRound(2)[0]);
+  check('a ticket of a later round waits for it', tooSoon.status === 403 && tooSoon.json?.code === 'ROUND_NOT_STARTED' && tooSoon.json.round === 2 && tooSoon.json.startsAt === null, tooSoon.json);
+  const m2 = (await meta(byRound(2)[0].id)).json?.qrDrop;
+  check('its metadata tells which round runs', m2.round === 2 && m2.rounds === 3 && m2.currentRound === 1 && m2.roundStartsAt === null, m2);
+  for (const code of byRound(1)) await take(code);
+  const after1 = (await r3board()).json;
+  check('when every ticket is taken the next round starts by itself', after1.round === 2 && after1.next?.number === 1 && after1.opened.length === 0, after1);
+  check('and its tickets open', (await take(byRound(2)[0])).status === 200);
+  check('the owner list counts every round', (await call('GET', '/series', { token: 'tok-D' })).json.series.find((x) => x.id === r3.json.series.id)?.opened === 5);
+
+  const timed = await makeDraw({ codeCount: 4, rounds: 3, roundInterval: '1h', prizes: [prize({ count: 1 })] });
+  const timedRound = (r) => timed.json.codes.filter((c) => c.round === r);
+  const wait2 = await take(timedRound(2)[0]);
+  check('with an interval, a later round says when it starts', wait2.json?.code === 'ROUND_NOT_STARTED' && Math.abs(wait2.json.startsAt - (Date.now() + 3600e3)) < 60e3, wait2.json);
+  await take(timedRound(1)[0]);
+  await db.query(`update public.qr_series set first_round_at = now() - interval '61 minutes' where id = $1`, [timed.json.series.id]);
+  const timedBoard = (await call('GET', `/series/${timed.json.series.id}/board`, { token: 'tok-D' })).json;
+  check('at its time the next round starts even if tickets are left', timedBoard.round === 2 && Math.abs(timedBoard.nextAt - (Date.now() + 59 * 60e3)) < 60e3, timedBoard);
+  const over = await take(timedRound(1)[1]);
+  check('a ticket left from an ended round is over', over.status === 410 && over.json?.code === 'ROUND_OVER', over.json);
+  check('its metadata says the round has moved on', (await meta(timedRound(1)[1].id)).json?.qrDrop?.currentRound === 2);
+
+  const later = await makeDraw({ codeCount: 3, firstRoundAt: Date.now() + 3600e3, prizes: [prize({ count: 1 })] });
+  const laterBoard = (await call('GET', `/series/${later.json.series.id}/board?codes=1`, { token: 'tok-D' })).json;
+  check('before the first round the board has nothing to hand out', laterBoard.round === 0 && laterBoard.next === null && laterBoard.free.length === 0
+    && Math.abs(laterBoard.nextAt - (Date.now() + 3600e3)) < 60e3, laterBoard);
+  const notYet = await take(later.json.codes[0]);
+  check('and its tickets say when it starts', notYet.json?.code === 'ROUND_NOT_STARTED' && Math.abs(notYet.json.startsAt - (Date.now() + 3600e3)) < 60e3, notYet.json);
+
+  const perRound = await makeDraw({ codeCount: 2, rounds: 2, maxPerPerson: 1, prizes: [prize({ count: 1 })] });
+  const pr = (r) => perRound.json.codes.filter((c) => c.round === r);
+  const phoneD = crypto.randomUUID();
+  await take(pr(1)[0], phoneD);
+  check('the limit counts within a round', (await take(pr(1)[1], phoneD)).json?.code === 'LIMIT_REACHED');
+  await take(pr(1)[1], crypto.randomUUID());
+  check('in the next round the same phone may take a ticket again', (await take(pr(2)[0], phoneD)).status === 200);
+  check('a draw with one round sends no round numbers', !('round' in (await makeDraw({ codeCount: 3, prizes: [prize({ count: 1 })] })).json.codes[0]));
+
   check('a draw can be made from 2 codes', (await makeDraw({ codeCount: 2, prizes: [prize({ count: 1 })] })).status === 200);
   check('an ordinary series still needs 10 codes', (await call('POST', '/series', { token: 'tok-D', form: (() => {
     const f = new FormData();

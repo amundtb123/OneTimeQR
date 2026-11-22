@@ -6,9 +6,11 @@ import { KR_PER_GB, MAX_SIZE_LOGGED_IN } from '../../utils/create-drop';
 import { SERIES_KR_PER_100, type SeriesEnd } from '../../utils/create-series';
 import {
   createDraw, drawPriceKr, drawTooMuchTraffic, DRAW_COUNTS, DRAW_ENDS, DRAW_ENDS_WITH_FILES, DRAW_LABEL_MAX,
-  DRAW_GRID_MAX, DRAW_MAX_CODES, DRAW_MAX_PRIZES, DRAW_MIN_CODES, type CreatedDraw, type DrawHandout, type DrawPrize,
+  DRAW_COOLDOWNS, DRAW_ROUND_CHOICES, DRAW_ROUND_INTERVALS, DRAW_ROUND_INTERVAL_MS, DRAW_MAX_ROUNDS, type DrawRoundInterval, DRAW_GRID_MAX, DRAW_PER_PERSON_CHOICES, type DrawCooldown, DRAW_MAX_CODES, DRAW_MAX_PRIZES, DRAW_MIN_CODES, type CreatedDraw, type DrawHandout, type DrawPrize,
 } from '../../utils/create-draw';
 import { STYLE_PRESETS } from './key-preview';
+import { fromLocalInputValue, toLocalInputValue } from '../../utils/activation';
+import { SERIES_ENDS_MS_CLIENT } from '../../utils/create-draw';
 import { CoinShop } from '../coin-shop';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 
@@ -67,6 +69,15 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
   const [noPrizeFiles, setNoPrizeFiles] = useState<File[]>([]);
   const [end, setEnd] = useState<SeriesEnd>('1mo');
   const [handout, setHandout] = useState<DrawHandout>('one');
+  // Tickets per phone. Taken from a screen: one each by default. Printed: whoever holds a ticket
+  // may scan it, so no limit unless the organizer sets one.
+  const [perPerson, setPerPerson] = useState<number | null>(1);
+  const [perPersonTouched, setPerPersonTouched] = useState(false);
+  const [cooldown, setCooldown] = useState<DrawCooldown | null>(null);
+  const [rounds, setRounds] = useState(1);
+  const [roundsInput, setRoundsInput] = useState('1');
+  const [roundInterval, setRoundInterval] = useState<DrawRoundInterval | null>(null);
+  const [firstRoundAt, setFirstRoundAt] = useState<string | null>(null); // datetime-local value; null = now
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [creating, setCreating] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
@@ -75,14 +86,19 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
   const hasFiles = allFiles.length > 0;
   const realEnd: SeriesEnd = hasFiles ? '1mo' : end;
   const prizeCodes = prizes.reduce((sum, p) => sum + (p.count || 0), 0);
-  const cost = drawPriceKr(count, noPrizeFiles, prizes);
+  const cost = drawPriceKr(count, noPrizeFiles, prizes, rounds);
+  // Every round must start before the draw ends
+  const firstAt = firstRoundAt ? fromLocalInputValue(firstRoundAt)?.getTime() ?? null : null;
+  const lastRoundAt = (firstAt ?? Date.now()) + (rounds > 1 && roundInterval ? (rounds - 1) * DRAW_ROUND_INTERVAL_MS[roundInterval] : 0);
+  const badRounds = !Number.isInteger(rounds) || rounds < 1 || rounds > DRAW_MAX_ROUNDS || count * rounds > DRAW_MAX_CODES;
+  const roundsTooLong = lastRoundAt >= Date.now() + SERIES_ENDS_MS_CLIENT[hasFiles ? '1mo' : end];
   const badCount = !Number.isInteger(count) || count < DRAW_MIN_CODES || count > DRAW_MAX_CODES;
   const tooManyPrizes = prizeCodes >= count;
   const tooLarge = allFiles.reduce((sum, f) => sum + f.size, 0) > MAX_SIZE_LOGGED_IN;
-  const tooMuchTraffic = drawTooMuchTraffic(count, noPrizeFiles, prizes);
+  const tooMuchTraffic = drawTooMuchTraffic(count, noPrizeFiles, prizes, rounds);
   const notEnough = !!user && coins !== null && coins < cost;
   const gridTooBig = handout === 'grid' && count > DRAW_GRID_MAX;
-  const blocked = badCount || tooManyPrizes || tooLarge || tooMuchTraffic || notEnough || gridTooBig;
+  const blocked = badCount || tooManyPrizes || tooLarge || tooMuchTraffic || notEnough || gridTooBig || badRounds || roundsTooLong;
 
   const setPrize = (i: number, changes: Partial<DrawPrize>) => setPrizes((list) => list.map((p, j) => (j === i ? { ...p, ...changes } : p)));
 
@@ -94,6 +110,8 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
     if (badCount) return toast.error(t('lag.draw.errors.count', { min: DRAW_MIN_CODES, max: DRAW_MAX_CODES }));
     if (prizes.some((p) => !p.label.trim())) return toast.error(t('lag.draw.errors.prizeLabel'));
     if (tooManyPrizes) return toast.error(t('lag.draw.errors.tooManyPrizes'));
+    if (badRounds) return toast.error(t('lag.draw.errors.rounds', { max: DRAW_MAX_ROUNDS, total: DRAW_MAX_CODES }));
+    if (roundsTooLong) return toast.error(t('lag.draw.errors.roundsTooLong'));
     if (gridTooBig) return toast.error(t('lag.draw.handoutGridTooMany', { max: DRAW_GRID_MAX }));
     if (!noPrizeText.trim() && noPrizeFiles.length === 0) return toast.error(t('lag.draw.errors.noPrize'));
     if (tooLarge) return toast.error(t('lag.errors.tooLarge', { max: '20 MB' }));
@@ -112,6 +130,11 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
         end: realEnd,
         qrStyle: STYLE_PRESETS.standard,
         handout,
+        maxPerPerson: perPerson,
+        cooldown,
+        rounds,
+        roundInterval: rounds > 1 ? roundInterval : null,
+        firstRoundAt: firstAt,
       });
       await refreshCoins();
       toast.success(t('lag.preview.charged', { kr: coinsCharged }));
@@ -129,7 +152,7 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
     }
   };
 
-  const createLabel = creating ? t('lag.preview.creating') : t('lag.draw.create', { count: count.toLocaleString(i18n.language) });
+  const createLabel = creating ? t('lag.preview.creating') : t('lag.draw.create', { count: (count * rounds).toLocaleString(i18n.language) });
   const odds = prizeCodes > 0 && !tooManyPrizes ? Math.max(1, Math.round(count / prizeCodes)) : null;
 
   return (
@@ -155,6 +178,7 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
                 return (
                   <button key={option} type="button" className="lg-draw-handout-opt" aria-pressed={handout === option} onClick={() => {
                     setHandout(option);
+                    if (!perPersonTouched) setPerPerson(option === 'print' ? null : 1);
                     // A grid shows every ticket at once, so start from a size that fits
                     if (option === 'grid' && count > DRAW_GRID_MAX) { setCount(DRAW_GRID_MAX); setCountInput(String(DRAW_GRID_MAX)); }
                   }}>
@@ -165,6 +189,87 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
               })}
             </div>
             {gridTooBig && <span className="lg-warn">{t('lag.draw.handoutGridTooMany', { max: DRAW_GRID_MAX })}</span>}
+          </section>
+
+          <section className="lg-card" aria-labelledby="lg-draw-perperson" style={{ gap: 12 }}>
+            <h2 id="lg-draw-perperson" className="lg-h2">{t('lag.draw.perPerson')}</h2>
+            <div className="lg-opts-list">
+              {[...DRAW_PER_PERSON_CHOICES, null].map((n) => (
+                <button key={String(n)} type="button" className="lg-opt" aria-pressed={perPerson === n} onClick={() => { setPerPerson(n); setPerPersonTouched(true); }}>
+                  {n === null ? t('lag.draw.perPersonNone') : n}
+                </button>
+              ))}
+            </div>
+            <span className="lg-small lg-muted">{t('lag.draw.perPersonNote')}</span>
+            <h3 className="lg-label" style={{ margin: '8px 0 0' }}>{t('lag.draw.cooldown')}</h3>
+            <div className="lg-opts-list">
+              {[null, ...DRAW_COOLDOWNS].map((v) => (
+                <button key={String(v)} type="button" className="lg-opt" aria-pressed={cooldown === v} onClick={() => setCooldown(v)}>
+                  {v === null ? t('lag.draw.cooldownNone') : t(`lag.draw.cooldowns.${v}`)}
+                </button>
+              ))}
+            </div>
+            <span className="lg-small lg-muted">{t('lag.draw.cooldownNote')}</span>
+          </section>
+
+          <section className="lg-card" aria-labelledby="lg-draw-rounds" style={{ gap: 12 }}>
+            <div className="lg-stack" style={{ gap: 4 }}>
+              <h2 id="lg-draw-rounds" className="lg-h2">{t('lag.draw.rounds')}</h2>
+              <span className="lg-small lg-muted">{t('lag.draw.roundsNote')}</span>
+            </div>
+            <div className="lg-row" style={{ gap: 8, alignItems: 'center' }}>
+              <div className="lg-opts-list">
+                {DRAW_ROUND_CHOICES.map((n) => (
+                  <button key={n} type="button" className="lg-opt" aria-pressed={rounds === n} onClick={() => { setRounds(n); setRoundsInput(String(n)); }}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <input
+                className="lg-input"
+                style={{ width: 90 }}
+                type="number"
+                min={1}
+                max={DRAW_MAX_ROUNDS}
+                inputMode="numeric"
+                aria-label={t('lag.draw.rounds')}
+                value={roundsInput}
+                onChange={(e) => { setRoundsInput(e.target.value); setRounds(parseInt(e.target.value, 10) || 0); }}
+              />
+            </div>
+            {rounds > 1 && (
+              <>
+                <h3 className="lg-label" style={{ margin: '8px 0 0' }}>{t('lag.draw.nextRound')}</h3>
+                <div className="lg-opts-list">
+                  {[null, ...DRAW_ROUND_INTERVALS].map((v) => (
+                    <button key={String(v)} type="button" className="lg-opt" aria-pressed={roundInterval === v} onClick={() => setRoundInterval(v)}>
+                      {v === null ? t('lag.draw.nextRoundSoldOut') : t(`lag.draw.roundIntervals.${v}`)}
+                    </button>
+                  ))}
+                </div>
+                <span className="lg-small lg-muted">{t(roundInterval ? 'lag.draw.nextRoundTimedNote' : 'lag.draw.nextRoundSoldOutNote')}</span>
+              </>
+            )}
+            <h3 className="lg-label" style={{ margin: '8px 0 0' }}>{t('lag.draw.firstRound')}</h3>
+            <div className="lg-opts-list">
+              <button type="button" className="lg-opt" aria-pressed={!firstRoundAt} onClick={() => setFirstRoundAt(null)}>{t('lag.draw.firstRoundNow')}</button>
+              <button type="button" className="lg-opt" aria-pressed={!!firstRoundAt} onClick={() => setFirstRoundAt(firstRoundAt || toLocalInputValue(new Date(Date.now() + 3_600_000)))}>{t('lag.draw.firstRoundLater')}</button>
+            </div>
+            {firstRoundAt && (
+              <div style={{ maxWidth: 260 }}>
+                <input
+                  className="lg-input"
+                  type="datetime-local"
+                  aria-label={t('lag.draw.firstRound')}
+                  value={firstRoundAt}
+                  min={toLocalInputValue(new Date())}
+                  max={toLocalInputValue(new Date(Date.now() + 30 * 86_400_000))}
+                  onChange={(e) => setFirstRoundAt(e.target.value || null)}
+                />
+              </div>
+            )}
+            {badRounds && <span className="lg-warn">{t('lag.draw.errors.rounds', { max: DRAW_MAX_ROUNDS, total: DRAW_MAX_CODES })}</span>}
+            {roundsTooLong && <span className="lg-warn">{t('lag.draw.errors.roundsTooLong')}</span>}
           </section>
 
           <section className="lg-card" aria-labelledby="lg-draw-basics">
@@ -267,6 +372,9 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
           <div className="lg-badges">
             <span className="lg-badge">{t('lag.draw.summary', { count: count.toLocaleString(i18n.language), prizes: prizeCodes })}</span>
             {odds && <span className="lg-badge">{t('lag.draw.odds', { n: odds })}</span>}
+            {perPerson && <span className="lg-badge">{t('lag.draw.perPersonBadge', { count: perPerson })}</span>}
+            {rounds > 1 && <span className="lg-badge">{t('lag.draw.roundsBadge', { count: rounds })}</span>}
+            {cooldown && <span className="lg-badge">{t('lag.draw.cooldownBadge', { wait: t(`lag.draw.cooldowns.${cooldown}`) })}</span>}
             <span className="lg-badge">{t(`lag.series.end.${realEnd}`)}</span>
           </div>
 

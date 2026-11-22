@@ -340,3 +340,12 @@
 .lg-board-ticket.is-win img.lg-board-ticket-pic { opacity: 1; outline: 4px solid var(--lg-blue); }
 .lg-board-ticket.is-win .lg-board-ticket-no { color: #8C9BFF; }
 .lg-board-ticket-no { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lg-draw-reveal.is-waiting { cursor: default; border-style: dashed; border-color: var(--lg-line-strong); }
+.lg-draw-reveal.is-waiting .lg-draw-reveal-star { color: var(--lg-line-strong); }
+.lg-draw-reveal-clock { font-family: var(--lg-mono); font-size: 48px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.lg-draw-save { display: flex; flex-direction: column; gap: 12px; padding: 20px; background: var(--lg-blue-soft); border: 2px solid var(--lg-blue); animation: lg-pop 0.45s ease-out; }
+.lg-draw-save h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: var(--lg-blue); }
+.lg-draw-save p { margin: 0; font-size: 16px; line-height: 1.45; }
+.lg-draw-save .lg-small { color: var(--lg-ink-2); }
+.lg-board-headright { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.lg-board-roundline { font-size: clamp(16px, 1.6vw, 24px); font-weight: 600; color: #fff; background: #1C1C1C; border: 1px solid #333; padding: 8px 14px; font-variant-numeric: tabular-nums; }

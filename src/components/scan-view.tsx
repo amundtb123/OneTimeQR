@@ -6,7 +6,9 @@ import { Card } from './ui/card';
 import { Input } from './ui/input';
 import { Alert, AlertDescription } from './ui/alert';
 import { UnlockScreen } from './unlock-screen';
-import { getQrDrop, openQrDrop, incrementDownloadCount } from '../utils/api-client';
+import { getQrDrop, openQrDrop, incrementDownloadCount, getDrawParticipant } from '../utils/api-client';
+import { participantId } from '../utils/create-draw';
+import { makeProof, saveProof } from '../utils/draw-proof';
 import { decryptFile, decryptTextWithSplitKey } from '../utils/encryption';
 import { loadKeyParts, rememberKeyParts, forgetKeyParts, masterKeyHex, hexToBytes, type KeyParts } from '../utils/key-handover';
 import { formatTimeLeft, useNow } from '../utils/time-left';
@@ -32,7 +34,8 @@ interface ScanFile {
 // loading → (scheduled: waits for the release date) → (locked: needs QR key) → (password) → open,
 // or error at any point
 // A draw's ticket waits on 'reveal' until the person taps, so the scan is theirs to start.
-type Status = 'loading' | 'scheduled' | 'locked' | 'password' | 'reveal' | 'open' | 'error';
+// A draw's ticket whose round hasn't started waits on 'roundWait'.
+type Status = 'loading' | 'scheduled' | 'locked' | 'password' | 'reveal' | 'roundWait' | 'open' | 'error';
 
 // When the server still says "not yet" (clocks differ), try again this much later
 const ACTIVATION_RETRY_MS = 5000;
@@ -60,6 +63,21 @@ function originalFileType(file: { fileName: string; fileType?: string }, qrDrop:
   return (ext && TYPES_BY_EXTENSION[ext]) || type;
 }
 
+// "4:32" or "1:04:32" until a phone may take its next ticket
+function formatClock(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = String(total % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+
+// A draw's wait between tickets in words: "5 minutes", "1 hour", "24 hours"
+function formatWait(ms: number, t: (key: string, options?: any) => string): string {
+  const minutes = Math.round(ms / 60_000);
+  return minutes >= 60 ? t('lag.draw.scan.hours', { count: Math.round(minutes / 60) }) : t('lag.draw.scan.minutes', { count: minutes });
+}
+
 function parseUrls(urlContent: string | null | undefined): string[] {
   if (!urlContent) return [];
   try {
@@ -78,6 +96,13 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const [error, setError] = useState<string | null>(null);
   const [gone, setGone] = useState(false); // Used up, expired or deleted: nothing went wrong
   const [used, setUsed] = useState(false); // A draw's ticket that has already been scanned
+  const [limitReached, setLimitReached] = useState<number | null>(null); // This phone has as many tickets as the draw allows
+  const metaRef = useRef<any>(null); // The metadata as soon as it arrives, before state catches up
+  const [waitUntil, setWaitUntil] = useState<number | null>(null); // This phone must wait before taking another ticket
+  const [roundWait, setRoundWait] = useState<{ round: number; startsAt: number | null } | null>(null); // Its round hasn't started
+  const [roundOver, setRoundOver] = useState<number | null>(null); // Its round has ended
+  const [proof, setProof] = useState<'idle' | 'making' | 'saved'>('idle'); // A winner's saved proof
+  const openedAtRef = useRef<Date | null>(null); // When this ticket was opened, for the proof
   const [revealing, setRevealing] = useState(false);
   const [meta, setMeta] = useState<any>(null); // From GET /qr/:id: no content, doesn't use a view
   const [qrDrop, setQrDrop] = useState<any>(null); // From /open: with content
@@ -93,7 +118,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const fileBlobsRef = useRef<Record<number, Promise<Blob>>>({}); // Decrypted files for preview and download
   const blobUrlsRef = useRef<string[]>([]);
   const isE2E = !!(meta?.secureMode || meta?.singleQrMode);
-  const now = useNow(status === 'scheduled' || (status === 'open' && !!qrDrop?.expiresAt));
+  const now = useNow(status === 'scheduled' || status === 'roundWait' || (status === 'open' && !!qrDrop?.expiresAt) || (status === 'reveal' && !!waitUntil));
 
   const showScheduled = (at: number) => {
     setActivatesAt(Math.max(at, Date.now() + (at > Date.now() ? 0 : ACTIVATION_RETRY_MS)));
@@ -107,6 +132,19 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     }
     if (err instanceof DecryptError) setError(t('scanView.couldNotDecrypt'));
     else if (err?.code === 'ALREADY_USED') setUsed(true);
+    else if (err?.code === 'LIMIT_REACHED') setLimitReached(err?.max ?? 1);
+    else if (err?.code === 'ROUND_OVER') setRoundOver(err?.round ?? 1);
+    else if (err?.code === 'ROUND_NOT_STARTED') {
+      setRoundWait({ round: err?.round ?? 1, startsAt: err?.startsAt ?? null });
+      setStatus('roundWait');
+      return;
+    }
+    else if (err?.code === 'WAIT' && err?.waitUntil) {
+      // Not used up: the ticket waits on the reveal screen with a countdown
+      setWaitUntil(err.waitUntil);
+      setStatus('reveal');
+      return;
+    }
     else if (err?.status === 410 || err?.status === 404) setGone(true);
     else setError(t('scanView.couldNotLoad'));
     setStatus('error');
@@ -149,7 +187,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
 
   // Uses up a view: the server verifies the password, counts the view and returns the content
   const open = async (password?: string) => {
-    const opened = await openQrDrop(qrDropId, password, isPreview);
+    const opened = await openQrDrop(qrDropId, password, isPreview, meta?.isDraw || metaRef.current?.isDraw ? participantId() : undefined);
     forgetKeyParts(qrDropId);
     const drop = opened.qrDrop as any;
     const e2e = drop.secureMode || drop.singleQrMode;
@@ -172,6 +210,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     }
 
     const list: ScanFile[] = (opened.files ?? []).map((f) => ({ ...f, fileType: originalFileType(f, drop) }));
+    openedAtRef.current = new Date();
     setQrDrop(drop);
     setContent({ text, urls: urls.filter((url) => url && typeof url === 'string') });
     setFiles(list);
@@ -188,6 +227,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         const { qrDrop: metadata } = await getQrDrop(qrDropId);
         if (cancelled) return;
         setMeta(metadata);
+        metaRef.current = metadata;
         if (metadata.secureMode || metadata.singleQrMode) {
           const parts = { ...keyPartsRef.current, ...loadKeyParts(qrDropId) };
           keyPartsRef.current = parts;
@@ -209,7 +249,31 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           setStatus('password');
           return;
         }
+        if (metadata.isDraw && metadata.rounds > 1 && typeof metadata.currentRound === 'number') {
+          // One round at a time: a ticket of an ended round is over, a later one waits for its round
+          if (metadata.round < metadata.currentRound) {
+            setRoundOver(metadata.round);
+            setStatus('error');
+            return;
+          }
+          if (metadata.round > metadata.currentRound) {
+            setRoundWait({ round: metadata.round, startsAt: metadata.roundStartsAt ?? null });
+            setStatus('roundWait');
+            return;
+          }
+        }
         if (metadata.isDraw) {
+          // With a limit or a wait, find out first whether this phone may take a ticket now
+          if (metadata.maxPerPerson || metadata.cooldownMs) {
+            const me = await getDrawParticipant(qrDropId, participantId()).catch(() => null);
+            if (cancelled) return;
+            if (me?.max && me.opened >= me.max) {
+              setLimitReached(me.max);
+              setStatus('error');
+              return;
+            }
+            setWaitUntil(me?.waitUntil ?? null);
+          }
           setStatus('reveal');
           return;
         }
@@ -222,6 +286,30 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       cancelled = true;
     };
   }, [qrDropId, attempt]);
+
+  // A ticket waiting for its round looks again when the round's time has come, and every
+  // 10 seconds when the round starts once the previous one is sold out
+  useEffect(() => {
+    if (status !== 'roundWait' || !roundWait) return;
+    const due = roundWait.startsAt ? Math.max(1000, roundWait.startsAt - Date.now() + 500) : 10_000;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const { qrDrop: fresh } = await getQrDrop(qrDropId);
+        if (cancelled) return;
+        if ((fresh as any).currentRound >= roundWait.round) {
+          setStatus('loading');
+          setAttempt((a) => a + 1);
+        } else {
+          // Not yet: wait again, with the latest start time
+          setRoundWait({ round: roundWait.round, startsAt: (fresh as any).roundStartsAt ?? null });
+        }
+      } catch {
+        if (!cancelled) setRoundWait({ ...roundWait });
+      }
+    }, Math.min(due, 10_000));
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [status, roundWait]);
 
   // A scheduled drop opens by itself once its time has come
   useEffect(() => {
@@ -358,8 +446,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           <div className="lg-open-seal is-gone" aria-hidden="true">
             <AlertCircle className="size-6" />
           </div>
-          <h1 className="lg-h1 lg-open-title">{used ? t('lag.draw.scan.usedTitle') : gone ? t('scanView.opened.goneTitle') : t('scanView.couldNotLoadQr')}</h1>
-          <p className="lg-lead">{used ? t('lag.draw.scan.usedBody') : gone ? t('scanView.opened.goneBody') : error}</p>
+          <h1 className="lg-h1 lg-open-title">{roundOver ? t('lag.draw.scan.roundOverTitle') : limitReached ? t('lag.draw.scan.limitTitle') : used ? t('lag.draw.scan.usedTitle') : gone ? t('scanView.opened.goneTitle') : t('scanView.couldNotLoadQr')}</h1>
+          <p className="lg-lead">{roundOver ? t('lag.draw.scan.roundOverBody', { round: roundOver }) : limitReached ? t('lag.draw.scan.limitBody', { count: limitReached }) : used ? t('lag.draw.scan.usedBody') : gone ? t('scanView.opened.goneBody') : error}</p>
         </header>
         <a href="/" className="lg-open-cta">
           <span className="lg-stack" style={{ gap: 2 }}>
@@ -388,18 +476,59 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
     );
   }
 
-  if (status === 'reveal') {
+  if (status === 'roundWait' && roundWait) {
+    const counting = !!roundWait.startsAt && roundWait.startsAt > now;
     return (
       <div className="lg-open">
         <header className="lg-stack" style={{ gap: 14 }}>
-          <div className="lg-eyebrow">{t('lag.draw.scan.eyebrow')}</div>
+          <div className="lg-eyebrow">{t('lag.draw.scan.eyebrow')} · {t('lag.draw.scan.round', { round: roundWait.round, rounds: meta?.rounds ?? roundWait.round })}</div>
           <h1 className="lg-h1 lg-open-title">{meta?.title || t('lag.templates.draw.name')}</h1>
         </header>
-        <button type="button" className={`lg-draw-reveal${revealing ? ' is-busy' : ''}`} disabled={revealing} onClick={handleReveal}>
+        <div className="lg-draw-reveal is-waiting" role="status">
+          <span className="lg-draw-reveal-no">{t('lag.draw.scan.ticket', { number: meta?.seriesNumber ?? '' })}</span>
+          <strong>{t('lag.draw.scan.roundWaitTitle', { round: roundWait.round })}</strong>
+          {counting ? (
+            <>
+              <span className="lg-small lg-muted">{t('lag.draw.scan.roundStartsIn')}</span>
+              <span className="lg-draw-reveal-clock" role="timer">{formatClock(roundWait.startsAt! - now)}</span>
+            </>
+          ) : (
+            <span className="lg-small lg-muted">{t('lag.draw.scan.roundStartsSoldOut', { previous: roundWait.round - 1 })}</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'reveal') {
+    const waiting = !!waitUntil && waitUntil > now;
+    const rules = [
+      meta?.maxPerPerson && t('lag.draw.scan.perPerson', { count: meta.maxPerPerson }),
+      meta?.cooldownMs && t('lag.draw.scan.cooldown', { wait: formatWait(meta.cooldownMs, t) }),
+    ].filter(Boolean).join(' · ');
+    return (
+      <div className="lg-open">
+        <header className="lg-stack" style={{ gap: 14 }}>
+          <div className="lg-eyebrow">
+            {t('lag.draw.scan.eyebrow')}
+            {meta?.rounds > 1 && <> · {t('lag.draw.scan.round', { round: meta.round, rounds: meta.rounds })}</>}
+          </div>
+          <h1 className="lg-h1 lg-open-title">{meta?.title || t('lag.templates.draw.name')}</h1>
+        </header>
+        <button type="button" className={`lg-draw-reveal${revealing ? ' is-busy' : ''}${waiting ? ' is-waiting' : ''}`} disabled={revealing || waiting} onClick={handleReveal}>
           <span className="lg-draw-reveal-no">{t('lag.draw.scan.ticket', { number: meta?.seriesNumber ?? '' })}</span>
           <span className="lg-draw-reveal-star" aria-hidden="true">★</span>
-          <strong>{revealing ? t('lag.draw.scan.revealing') : t('lag.draw.scan.tapToReveal')}</strong>
+          {waiting ? (
+            <>
+              <strong>{t('lag.draw.scan.waitTitle')}</strong>
+              <span className="lg-draw-reveal-clock" role="timer" aria-live="off">{formatClock(waitUntil! - now)}</span>
+              <span className="lg-small lg-muted">{t('lag.draw.scan.waitBody')}</span>
+            </>
+          ) : (
+            <strong>{revealing ? t('lag.draw.scan.revealing') : t('lag.draw.scan.tapToReveal')}</strong>
+          )}
         </button>
+        {rules && <p className="lg-small lg-muted" style={{ margin: 0, textAlign: 'center' }}>{rules}</p>}
       </div>
     );
   }
@@ -516,7 +645,49 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         </div>
       </header>
 
-      {lastView && !(qrDrop?.isDraw && !qrDrop.isPrize) && (
+      {/* A winning ticket opens once: the winner must keep proof of it before leaving */}
+      {qrDrop?.isDraw && qrDrop.isPrize && (
+        <section className="lg-draw-save" aria-labelledby="lg-draw-save-title">
+          <h2 id="lg-draw-save-title">{t('lag.draw.scan.saveTitle')}</h2>
+          <p>{t('lag.draw.scan.saveBody')}</p>
+          <button
+            type="button"
+            className="lg-btn lg-btn-primary"
+            disabled={proof === 'making'}
+            onClick={async () => {
+              setProof('making');
+              try {
+                const picture = files.find((f) => f.blobUrl && f.fileType.startsWith('image/'))?.blobUrl;
+                const blob = await makeProof({
+                  drawTitle: qrDrop.title || t('lag.templates.draw.name'),
+                  ticketNumber: qrDrop.seriesNumber,
+                  prizeLabel: qrDrop.prizeLabel || t('lag.draw.board.prize'),
+                  message: content.text,
+                  pictureUrl: picture,
+                  openedAt: openedAtRef.current ?? new Date(),
+                  locale: i18n.language,
+                  strings: {
+                    heading: t('lag.draw.scan.proofHeading'),
+                    ticket: t('lag.draw.scan.ticket', { number: qrDrop.seriesNumber }),
+                    footer: t('lag.draw.scan.proofFooter'),
+                  },
+                });
+                const saved = await saveProof(blob, `gevinst-lodd-${qrDrop.seriesNumber}.png`);
+                setProof(saved ? 'saved' : 'idle');
+                if (saved) toast.success(t('lag.draw.scan.saved'));
+              } catch {
+                setProof('idle');
+                toast.error(t('lag.draw.scan.saveFailed'));
+              }
+            }}
+          >
+            {proof === 'making' ? t('lag.draw.scan.saving') : proof === 'saved' ? t('lag.draw.scan.saveAgain') : t('lag.draw.scan.saveButton')}
+          </button>
+          <span className="lg-small">{proof === 'saved' ? t('lag.draw.scan.savedNote') : t('lag.draw.scan.screenshotNote')}</span>
+        </section>
+      )}
+
+      {lastView && !qrDrop?.isDraw && (
         <p className="lg-open-warning">
           <AlertCircle className="size-4" style={{ flexShrink: 0, marginTop: 2 }} />
           {t('scanView.opened.lastView')}

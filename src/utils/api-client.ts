@@ -134,6 +134,11 @@ export interface SeriesData {
   id: string;
   kind?: 'series' | 'draw';
   prizes?: Array<{ label: string | null; count: number }>; // A draw's prizes, never their content
+  maxPerPerson?: number | null; // A draw's limit of tickets per phone
+  cooldownMs?: number | null; // A draw's wait between one phone's tickets
+  rounds?: number;
+  roundIntervalMs?: number | null;
+  firstRoundAt?: number | null;
   title: string | null;
   codeCount: number;
   opened: number;
@@ -190,6 +195,10 @@ async function fetchApi(endpoint: string, options: RequestInit = {}, requireAuth
       const errorWithStatus = new Error(errorMessage);
       (errorWithStatus as any).status = response.status;
       (errorWithStatus as any).code = error.code;
+      if (error.max !== undefined) (errorWithStatus as any).max = error.max; // A limit the server refused at
+      if (error.waitUntil !== undefined) (errorWithStatus as any).waitUntil = error.waitUntil; // When to try again
+      if (error.startsAt !== undefined) (errorWithStatus as any).startsAt = error.startsAt; // When a ticket's round starts
+      if (error.round !== undefined) (errorWithStatus as any).round = error.round;
       throw errorWithStatus;
     }
 
@@ -293,7 +302,8 @@ function viewTokenHeaders(id: string): Record<string, string> {
 // Open a QR drop: the server verifies the password (if any), counts the view
 // and returns the content. Each successful call uses up one view, unless the owner
 // asks for a preview (the first few previews are free).
-export async function openQrDrop(id: string, password?: string, preview = false): Promise<{
+// participant: this phone's anonymous id, sent only when opening a draw's ticket
+export async function openQrDrop(id: string, password?: string, preview = false, participant?: string): Promise<{
   qrDrop: QrDropData & { encryptionKey?: string | null };
   files: Array<{fileUrl: string; fileName: string; fileType: string; fileSize: number; fileIndex: number}> | null;
   fileUrl: string | null;
@@ -304,11 +314,17 @@ export async function openQrDrop(id: string, password?: string, preview = false)
     headers: {
       'Content-Type': 'application/json',
       ...(preview ? { ...ownerTokenHeaders(id), 'X-Owner-Preview': '1' } : {}),
+      ...(participant ? { 'X-Participant': participant } : {}),
     },
     body: JSON.stringify(password ? { password } : {}),
   });
   viewTokens.set(id, result.viewToken);
   return result;
+}
+
+// What this phone may still do in a draw: how many tickets it has, the limit, and until when it must wait
+export async function getDrawParticipant(id: string, participant: string): Promise<{ opened: number; max: number | null; waitUntil: number | null }> {
+  return fetchApi(`/qr/${id}/participant`, { headers: { 'X-Participant': participant } });
 }
 
 export async function incrementDownloadCount(id: string): Promise<{ success: boolean; downloadCount: number }> {
@@ -353,7 +369,7 @@ export async function createSeries(files: File[], metadata: Record<string, unkno
 // files (prize0_file, prize0_file1, ...)
 export async function createDraw(formData: FormData): Promise<{
   series: SeriesData;
-  codes: Array<{ id: string; number: number }>;
+  codes: Array<{ id: string; number: number; round?: number }>;
   coinsCharged: number;
   displayToken: string;
 }> {
@@ -367,6 +383,9 @@ export interface DrawBoard {
   opened: Array<[number, number | null]>; // [code number, prize index or null], in the order opened
   next?: { id: string; number: number } | null; // The next ticket a screen hands out (missing from an old server)
   free?: Array<{ id: string; number: number }>; // Every ticket nobody has scanned, when asked for a grid
+  round?: number; // The running round; 0 = the first hasn't started
+  rounds?: number;
+  nextAt?: number | null; // When the next round starts at the latest
   // The first picture of the draw's own content and of each prize (encrypted), when asked for
   pictures?: { base: DrawPicture | null; prizes: Array<DrawPicture | null> };
   expiresAt: number;

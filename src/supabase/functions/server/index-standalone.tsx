@@ -16,7 +16,7 @@ app.use('*', cors({
   ],
   credentials: true,
   allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-View-Token', 'X-Owner-Token', 'X-Display-Token'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-View-Token', 'X-Owner-Token', 'X-Display-Token', 'X-Participant'],
 }));
 app.use('*', logger(console.log));
 
@@ -133,12 +133,12 @@ async function dropWithContent(row: any, withPrize = false): Promise<any | null>
   if (!row.series_id) return dropFromRow(row);
   const { data: series, error } = await supabase
     .from('qr_series')
-    .select('title, text_content, url_content, files, kind, prizes')
+    .select('title, text_content, url_content, files, kind, prizes, max_per_person, cooldown_ms, rounds')
     .eq('id', row.series_id)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!series) return null;
-  const { kind, prizes, ...content } = series;
+  const { kind, prizes, max_per_person, cooldown_ms, rounds, ...content } = series;
   if (kind !== 'draw') return dropFromRow({ ...row, ...content });
 
   const prize = withPrize && row.variant > 0 ? prizes?.[row.variant - 1] : null;
@@ -150,6 +150,10 @@ async function dropWithContent(row: any, withPrize = false): Promise<any | null>
   return {
     ...drop,
     isDraw: true,
+    maxPerPerson: max_per_person ?? null, // At most this many tickets per phone
+    cooldownMs: cooldown_ms == null ? null : Number(cooldown_ms), // Wait between one phone's tickets
+    round: row.round ?? 1, // This ticket's round
+    rounds: rounds ?? 1,
     ...(withPrize ? { isPrize: !!prize, prizeLabel: prize?.label ?? null } : {}),
   };
 }
@@ -1130,6 +1134,12 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
       return goneResponse(c, qrDrop);
     }
 
+    // A ticket of a draw with rounds says where the draw is, so it can say when its round starts
+    if (qrDrop.isDraw && qrDrop.rounds > 1) {
+      const state = await drawRound(qrDrop.seriesId);
+      const startsAt = qrDrop.round === state.round + 1 ? state.nextAt : null;
+      return c.json({ qrDrop: { ...publicMetadata(qrDrop), currentRound: state.round, roundStartsAt: startsAt } });
+    }
     return c.json({ qrDrop: publicMetadata(qrDrop) });
   } catch (error) {
     console.error('Error getting QR drop:', error);
@@ -1190,8 +1200,32 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
       if (resetError) throw new Error(resetError.message);
     }
 
-    // Owners previewing their own drop don't use up a view
-    if (!isOwner) {
+    // A draw's ticket counts against the phone that opens it, if the draw has a limit per person
+    if (qrDrop.isDraw) {
+      const participant = c.req.header('X-Participant');
+      if ((qrDrop.maxPerPerson || qrDrop.cooldownMs) && (!participant || !UUID_REGEX.test(participant))) {
+        return c.json({ error: 'This draw needs the app to open its tickets', code: 'PARTICIPANT_REQUIRED' }, 400);
+      }
+      // Hashed with the draw, so the same phone can't be followed from one draw to the next
+      const participantHash = participant && UUID_REGEX.test(participant) ? await participantHashFor(qrDrop.seriesId, participant) : '';
+      const { data: opened, error: openError } = await supabase.rpc('qr_draw_open', { p_id: id, p_participant_hash: participantHash, p_now: Date.now() });
+      if (openError) throw new Error(`qr_draw_open failed: ${openError.message}`);
+      if (opened?.limit) {
+        return c.json({ error: 'You already have as many tickets as this draw allows', code: 'LIMIT_REACHED', max: opened.limit }, 403);
+      }
+      if (opened?.round_not_started) {
+        return c.json({ error: 'This round has not started yet', code: 'ROUND_NOT_STARTED', round: opened.round_not_started, startsAt: opened.starts_at ?? null }, 403);
+      }
+      if (opened?.round_over) {
+        return c.json({ error: 'This round is over', code: 'ROUND_OVER', round: opened.round_over }, 410);
+      }
+      if (opened?.wait_until) {
+        return c.json({ error: 'Wait a little before taking the next ticket', code: 'WAIT', waitUntil: Number(opened.wait_until) }, 429);
+      }
+      if (!opened) return goneResponse(c, qrDrop);
+      qrDrop = await dropWithContent(opened, true);
+    } else if (!isOwner) {
+      // Owners previewing their own drop don't use up a view
       const consumed = await consumeQrDrop(id, 'scan');
       if (!consumed) {
         // Another viewer used the last view between our read and the atomic update
@@ -1396,12 +1430,22 @@ const DRAW_LABEL_MAX = 40;
 const DRAW_MAX_METADATA_BYTES = 64 * 1024;
 // A screen can show every ticket at once in a grid, up to this many
 const DRAW_GRID_MAX = 60;
+const DRAW_MAX_PER_PERSON = 100;
+// The waits a draw can set between one phone's tickets. Must match DRAW_COOLDOWNS in src/utils/create-draw.ts.
+const DRAW_COOLDOWNS_MS: Record<string, number> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '24h': DAY_MS };
+// Rounds: each a fresh set of tickets with the same prizes, paid for upfront. The next round
+// starts when every ticket is taken, or at its time when the draw has an interval.
+// Must match DRAW_ROUND_INTERVALS and DRAW_MAX_ROUNDS in src/utils/create-draw.ts.
+const DRAW_MAX_ROUNDS = 50;
+const DRAW_ROUND_INTERVALS_MS: Record<string, number> = { '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '3h': 10_800_000, '1d': DAY_MS, '1w': 7 * DAY_MS };
+const DRAW_MAX_FIRST_ROUND_DELAY_MS = 30 * DAY_MS;
 
 // Like a series, but every code is opened once and shows either the series' files or a prize's
-function drawPriceKr(codeCount: number, baseBytes: number, prizes: Array<{ count: number; bytes: number }>): number {
+// Every round costs the same: its tickets, and the downloads its files can cause
+function drawPriceKr(codeCount: number, baseBytes: number, prizes: Array<{ count: number; bytes: number }>, rounds = 1): number {
   const prizeCodes = prizes.reduce((sum, p) => sum + p.count, 0);
-  const traffic = baseBytes * (codeCount - prizeCodes) + prizes.reduce((sum, p) => sum + p.bytes * p.count, 0);
-  return Math.ceil(codeCount / 100) * SERIES_KR_PER_100 + (traffic > 0 ? Math.ceil(traffic / GB * KR_PER_GB) : 0);
+  const traffic = (baseBytes * (codeCount - prizeCodes) + prizes.reduce((sum, p) => sum + p.bytes * p.count, 0)) * rounds;
+  return Math.ceil((codeCount * rounds) / 100) * SERIES_KR_PER_100 + (traffic > 0 ? Math.ceil(traffic / GB * KR_PER_GB) : 0);
 }
 
 // A uniformly random whole number in [0, n), from the system's secure random source
@@ -1451,6 +1495,11 @@ function seriesForOwner(row: any, opened: number) {
     kind: row.kind ?? 'series',
     // A draw's prizes as the board shows them: label and how many, never content
     prizes: prizes.map((p: any) => ({ label: p.label ?? null, count: p.count })),
+    maxPerPerson: row.max_per_person ?? null,
+    rounds: row.rounds ?? 1,
+    roundIntervalMs: row.round_interval_ms == null ? null : Number(row.round_interval_ms),
+    firstRoundAt: toMs(row.first_round_at),
+    cooldownMs: row.cooldown_ms == null ? null : Number(row.cooldown_ms),
     title: row.title,
     codeCount: row.code_count,
     opened,
@@ -1563,6 +1612,39 @@ app.post('/make-server-c3c9181e/series', async (c) => {
       }
     }
 
+    // At most this many tickets per phone; none = no limit
+    const perPerson = isDraw && metadata.maxPerPerson != null ? toPositiveInt(metadata.maxPerPerson) : null;
+    if (isDraw && metadata.maxPerPerson != null && (!perPerson || perPerson > DRAW_MAX_PER_PERSON)) {
+      return c.json({ error: `At most 1–${DRAW_MAX_PER_PERSON} tickets per person`, code: 'INVALID_PER_PERSON' }, 400);
+    }
+    // Rounds, and when they start
+    const rounds = isDraw ? toPositiveInt(metadata.rounds ?? 1) : 1;
+    if (!rounds || rounds > DRAW_MAX_ROUNDS || codeCount * rounds > SERIES_MAX_CODES) {
+      return c.json({ error: `1–${DRAW_MAX_ROUNDS} rounds, and at most ${SERIES_MAX_CODES} tickets in all`, code: 'INVALID_ROUNDS' }, 400);
+    }
+    const roundIntervalMs = rounds > 1 && metadata.roundInterval != null
+      ? (Object.hasOwn(DRAW_ROUND_INTERVALS_MS, metadata.roundInterval) ? DRAW_ROUND_INTERVALS_MS[metadata.roundInterval] : -1)
+      : null;
+    if (roundIntervalMs === -1) {
+      return c.json({ error: 'Invalid time between rounds', code: 'INVALID_ROUNDS' }, 400);
+    }
+    const requestedFirst = isDraw && metadata.firstRoundAt != null ? Number(metadata.firstRoundAt) : null;
+    if (requestedFirst !== null && (!Number.isFinite(requestedFirst) || requestedFirst > Date.now() + DRAW_MAX_FIRST_ROUND_DELAY_MS)) {
+      return c.json({ error: 'The first round starts within 30 days', code: 'INVALID_ROUNDS' }, 400);
+    }
+    // A start that has already passed just means "now"
+    const firstRoundAt = requestedFirst !== null && requestedFirst > Date.now() ? requestedFirst : null;
+    const lastRoundAt = (firstRoundAt ?? Date.now()) + (roundIntervalMs ? (rounds - 1) * roundIntervalMs : 0);
+    if (endMs && lastRoundAt >= Date.now() + endMs) {
+      return c.json({ error: 'The last round must start before the draw ends', code: 'ROUNDS_TOO_LONG' }, 400);
+    }
+
+    // A wait between one phone's tickets; none = take them as fast as you like
+    const cooldownMs = isDraw && metadata.cooldown != null ? (Object.hasOwn(DRAW_COOLDOWNS_MS, metadata.cooldown) ? DRAW_COOLDOWNS_MS[metadata.cooldown] : -1) : null;
+    if (cooldownMs === -1) {
+      return c.json({ error: 'Invalid wait between tickets', code: 'INVALID_COOLDOWN' }, 400);
+    }
+
     const allFiles = [...files, ...prizeRequests.flatMap((p) => p.files)];
     if (allFiles.length > 0 && endMs > SERIES_MAX_END_WITH_FILES_MS) {
       return c.json({ error: 'A series with files ends after at most 30 days', code: 'SERIES_END_TOO_LONG' }, 400);
@@ -1574,7 +1656,7 @@ app.post('/make-server-c3c9181e/series', async (c) => {
     const bytes = contentBytes(files.map((file) => file.size));
     const prizeBytes = prizeRequests.map((p) => ({ count: p.count, bytes: contentBytes(p.files.map((file) => file.size)) }));
     const traffic = isDraw
-      ? bytes * (codeCount - prizeBytes.reduce((sum, p) => sum + p.count, 0)) + prizeBytes.reduce((sum, p) => sum + p.bytes * p.count, 0)
+      ? (bytes * (codeCount - prizeBytes.reduce((sum, p) => sum + p.count, 0)) + prizeBytes.reduce((sum, p) => sum + p.bytes * p.count, 0)) * rounds
       : bytes * opens * codeCount;
     if (traffic > SERIES_MAX_TRAFFIC_BYTES) {
       return c.json({ error: 'These files are too big for this many codes and opens', code: 'TOO_MUCH_TRAFFIC' }, 400);
@@ -1589,7 +1671,7 @@ app.post('/make-server-c3c9181e/series', async (c) => {
 
     // Done before charging so a hashing failure can't cost coins
     const passwordHash = typeof metadata.password === 'string' && metadata.password ? await hashPasswordSecure(metadata.password) : null;
-    const cost = isDraw ? drawPriceKr(codeCount, bytes, prizeBytes) : seriesPriceKr(codeCount, bytes, opens);
+    const cost = isDraw ? drawPriceKr(codeCount, bytes, prizeBytes, rounds) : seriesPriceKr(codeCount, bytes, opens);
     const coinBalance = await deductCoins(userId, cost);
     if (coinBalance === null) return insufficientCoinsResponse(c, cost);
 
@@ -1624,6 +1706,11 @@ app.post('/make-server-c3c9181e/series', async (c) => {
         kind: isDraw ? 'draw' : 'series',
         prizes,
         display_token_hash: displayToken ? await sha256Hex(displayToken) : null,
+        max_per_person: isDraw ? perPerson : null,
+        cooldown_ms: cooldownMs,
+        rounds,
+        round_interval_ms: roundIntervalMs,
+        first_round_at: toIso(firstRoundAt),
         code_count: codeCount,
         max_scans: opens,
         lifetime_ms: lifetimeMs,
@@ -1639,21 +1726,26 @@ app.post('/make-server-c3c9181e/series', async (c) => {
 
       // The codes: ordinary drops without content of their own. Until its first scan a code
       // lives as long as the series.
-      const codes = Array.from({ length: codeCount }, (_, i) => ({ id: crypto.randomUUID(), number: i + 1 }));
-      const variants = isDraw ? drawVariants(codeCount, prizeRequests.map((p) => p.count), metadata.holdPrizes === true) : null;
+      // A draw makes every round's tickets now, each round with its own random prizes
+      const codes: Array<{ id: string; number: number; round: number; variant: number | null }> = [];
+      for (let round = 1; round <= rounds; round++) {
+        const variants = isDraw ? drawVariants(codeCount, prizeRequests.map((p) => p.count), metadata.holdPrizes === true) : null;
+        for (let i = 0; i < codeCount; i++) codes.push({ id: crypto.randomUUID(), number: i + 1, round, variant: variants ? variants[i] : null });
+      }
       for (let start = 0; start < codes.length; start += SERIES_INSERT_CHUNK) {
         const rows = codes.slice(start, start + SERIES_INSERT_CHUNK).map((code) => ({
           id: code.id,
           user_id: userId,
           series_id: id,
           series_number: code.number,
+          round: code.round,
           content_type: 'bundle',
           files: [],
           expiry_type: isDraw ? 'draw' : metadata.lifetime,
           expires_at: expiresAt,
           // A draw code lives as long as the draw, opened or not, so the board can show it
           lifetime_ms: isDraw ? null : lifetimeMs,
-          variant: variants ? variants[code.number - 1] : null,
+          variant: code.variant,
           max_scans: opens,
           view_only: seriesRow.view_only,
           password_hash: passwordHash,
@@ -1669,7 +1761,8 @@ app.post('/make-server-c3c9181e/series', async (c) => {
       return c.json({
         success: true,
         series: seriesForOwner(seriesRow, 0),
-        codes,
+        // Which ticket holds a prize stays on the server
+        codes: codes.map(({ id: codeId, number, round }) => (rounds > 1 ? { id: codeId, number, round } : { id: codeId, number })),
         ...(displayToken ? { displayToken } : {}),
         coinsCharged: cost,
         coins: coinBalance,
@@ -1697,7 +1790,7 @@ app.get('/make-server-c3c9181e/series', async (c) => {
     }
     const { data, error } = await supabase
       .from('qr_series')
-      .select('id, kind, prizes, title, code_count, max_scans, lifetime_ms, view_only, files, qr_style, expires_at, created_at')
+      .select('id, kind, prizes, max_per_person, cooldown_ms, rounds, round_interval_ms, first_round_at, title, code_count, max_scans, lifetime_ms, view_only, files, qr_style, expires_at, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(QRDROPS_PAGE_SIZE);
@@ -1713,6 +1806,50 @@ app.get('/make-server-c3c9181e/series', async (c) => {
   } catch (error) {
     console.error('Error getting series:', error);
     return c.json({ error: 'Failed to get series' }, 500);
+  }
+});
+
+// Where a draw is: { round (0 = not started), rounds, startedAt, nextAt } (see qr_draw_round())
+async function drawRound(seriesId: string): Promise<{ round: number; rounds: number; startedAt: number | null; nextAt: number | null }> {
+  const { data, error } = await supabase.rpc('qr_draw_round', { p_series_id: seriesId, p_now: Date.now() });
+  if (error) throw new Error(`qr_draw_round failed: ${error.message}`);
+  return { round: data.round, rounds: data.rounds, startedAt: data.started_at ?? null, nextAt: data.next_at ?? null };
+}
+
+// A phone's id in a draw, hashed with the draw so it can't be followed from one draw to the next
+const participantHashFor = (seriesId: string, participant: string) => sha256Hex(`${seriesId}:${participant.toLowerCase()}`);
+
+// What a phone may still do in a draw with a limit per person or a wait between tickets:
+// { opened, max, waitUntil }. Lets the ticket show a countdown before anyone taps it.
+app.get('/make-server-c3c9181e/qr/:id/participant', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const participant = c.req.header('X-Participant');
+    if (!UUID_REGEX.test(id) || !participant || !UUID_REGEX.test(participant)) {
+      return c.json({ error: 'Invalid request' }, 400);
+    }
+    const qrDrop = await getQrDrop(id);
+    if (!qrDrop?.isDraw) {
+      return c.json({ error: 'Draw not found' }, 404);
+    }
+    const { data, error } = await supabase
+      .from('qr_draw_participants')
+      .select('opened, last_opened_at')
+      .eq('series_id', qrDrop.seriesId)
+      .eq('participant_hash', await participantHashFor(qrDrop.seriesId, participant))
+      .eq('round', qrDrop.round)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    const last = toMs(data?.last_opened_at);
+    const waitUntil = qrDrop.cooldownMs && last ? last + qrDrop.cooldownMs : null;
+    return c.json({
+      opened: data?.opened ?? 0,
+      max: qrDrop.maxPerPerson,
+      waitUntil: waitUntil && waitUntil > Date.now() ? waitUntil : null,
+    });
+  } catch (error) {
+    console.error('Error getting participant:', error);
+    return c.json({ error: 'Failed to get participant' }, 500);
   }
 });
 
@@ -1750,7 +1887,11 @@ app.get('/make-server-c3c9181e/series/:id/board', async (c) => {
     if (!viaScreen && (await getRequestUserId(c)) !== row.user_id) {
       return c.json({ error: 'Draw not found' }, 404); // Same answer, so a guess tells nothing
     }
-    const { data: opened, error: boardError } = await supabase.rpc('qr_draw_board', { p_series_id: id });
+    // The board shows the running round; before the first starts, nothing can be taken
+    const state = await drawRound(id);
+    const round = Math.max(1, state.round);
+    const started = state.round > 0;
+    const { data: opened, error: boardError } = await supabase.rpc('qr_draw_board', { p_series_id: id, p_round: round });
     if (boardError) throw new Error(boardError.message);
     // The next ticket a screen hands out: the lowest number nobody has scanned. Its id is no use
     // without the key, which only the screen's own link carries.
@@ -1758,6 +1899,7 @@ app.get('/make-server-c3c9181e/series/:id/board', async (c) => {
       .from('qr_drops')
       .select('id, series_number')
       .eq('series_id', id)
+      .eq('round', round)
       .eq('scan_count', 0)
       .order('series_number', { ascending: true })
       .limit(1);
@@ -1769,10 +1911,11 @@ app.get('/make-server-c3c9181e/series/:id/board', async (c) => {
         .from('qr_drops')
         .select('id, series_number')
         .eq('series_id', id)
+        .eq('round', round)
         .eq('scan_count', 0)
         .order('series_number', { ascending: true });
       if (freeError) throw new Error(freeError.message);
-      free = (rows ?? []).map((r: any) => ({ id: r.id, number: r.series_number }));
+      free = started ? (rows ?? []).map((r: any) => ({ id: r.id, number: r.series_number })) : [];
     }
     // ?pictures=1: the first picture of the draw's own content and of each prize, so a grid can
     // show what a taken ticket held. Encrypted, so of no use without the key on the screen.
@@ -1784,8 +1927,12 @@ app.get('/make-server-c3c9181e/series/:id/board', async (c) => {
       };
     }
     return c.json({
-      next: next?.[0] ? { id: next[0].id, number: next[0].series_number } : null,
+      next: started && next?.[0] ? { id: next[0].id, number: next[0].series_number } : null,
       ...(free ? { free } : {}),
+      // round 0 = the first round hasn't started; nextAt = when the next round starts at the latest
+      round: state.round,
+      rounds: state.rounds,
+      nextAt: state.nextAt,
       ...(pictures ? { pictures } : {}),
       title: row.title,
       codeCount: row.code_count,

@@ -96,7 +96,8 @@ export function StepSeriesReady({ created, onNew, onKeyring }: StepSeriesReadyPr
     <main className="lg-wrap lg-main lg-tight">
       <div className="lg-stack" style={{ gap: 8 }}>
         <div className="lg-eyebrow">{t('lag.step', { n: 3 })}</div>
-        <h1 className="lg-h1">{t(isDraw ? 'lag.draw.ready.title' : 'lag.series.ready.title', { count: series.codeCount })}</h1>
+        <h1 className="lg-h1">{t(isDraw ? 'lag.draw.ready.title' : 'lag.series.ready.title', { count: series.codeCount * (series.rounds ?? 1) })}</h1>
+        {(series.rounds ?? 1) > 1 && <p className="lg-lead" style={{ maxWidth: 'none', fontWeight: 600 }}>{t('lag.draw.ready.rounds', { rounds: series.rounds, count: series.codeCount })}</p>}
         <p className="lg-lead" style={{ maxWidth: 'none' }}>
           {t(created.handout === 'grid' ? 'lag.draw.ready.leadGrid' : queue ? 'lag.draw.ready.leadQueue' : isDraw ? 'lag.draw.ready.lead' : 'lag.series.ready.lead', { count: series.codeCount })}{' '}
           <button type="button" className="lg-underline" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'var(--lg-ink)' }} onClick={onNew}>

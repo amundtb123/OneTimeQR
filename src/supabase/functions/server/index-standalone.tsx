@@ -16,7 +16,7 @@ app.use('*', cors({
   ],
   credentials: true,
   allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-View-Token', 'X-Owner-Token'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-View-Token', 'X-Owner-Token', 'X-Display-Token'],
 }));
 app.use('*', logger(console.log));
 
@@ -126,15 +126,32 @@ async function getQrDrop(id: string): Promise<any | null> {
 
 // A series code's content is stored once, on the series. It is added here, in memory only, so
 // a code's row never holds the series' files and deleting a code leaves them alone.
-async function dropWithContent(row: any): Promise<any | null> {
+// A draw code shows the series' own content until it is opened: only withPrize (the content
+// /open hands out after counting the scan) swaps in its prize, so nothing before that tells a
+// winning code from the others.
+async function dropWithContent(row: any, withPrize = false): Promise<any | null> {
   if (!row.series_id) return dropFromRow(row);
   const { data: series, error } = await supabase
     .from('qr_series')
-    .select('title, text_content, url_content, files')
+    .select('title, text_content, url_content, files, kind, prizes')
     .eq('id', row.series_id)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return series ? dropFromRow({ ...row, ...series }) : null;
+  if (!series) return null;
+  const { kind, prizes, ...content } = series;
+  if (kind !== 'draw') return dropFromRow({ ...row, ...content });
+
+  const prize = withPrize && row.variant > 0 ? prizes?.[row.variant - 1] : null;
+  const drop = dropFromRow({
+    ...row,
+    ...content,
+    ...(prize ? { text_content: prize.text_content ?? null, url_content: prize.url_content ?? null, files: prize.files ?? [] } : {}),
+  });
+  return {
+    ...drop,
+    isDraw: true,
+    ...(withPrize ? { isPrize: !!prize, prizeLabel: prize?.label ?? null } : {}),
+  };
 }
 
 // Insert without overwriting; returns false if the ID is already taken
@@ -214,11 +231,21 @@ function isNotYetActive(qrDrop: any, now = Date.now()): boolean {
   return !!qrDrop.activatesAt && qrDrop.activatesAt > now;
 }
 
-// A used-up drop is kept until the last viewer's token has expired, so an ongoing view can finish
+// A used-up drop is kept until the last viewer's token has expired, so an ongoing view can finish.
+// A used draw code is kept until its series ends (see cleanup_expired_qr_drops()).
 function isDeletable(qrDrop: any, now = Date.now()): boolean {
   if (qrDrop.expiresAt && qrDrop.expiresAt < now) return true;
+  if (qrDrop.isDraw) return false;
   if (!getExpiryReason(qrDrop, now)) return false;
   return !qrDrop.lastOpenedAt || qrDrop.lastOpenedAt + VIEW_TOKEN_TTL_MS < now;
+}
+
+// A used draw code says so; anything else that can't be opened is expired (and deleted)
+function goneResponse(c: any, qrDrop: any) {
+  if (qrDrop.isDraw && !(qrDrop.expiresAt && qrDrop.expiresAt < Date.now())) {
+    return c.json({ error: 'This code has already been used', code: 'ALREADY_USED' }, 410);
+  }
+  return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
 }
 
 // The password hash never leaves the server; clients only need to know whether one is set
@@ -261,7 +288,7 @@ async function hasViewAccess(c: any, qrDrop: any): Promise<boolean> {
 async function consumeQrDrop(id: string, kind: 'scan' | 'download'): Promise<any | null> {
   const { data, error } = await supabase.rpc('qr_drop_consume', { p_id: id, p_kind: kind, p_now: Date.now() });
   if (error) throw new Error(`qr_drop_consume failed: ${error.message}`);
-  return data ? dropWithContent(data) : null;
+  return data ? dropWithContent(data, true) : null;
 }
 
 async function countOwnerPreview(id: string): Promise<boolean> {
@@ -1100,7 +1127,7 @@ app.get('/make-server-c3c9181e/qr/:id', async (c) => {
       if (isDeletable(qrDrop)) {
         await deleteQrDrop(id);
       }
-      return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
+      return goneResponse(c, qrDrop);
     }
 
     return c.json({ qrDrop: publicMetadata(qrDrop) });
@@ -1131,7 +1158,7 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
       if (isDeletable(qrDrop)) {
         await deleteQrDrop(id);
       }
-      return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
+      return goneResponse(c, qrDrop);
     }
 
     // Owners can preview a scheduled drop; everyone else waits (and can't guess the password yet).
@@ -1139,7 +1166,8 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
     // uses up a view like anyone else. The first MAX_OWNER_PREVIEWS previews are free; after that
     // the owner opens it like everyone else.
     const wantsPreview = c.req.header('X-Owner-Preview') === '1';
-    const isOwner = wantsPreview && (await isRequestOwner(c, qrDrop)) && (await countOwnerPreview(id));
+    // A draw's codes have no preview: it would show the owner where the prizes are.
+    const isOwner = wantsPreview && !qrDrop.isDraw && (await isRequestOwner(c, qrDrop)) && (await countOwnerPreview(id));
     if (isNotYetActive(qrDrop) && !isOwner) {
       return c.json({ error: 'QR drop is not active yet', code: 'NOT_YET_ACTIVE', activatesAt: qrDrop.activatesAt }, 403);
     }
@@ -1167,7 +1195,7 @@ app.post('/make-server-c3c9181e/qr/:id/open', async (c) => {
       const consumed = await consumeQrDrop(id, 'scan');
       if (!consumed) {
         // Another viewer used the last view between our read and the atomic update
-        return c.json({ error: 'QR drop has expired and been deleted', code: 'EXPIRED' }, 410);
+        return goneResponse(c, qrDrop);
       }
       qrDrop = consumed;
     }
@@ -1360,10 +1388,63 @@ function seriesPriceKr(codeCount: number, bytes: number, opens: number): number 
   return Math.ceil(codeCount / 100) * SERIES_KR_PER_100 + (traffic > 0 ? Math.ceil(traffic / GB * KR_PER_GB) : 0);
 }
 
+// A draw: a series where a few random codes hold a prize. Each code opens once.
+// Must stay in sync with DRAW_* and drawPriceKr() in src/utils/create-draw.ts.
+const DRAW_MIN_CODES = 2;
+const DRAW_MAX_PRIZES = 10;
+const DRAW_LABEL_MAX = 40;
+const DRAW_MAX_METADATA_BYTES = 64 * 1024;
+
+// Like a series, but every code is opened once and shows either the series' files or a prize's
+function drawPriceKr(codeCount: number, baseBytes: number, prizes: Array<{ count: number; bytes: number }>): number {
+  const prizeCodes = prizes.reduce((sum, p) => sum + p.count, 0);
+  const traffic = baseBytes * (codeCount - prizeCodes) + prizes.reduce((sum, p) => sum + p.bytes * p.count, 0);
+  return Math.ceil(codeCount / 100) * SERIES_KR_PER_100 + (traffic > 0 ? Math.ceil(traffic / GB * KR_PER_GB) : 0);
+}
+
+// A uniformly random whole number in [0, n), from the system's secure random source
+function secureRandomInt(n: number): number {
+  const limit = Math.floor(0x100000000 / n) * n; // Rejecting the remainder keeps it unbiased
+  const buf = new Uint32Array(1);
+  do crypto.getRandomValues(buf); while (buf[0] >= limit);
+  return buf[0] % n;
+}
+
+// Which variant each code gets (index = code number - 1): prize n for prizes[n - 1].count codes,
+// 0 for the rest, shuffled (Fisher–Yates) so nobody, the owner included, picks the winners
+function drawVariants(codeCount: number, prizeCounts: number[]): number[] {
+  const variants = new Array(codeCount).fill(0);
+  let next = 0;
+  prizeCounts.forEach((count, i) => {
+    for (let k = 0; k < count; k++) variants[next++] = i + 1;
+  });
+  for (let i = codeCount - 1; i > 0; i--) {
+    const j = secureRandomInt(i + 1);
+    [variants[i], variants[j]] = [variants[j], variants[i]];
+  }
+  return variants;
+}
+
+// The files of one prize in an upload form: prize0_file, prize0_file1, ...
+function prizeFilesFromForm(formData: FormData, prizeIndex: number): File[] {
+  const files: File[] = [];
+  for (let i = 0; ; i++) {
+    const file = formData.get(i === 0 ? `prize${prizeIndex}_file` : `prize${prizeIndex}_file${i}`);
+    if (!(file instanceof File)) return files;
+    files.push(file);
+  }
+}
+
+const ciphertextOrNull = (value: unknown) => (typeof value === 'string' && value ? value : null);
+
 // What the owner's list shows: rules and status, never content or keys
 function seriesForOwner(row: any, opened: number) {
+  const prizes = Array.isArray(row.prizes) ? row.prizes : [];
   return {
     id: row.id,
+    kind: row.kind ?? 'series',
+    // A draw's prizes as the board shows them: label and how many, never content
+    prizes: prizes.map((p: any) => ({ label: p.label ?? null, count: p.count })),
     title: row.title,
     codeCount: row.code_count,
     opened,
@@ -1403,10 +1484,14 @@ app.post('/make-server-c3c9181e/series', async (c) => {
     }
     const formData = await new Response(body, { headers: { 'Content-Type': c.req.header('Content-Type') ?? '' } }).formData();
     const metadataString = formData.get('metadata');
-    if (typeof metadataString !== 'string' || metadataString.length > 10 * 1024) {
+    // A draw carries every prize's text too, so it may use more
+    if (typeof metadataString !== 'string' || metadataString.length > DRAW_MAX_METADATA_BYTES) {
       return c.json({ error: 'Metadata missing or too large. Maximum size is 10 KB.' }, 400);
     }
     const metadata = JSON.parse(metadataString);
+    if (metadata?.kind !== 'draw' && metadataString.length > 10 * 1024) {
+      return c.json({ error: 'Metadata missing or too large. Maximum size is 10 KB.' }, 400);
+    }
     const files = filesFromForm(formData);
 
     if (await isCreateRateLimited(c, userId)) {
@@ -1414,15 +1499,21 @@ app.post('/make-server-c3c9181e/series', async (c) => {
     }
 
     const id = metadata.clientId;
+    const isDraw = metadata.kind === 'draw';
+    if (metadata.kind !== undefined && metadata.kind !== 'series' && !isDraw) {
+      return c.json({ error: 'Invalid kind' }, 400);
+    }
     const codeCount = toPositiveInt(metadata.codeCount);
-    const opens = toPositiveInt(metadata.maxScans);
-    const lifetimeMs = Object.hasOwn(SERIES_LIFETIMES_MS, metadata.lifetime) ? SERIES_LIFETIMES_MS[metadata.lifetime] : null;
+    // A draw's codes open once each; the end of the draw is the only lifetime they have
+    const opens = isDraw ? 1 : toPositiveInt(metadata.maxScans);
     const endMs = Object.hasOwn(SERIES_ENDS_MS, metadata.seriesEnd) ? SERIES_ENDS_MS[metadata.seriesEnd] : null;
+    const lifetimeMs = isDraw ? endMs : (Object.hasOwn(SERIES_LIFETIMES_MS, metadata.lifetime) ? SERIES_LIFETIMES_MS[metadata.lifetime] : null);
+    const minCodes = isDraw ? DRAW_MIN_CODES : SERIES_MIN_CODES;
     if (typeof id !== 'string' || !UUID_REGEX.test(id)) {
       return c.json({ error: 'clientId is required' }, 400);
     }
-    if (!codeCount || codeCount < SERIES_MIN_CODES || codeCount > SERIES_MAX_CODES) {
-      return c.json({ error: `A series has ${SERIES_MIN_CODES}–${SERIES_MAX_CODES} codes`, code: 'INVALID_CODE_COUNT' }, 400);
+    if (!codeCount || codeCount < minCodes || codeCount > SERIES_MAX_CODES) {
+      return c.json({ error: `A series has ${minCodes}–${SERIES_MAX_CODES} codes`, code: 'INVALID_CODE_COUNT' }, 400);
     }
     if (!opens || opens > SERIES_MAX_OPENS) {
       return c.json({ error: `Each code can be opened 1–${SERIES_MAX_OPENS} times`, code: 'TOO_MANY_OPENS', maxOpens: SERIES_MAX_OPENS }, 400);
@@ -1430,20 +1521,56 @@ app.post('/make-server-c3c9181e/series', async (c) => {
     if (!lifetimeMs || !endMs) {
       return c.json({ error: 'Invalid lifetime or series end' }, 400);
     }
-    if (files.length > 0 && endMs > SERIES_MAX_END_WITH_FILES_MS) {
-      return c.json({ error: 'A series with files ends after at most 30 days', code: 'SERIES_END_TOO_LONG' }, 400);
-    }
-    const textContent = typeof metadata.textContentCiphertext === 'string' && metadata.textContentCiphertext ? metadata.textContentCiphertext : null;
-    const urlContent = typeof metadata.urlContentCiphertext === 'string' && metadata.urlContentCiphertext ? metadata.urlContentCiphertext : null;
+    const textContent = ciphertextOrNull(metadata.textContentCiphertext);
+    const urlContent = ciphertextOrNull(metadata.urlContentCiphertext);
     if (!textContent && !urlContent && files.length === 0) {
       return c.json({ error: 'At least a file, text or URL is required' }, 400);
     }
-    const problem = fileProblem(files, MAX_FILE_BYTES);
+
+    // A draw's prizes: each with content of its own and how many codes hold it
+    const prizeRequests: Array<{ label: string | null; count: number; textContent: string | null; urlContent: string | null; files: File[]; fileTypes: any }> = [];
+    if (isDraw) {
+      const requested = Array.isArray(metadata.prizes) ? metadata.prizes : [];
+      if (requested.length < 1 || requested.length > DRAW_MAX_PRIZES) {
+        return c.json({ error: `A draw has 1–${DRAW_MAX_PRIZES} prizes`, code: 'INVALID_PRIZES' }, 400);
+      }
+      for (let i = 0; i < requested.length; i++) {
+        const p = requested[i] ?? {};
+        const prize = {
+          label: typeof p.label === 'string' ? p.label.trim().slice(0, DRAW_LABEL_MAX) || null : null,
+          count: toPositiveInt(p.count) ?? 0,
+          textContent: ciphertextOrNull(p.textContentCiphertext),
+          urlContent: ciphertextOrNull(p.urlContentCiphertext),
+          files: prizeFilesFromForm(formData, i),
+          fileTypes: p.originalFileTypes,
+        };
+        if (!prize.count) {
+          return c.json({ error: 'Every prize needs a count', code: 'INVALID_PRIZES' }, 400);
+        }
+        if (!prize.textContent && !prize.urlContent && prize.files.length === 0) {
+          return c.json({ error: 'Every prize needs a file, text or URL', code: 'INVALID_PRIZES' }, 400);
+        }
+        prizeRequests.push(prize);
+      }
+      if (prizeRequests.reduce((sum, p) => sum + p.count, 0) >= codeCount) {
+        return c.json({ error: 'A draw needs more codes than prizes', code: 'INVALID_PRIZES' }, 400);
+      }
+    }
+
+    const allFiles = [...files, ...prizeRequests.flatMap((p) => p.files)];
+    if (allFiles.length > 0 && endMs > SERIES_MAX_END_WITH_FILES_MS) {
+      return c.json({ error: 'A series with files ends after at most 30 days', code: 'SERIES_END_TOO_LONG' }, 400);
+    }
+    const problem = fileProblem(allFiles, MAX_FILE_BYTES);
     if (problem) {
       return c.json({ error: problem }, 400);
     }
     const bytes = contentBytes(files.map((file) => file.size));
-    if (bytes * opens * codeCount > SERIES_MAX_TRAFFIC_BYTES) {
+    const prizeBytes = prizeRequests.map((p) => ({ count: p.count, bytes: contentBytes(p.files.map((file) => file.size)) }));
+    const traffic = isDraw
+      ? bytes * (codeCount - prizeBytes.reduce((sum, p) => sum + p.count, 0)) + prizeBytes.reduce((sum, p) => sum + p.bytes * p.count, 0)
+      : bytes * opens * codeCount;
+    if (traffic > SERIES_MAX_TRAFFIC_BYTES) {
       return c.json({ error: 'These files are too big for this many codes and opens', code: 'TOO_MUCH_TRAFFIC' }, 400);
     }
 
@@ -1456,7 +1583,7 @@ app.post('/make-server-c3c9181e/series', async (c) => {
 
     // Done before charging so a hashing failure can't cost coins
     const passwordHash = typeof metadata.password === 'string' && metadata.password ? await hashPasswordSecure(metadata.password) : null;
-    const cost = seriesPriceKr(codeCount, bytes, opens);
+    const cost = isDraw ? drawPriceKr(codeCount, bytes, prizeBytes) : seriesPriceKr(codeCount, bytes, opens);
     const coinBalance = await deductCoins(userId, cost);
     if (coinBalance === null) return insufficientCoinsResponse(c, cost);
 
@@ -1466,6 +1593,19 @@ app.post('/make-server-c3c9181e/series', async (c) => {
     let seriesStored = false;
     try {
       await storeFiles(`series-${id}`, files, metadata.originalFileTypes, uploadedFiles);
+      const prizes = [];
+      for (let i = 0; i < prizeRequests.length; i++) {
+        const prizeFiles: typeof uploadedFiles = [];
+        try {
+          await storeFiles(`series-${id}/prize-${i}`, prizeRequests[i].files, prizeRequests[i].fileTypes, prizeFiles);
+        } finally {
+          uploadedFiles.push(...prizeFiles); // So a failure removes them too
+        }
+        const { label, count, textContent: prizeText, urlContent: prizeUrl } = prizeRequests[i];
+        prizes.push({ label, count, text_content: prizeText, url_content: prizeUrl, files: prizeFiles });
+      }
+      // The screen's secret: only its hash is stored, and the owner gets the secret once
+      const displayToken = isDraw ? crypto.randomUUID() : null;
 
       const seriesRow = {
         id,
@@ -1474,7 +1614,10 @@ app.post('/make-server-c3c9181e/series', async (c) => {
         content_type: 'bundle',
         text_content: textContent,
         url_content: urlContent,
-        files: uploadedFiles,
+        files: uploadedFiles.slice(0, files.length),
+        kind: isDraw ? 'draw' : 'series',
+        prizes,
+        display_token_hash: displayToken ? await sha256Hex(displayToken) : null,
         code_count: codeCount,
         max_scans: opens,
         lifetime_ms: lifetimeMs,
@@ -1491,6 +1634,7 @@ app.post('/make-server-c3c9181e/series', async (c) => {
       // The codes: ordinary drops without content of their own. Until its first scan a code
       // lives as long as the series.
       const codes = Array.from({ length: codeCount }, (_, i) => ({ id: crypto.randomUUID(), number: i + 1 }));
+      const variants = isDraw ? drawVariants(codeCount, prizeRequests.map((p) => p.count)) : null;
       for (let start = 0; start < codes.length; start += SERIES_INSERT_CHUNK) {
         const rows = codes.slice(start, start + SERIES_INSERT_CHUNK).map((code) => ({
           id: code.id,
@@ -1499,9 +1643,11 @@ app.post('/make-server-c3c9181e/series', async (c) => {
           series_number: code.number,
           content_type: 'bundle',
           files: [],
-          expiry_type: metadata.lifetime,
+          expiry_type: isDraw ? 'draw' : metadata.lifetime,
           expires_at: expiresAt,
-          lifetime_ms: lifetimeMs,
+          // A draw code lives as long as the draw, opened or not, so the board can show it
+          lifetime_ms: isDraw ? null : lifetimeMs,
+          variant: variants ? variants[code.number - 1] : null,
           max_scans: opens,
           view_only: seriesRow.view_only,
           password_hash: passwordHash,
@@ -1518,6 +1664,7 @@ app.post('/make-server-c3c9181e/series', async (c) => {
         success: true,
         series: seriesForOwner(seriesRow, 0),
         codes,
+        ...(displayToken ? { displayToken } : {}),
         coinsCharged: cost,
         coins: coinBalance,
       });
@@ -1544,7 +1691,7 @@ app.get('/make-server-c3c9181e/series', async (c) => {
     }
     const { data, error } = await supabase
       .from('qr_series')
-      .select('id, title, code_count, max_scans, lifetime_ms, view_only, files, qr_style, expires_at, created_at')
+      .select('id, kind, prizes, title, code_count, max_scans, lifetime_ms, view_only, files, qr_style, expires_at, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(QRDROPS_PAGE_SIZE);
@@ -1560,6 +1707,74 @@ app.get('/make-server-c3c9181e/series', async (c) => {
   } catch (error) {
     console.error('Error getting series:', error);
     return c.json({ error: 'Failed to get series' }, 500);
+  }
+});
+
+// The board of a draw, for the owner or a screen holding the draw's display secret
+// (X-Display-Token). Shows which codes have been opened and which of those held a prize;
+// an unopened code's prize is never told.
+app.get('/make-server-c3c9181e/series/:id/board', async (c) => {
+  try {
+    const id = c.req.param('id');
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid series ID format' }, 400);
+    }
+    const { data: row, error } = await supabase
+      .from('qr_series')
+      .select('id, user_id, kind, title, code_count, prizes, display_token_hash, expires_at, created_at')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!row || row.kind !== 'draw') {
+      return c.json({ error: 'Draw not found' }, 404);
+    }
+    const displayToken = c.req.header('X-Display-Token');
+    const viaScreen = !!displayToken && !!row.display_token_hash && (await sha256Hex(displayToken)) === row.display_token_hash;
+    if (!viaScreen && (await getRequestUserId(c)) !== row.user_id) {
+      return c.json({ error: 'Draw not found' }, 404); // Same answer, so a guess tells nothing
+    }
+    const { data: opened, error: boardError } = await supabase.rpc('qr_draw_board', { p_series_id: id });
+    if (boardError) throw new Error(boardError.message);
+    return c.json({
+      title: row.title,
+      codeCount: row.code_count,
+      prizes: (row.prizes ?? []).map((p: any) => ({ label: p.label ?? null, count: p.count })),
+      // [number, prize index or null] for every opened code, in the order they were opened
+      opened: (opened ?? []).map(([number, variant]: [number, number]) => [number, variant > 0 ? variant - 1 : null]),
+      expiresAt: toMs(row.expires_at),
+    });
+  } catch (error) {
+    console.error('Error getting draw board:', error);
+    return c.json({ error: 'Failed to get board' }, 500);
+  }
+});
+
+// A new display secret for a draw's screen (logged-in owner only). The old one stops working.
+app.post('/make-server-c3c9181e/series/:id/display-token', async (c) => {
+  try {
+    const id = c.req.param('id');
+    if (!UUID_REGEX.test(id)) {
+      return c.json({ error: 'Invalid series ID format' }, 400);
+    }
+    const userId = await getRequestUserId(c);
+    if (!userId) {
+      return c.json({ error: 'Authentication required' }, 401);
+    }
+    const { data, error } = await supabase.from('qr_series').select('user_id, kind').eq('id', id).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data || data.kind !== 'draw') {
+      return c.json({ error: 'Draw not found' }, 404);
+    }
+    if (data.user_id !== userId) {
+      return c.json({ error: 'Unauthorized: You can only change your own draws' }, 403);
+    }
+    const displayToken = crypto.randomUUID();
+    const { error: updateError } = await supabase.from('qr_series').update({ display_token_hash: await sha256Hex(displayToken) }).eq('id', id);
+    if (updateError) throw new Error(updateError.message);
+    return c.json({ displayToken });
+  } catch (error) {
+    console.error('Error making display token:', error);
+    return c.json({ error: 'Failed to make display token' }, 500);
   }
 });
 

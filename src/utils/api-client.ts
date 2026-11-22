@@ -1,7 +1,8 @@
 import { projectId, publicAnonKey } from './supabase/info';
 import { supabase } from './supabase-client';
+import { DEV_TOKEN, LOCAL_API } from './local-dev';
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e`;
+const API_BASE = LOCAL_API ? `${LOCAL_API}/make-server-c3c9181e` : `https://${projectId}.supabase.co/functions/v1/make-server-c3c9181e`;
 
 // Global cache for access token to avoid repeated getSession() calls
 let cachedAccessToken: string | null = null;
@@ -20,6 +21,7 @@ export function updateCachedToken(accessToken: string | null, expiresAt?: number
 
 // Function to get auth token, preferring cache over getSession()
 async function getAuthToken(): Promise<string> {
+  if (LOCAL_API) return DEV_TOKEN;
   // Check if cached token is still valid
   if (cachedAccessToken && Date.now() < tokenExpiryTime) {
     // SECURITY: Don't log token usage
@@ -130,6 +132,8 @@ export interface QrDropData {
 // A series as its owner's list shows it: rules and status, no content or key
 export interface SeriesData {
   id: string;
+  kind?: 'series' | 'draw';
+  prizes?: Array<{ label: string | null; count: number }>; // A draw's prizes, never their content
   title: string | null;
   codeCount: number;
   opened: number;
@@ -343,6 +347,34 @@ export async function createSeries(files: File[], metadata: Record<string, unkno
   files.forEach((file, index) => formData.append(index === 0 ? 'file' : `file${index}`, file));
   formData.append('metadata', JSON.stringify(metadata));
   return fetchApi('/series', { method: 'POST', body: formData }, true);
+}
+
+// A draw: the form holds metadata, the draw's own files (file, file1, ...) and each prize's
+// files (prize0_file, prize0_file1, ...)
+export async function createDraw(formData: FormData): Promise<{
+  series: SeriesData;
+  codes: Array<{ id: string; number: number }>;
+  coinsCharged: number;
+  displayToken: string;
+}> {
+  return fetchApi('/series', { method: 'POST', body: formData }, true);
+}
+
+export interface DrawBoard {
+  title: string | null;
+  codeCount: number;
+  prizes: Array<{ label: string | null; count: number }>;
+  opened: Array<[number, number | null]>; // [code number, prize index or null], in the order opened
+  expiresAt: number;
+}
+
+// The owner's own login, or a screen's display secret
+export async function getDrawBoard(id: string, displayToken?: string): Promise<DrawBoard> {
+  return fetchApi(`/series/${id}/board`, displayToken ? { headers: { 'X-Display-Token': displayToken } } : {});
+}
+
+export async function newDisplayToken(id: string): Promise<{ displayToken: string }> {
+  return fetchApi(`/series/${id}/display-token`, { method: 'POST' }, true);
 }
 
 export async function getAllSeries(): Promise<{ series: SeriesData[] }> {

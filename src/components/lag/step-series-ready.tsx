@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner@2.0.3';
 import type { CreatedSeries } from '../../utils/create-series';
+import { boardUrl } from '../../utils/create-draw';
 import { generateStyledQrCode } from '../../utils/qr-generator';
 import { createBrandedQrCode } from '../../utils/qr-with-branding';
 import { formatActivationDate } from '../../utils/activation';
@@ -11,7 +12,7 @@ import { leaveReadyGuard } from './step-ready';
 type Export = 'csv' | 'zip' | 'pdf';
 
 interface StepSeriesReadyProps {
-  created: CreatedSeries;
+  created: CreatedSeries & { displayToken?: string }; // A draw has a display secret for its board
   onNew: () => void;
   onKeyring: () => void;
 }
@@ -36,7 +37,9 @@ export function StepSeriesReady({ created, onNew, onKeyring }: StepSeriesReadyPr
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState<Export | null>(null);
   const [progress, setProgress] = useState(0);
-  const name = (series.title || 'serie').replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 40);
+  const isDraw = series.kind === 'draw';
+  const screenLink = isDraw ? boardUrl(series.id, created.displayToken) : '';
+  const name = (series.title || (isDraw ? 'trekning' : 'serie')).replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 40);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,9 +91,9 @@ export function StepSeriesReady({ created, onNew, onKeyring }: StepSeriesReadyPr
     <main className="lg-wrap lg-main lg-tight">
       <div className="lg-stack" style={{ gap: 8 }}>
         <div className="lg-eyebrow">{t('lag.step', { n: 3 })}</div>
-        <h1 className="lg-h1">{t('lag.series.ready.title', { count: series.codeCount })}</h1>
+        <h1 className="lg-h1">{t(isDraw ? 'lag.draw.ready.title' : 'lag.series.ready.title', { count: series.codeCount })}</h1>
         <p className="lg-lead" style={{ maxWidth: 'none' }}>
-          {t('lag.series.ready.lead', { count: series.codeCount })}{' '}
+          {t(isDraw ? 'lag.draw.ready.lead' : 'lag.series.ready.lead', { count: series.codeCount })}{' '}
           <button type="button" className="lg-underline" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'var(--lg-ink)' }} onClick={onNew}>
             {t('lag.ready.edit')}
           </button>
@@ -129,12 +132,31 @@ export function StepSeriesReady({ created, onNew, onKeyring }: StepSeriesReadyPr
         </div>
       </div>
 
+      {isDraw && (
+        <section className="lg-card lg-draw-screen" style={{ padding: 24, gap: 14 }}>
+          <h2 className="lg-h2" style={{ fontSize: 20 }}>{t('lag.draw.ready.screenTitle')}</h2>
+          <p className="lg-small" style={{ margin: 0 }}>{t('lag.draw.ready.screenBody')}</p>
+          <code className="lg-draw-link">{screenLink}</code>
+          <div className="lg-row" style={{ gap: 8 }}>
+            <a className="lg-btn lg-btn-primary" href={screenLink} target="_blank" rel="noopener noreferrer">{t('lag.draw.ready.openScreen')} ↗</a>
+            <button
+              type="button"
+              className="lg-btn"
+              onClick={() => navigator.clipboard.writeText(screenLink).then(() => toast.success(t('lag.draw.ready.linkCopied')))}
+            >
+              {t('lag.draw.ready.copyLink')}
+            </button>
+          </div>
+          <span className="lg-xs lg-muted">{t('lag.draw.ready.screenNote')}</span>
+        </section>
+      )}
+
       <section className="lg-card" style={{ padding: 24, gap: 14 }}>
         <h2 className="lg-h2" style={{ fontSize: 20 }}>{t('lag.ready.next')}</h2>
         <div className="lg-timeline">
           <div><span className="lg-dot lg-dot-on" /><span dangerouslySetInnerHTML={{ __html: t('lag.ready.sealedNow') }} /></div>
-          <div className="lg-muted"><span className="lg-dot" /><span>{t('lag.series.ready.firstScan', { lifetime: t(`lag.series.lifetimeShort.${lifetimeKey(series.lifetimeMs)}`) })}</span></div>
-          <div className="lg-muted"><span className="lg-dot" /><span>{t('lag.series.ready.endsAt', { date: formatActivationDate(new Date(series.expiresAt), i18n.language) })}</span></div>
+          {!isDraw && <div className="lg-muted"><span className="lg-dot" /><span>{t('lag.series.ready.firstScan', { lifetime: t(`lag.series.lifetimeShort.${lifetimeKey(series.lifetimeMs)}`) })}</span></div>}
+          <div className="lg-muted"><span className="lg-dot" /><span>{t(isDraw ? 'lag.draw.ready.endsAt' : 'lag.series.ready.endsAt', { date: formatActivationDate(new Date(series.expiresAt), i18n.language) })}</span></div>
         </div>
         <button type="button" className="lg-link" style={{ alignSelf: 'flex-start', padding: '6px 0' }} onClick={onKeyring}>
           {t('lag.ready.toKeyring')}

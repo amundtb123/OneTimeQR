@@ -12,6 +12,7 @@ import { KEYS_BY_WHO, MAX_TIMES, templateById, type Rules, type TemplateId } fro
 import { STYLE_PRESETS, type StylePreset } from './key-preview';
 import { StepStart, type PastedContent } from './step-start';
 import { StepRules } from './step-rules';
+import { StepDraw } from './step-draw';
 
 export interface Draft {
   template: TemplateId;
@@ -245,6 +246,11 @@ export function CreateFlow({ onQrCreated, onSeriesCreated }: CreateFlowProps) {
   };
 
   if (step === 1) return <StepStart onPick={pickTemplate} />;
+
+  // A draw has its own step: tickets, prizes and what the others see
+  if (draft.template === 'draw') {
+    return <StepDraw onBack={() => setStep(1)} onCreated={onSeriesCreated} />;
+  }
 
   return (
     <StepRules

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from './supabase-client';
 import { updateCachedToken } from './api-client';
+import { LOCAL_API, devCoins, devSession, devUser } from './local-dev';
 
 interface AuthContextType {
   user: User | null;
@@ -101,6 +102,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    // Local development: always the dev user, with the balance the local server keeps
+    if (LOCAL_API) {
+      setSession(devSession);
+      setUser(devUser);
+      devCoins().then(setCoins).catch(() => setCoins(0)).finally(() => setLoading(false));
+      return;
+    }
+
     // Helper to update session and cache token
     const updateSession = async (session: Session | null) => {
       console.log('🔄 Updating session:', session ? `User: ${session.user.email}` : 'No session');
@@ -258,6 +267,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshCoins = async () => {
+    if (LOCAL_API) {
+      setCoins(await devCoins());
+      return;
+    }
     if (user) {
       console.log('💰 Refreshing coins for user:', user.id);
       
@@ -307,6 +320,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
+    if (LOCAL_API) return; // Already logged in as the dev user
     console.log('🔐 Starting Google OAuth sign in...');
     console.log('🔗 Redirect URL will be:', `${window.location.origin}/`);
     

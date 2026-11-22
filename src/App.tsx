@@ -11,6 +11,7 @@ import { CreateFlow } from './components/lag/create-flow';
 import { StepReady, leaveReadyGuard } from './components/lag/step-ready';
 import { Keyring } from './components/lag/keyring';
 import { StepSeriesReady } from './components/lag/step-series-ready';
+import { DrawBoard } from './components/lag/draw-board';
 import { getAllQrDrops, deleteQrDrop, getAllSeries, deleteSeries, type QrDropData, type SeriesData } from './utils/api-client';
 import type { CreatedSeries } from './utils/create-series';
 import { toast, Toaster } from 'sonner@2.0.3';
@@ -97,6 +98,7 @@ function AppContent() {
   const [createdSeries, setCreatedSeries] = useState<CreatedSeries | null>(null);
   const [isLoading, setIsLoading] = useState(false); // Start as false, will be set to true when actually loading
   const [scanId, setScanId] = useState<string | null>(null);
+  const [board, setBoard] = useState<{ id: string; token?: string } | null>(null); // /tavle/:id, a draw's board
   const [keyArrivals, setKeyArrivals] = useState(0); // Restarts ScanView when a QR key arrives in the same tab
   const [homeVisits, setHomeVisits] = useState(0); // Restarts the create flow at step 1 when the logo is clicked
   const [isLoadingQrDrops, setIsLoadingQrDrops] = useState(false); // Prevent multiple simultaneous loads
@@ -110,6 +112,14 @@ function AppContent() {
   useEffect(() => {
     const updateViewFromPath = () => {
       const path = window.location.pathname;
+      // A draw's board, for a screen: the display secret is in the fragment (#t=...)
+      const boardRoute = path.match(/^\/tavle\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i);
+      if (boardRoute) {
+        const token = new URLSearchParams(window.location.hash.slice(1)).get('t') || undefined;
+        setBoard({ id: boardRoute[1].toLowerCase(), token });
+        return;
+      }
+      setBoard(null);
       const qrRoute = path.match(/^\/(?:scan|unlock)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i);
       if (qrRoute) {
         const id = qrRoute[1].toLowerCase();
@@ -370,6 +380,15 @@ function AppContent() {
   const goHome = () => {
     if (navigate('create')) setHomeVisits((n) => n + 1);
   };
+
+  // A draw's board fills the whole screen, with nothing else on it
+  if (board) {
+    return (
+      <div className="lg-app">
+        <DrawBoard drawId={board.id} displayToken={board.token} />
+      </div>
+    );
+  }
 
   // The create flow, the key ring and the terms use the new look; scan and the rest keep theirs for now
   const newLook = !!scanId || ['upload', 'list', 'ready', 'seriesReady', 'legal'].includes(currentView);

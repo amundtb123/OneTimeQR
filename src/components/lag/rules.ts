@@ -30,7 +30,7 @@ export const EXPIRY: Expiry[] = ['10m', '30m', '1h', '24h', '7d'];
 export const MODE: Mode[] = ['download', 'view'];
 
 
-export type TemplateId = 'once' | 'secret' | 'two' | 'gift' | 'many' | 'series' | 'authenticity';
+export type TemplateId = 'draw' | 'once' | 'secret' | 'two' | 'gift' | 'many' | 'series' | 'authenticity';
 
 export interface Template {
   id: TemplateId;
@@ -41,6 +41,11 @@ export interface Template {
 }
 
 export const TEMPLATES: Template[] = [
+  {
+    // Tickets where a few random codes win; it has its own step (step-draw.tsx), not these rules
+    id: 'draw', mark: '★', tone: 'blue',
+    rules: () => ({ times: 1, who: 'code', expiry: '7d', mode: 'download', opensAt: null }),
+  },
   {
     id: 'once', mark: '1×', tone: 'blue',
     rules: () => ({ times: 1, who: 'code', expiry: '24h', mode: 'download', opensAt: null }),
@@ -54,7 +59,7 @@ export const TEMPLATES: Template[] = [
     rules: () => ({ times: 1, who: 'two', expiry: '7d', mode: 'download', opensAt: null }),
   },
   {
-    id: 'gift', mark: '★', tone: 'soft',
+    id: 'gift', mark: '♥', tone: 'soft',
     rules: () => ({ times: 1, who: 'code', expiry: '24h', mode: 'download', opensAt: toLocalInputValue(defaultActivationDate()) }),
   },
   {

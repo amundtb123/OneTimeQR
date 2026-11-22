@@ -4,7 +4,8 @@
   "description": "Access-control tests for the Edge Function, run against real Postgres (PGlite)",
   "type": "module",
   "scripts": {
-    "test": "node build.mjs && node test.mjs"
+    "test": "node build.mjs && node test.mjs",
+    "dev": "node build.mjs && node dev-server.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.2.17",

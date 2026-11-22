@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import type { SeriesData } from '../../utils/api-client';
+import { toast } from 'sonner@2.0.3';
+import { newDisplayToken, type SeriesData } from '../../utils/api-client';
+import { boardUrl } from '../../utils/create-draw';
 import { formatActivationDate } from '../../utils/activation';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/alert-dialog';
 import { timesLabel } from './rules';
@@ -20,18 +22,49 @@ export function KeyringSeries({ series, onDelete }: KeyringSeriesProps) {
     <section className="lg-stack" style={{ gap: 8 }} aria-labelledby="lg-series-title">
       <h2 id="lg-series-title" className="lg-h2" style={{ fontSize: 20 }}>{t('keyring.series.title')}</h2>
       {series.map((s) => {
-        const name = s.title || t('keyring.series.untitled');
+        const isDraw = s.kind === 'draw';
+        const name = s.title || t(isDraw ? 'keyring.series.drawUntitled' : 'keyring.series.untitled');
+        const prizeCount = (s.prizes ?? []).reduce((sum, p) => sum + p.count, 0);
         return (
           <div key={s.id} className="lg-key" style={{ cursor: 'default' }}>
-            <span className="lg-key-mark lg-tone-ink" aria-hidden="true">#</span>
+            <span className={`lg-key-mark ${isDraw ? 'lg-tone-blue' : 'lg-tone-ink'}`} aria-hidden="true">{isDraw ? '★' : '#'}</span>
             <span className="lg-key-body">
               <span className="lg-key-name">{name}</span>
-              <span className="lg-small lg-muted">
-                {t('keyring.series.opened', { opened: s.opened.toLocaleString(i18n.language), count: s.codeCount.toLocaleString(i18n.language) })}
-                {' · '}{timesLabel(t, s.maxScans, 'lag.short.times')}
-                {' · '}{t(`lag.series.lifetimeShort.${lifetimeKey(s.lifetimeMs)}`)}
-              </span>
+              {isDraw ? (
+                <span className="lg-small lg-muted">
+                  {t('keyring.series.drawOpened', { opened: s.opened.toLocaleString(i18n.language), count: s.codeCount.toLocaleString(i18n.language) })}
+                  {' · '}{t('keyring.series.drawPrizes', { count: prizeCount })}
+                </span>
+              ) : (
+                <span className="lg-small lg-muted">
+                  {t('keyring.series.opened', { opened: s.opened.toLocaleString(i18n.language), count: s.codeCount.toLocaleString(i18n.language) })}
+                  {' · '}{timesLabel(t, s.maxScans, 'lag.short.times')}
+                  {' · '}{t(`lag.series.lifetimeShort.${lifetimeKey(s.lifetimeMs)}`)}
+                </span>
+              )}
               <span className="lg-xs lg-muted">{t('keyring.series.endsAt', { date: formatActivationDate(new Date(s.expiresAt), i18n.language) })}</span>
+              {isDraw && (
+                <span className="lg-row" style={{ gap: 8, marginTop: 6 }}>
+                  {/* The owner sees the board with their login; a screen needs the secret link */}
+                  <a className="lg-btn" style={{ minHeight: 36, padding: '6px 12px' }} href={boardUrl(s.id)} target="_blank" rel="noopener noreferrer">{t('keyring.series.board')} ↗</a>
+                  <button
+                    type="button"
+                    className="lg-btn"
+                    style={{ minHeight: 36, padding: '6px 12px' }}
+                    onClick={async () => {
+                      try {
+                        const { displayToken } = await newDisplayToken(s.id);
+                        await navigator.clipboard.writeText(boardUrl(s.id, displayToken));
+                        toast.success(t('keyring.series.screenLinkCopied'));
+                      } catch {
+                        toast.error(t('lag.series.ready.exportFailed'));
+                      }
+                    }}
+                  >
+                    {t('keyring.series.newScreenLink')}
+                  </button>
+                </span>
+              )}
             </span>
             <AlertDialog>
               <AlertDialogTrigger asChild>

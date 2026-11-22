@@ -63,6 +63,7 @@
       },
       "scripts": {
             "dev": "vite",
+            "dev:local": "VITE_LOCAL_API=http://localhost:8787 vite",
             "build": "vite build"
       }
 }

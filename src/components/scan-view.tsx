@@ -31,7 +31,8 @@ interface ScanFile {
 
 // loading → (scheduled: waits for the release date) → (locked: needs QR key) → (password) → open,
 // or error at any point
-type Status = 'loading' | 'scheduled' | 'locked' | 'password' | 'open' | 'error';
+// A draw's ticket waits on 'reveal' until the person taps, so the scan is theirs to start.
+type Status = 'loading' | 'scheduled' | 'locked' | 'password' | 'reveal' | 'open' | 'error';
 
 // When the server still says "not yet" (clocks differ), try again this much later
 const ACTIVATION_RETRY_MS = 5000;
@@ -76,6 +77,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
   const [attempt, setAttempt] = useState(0); // Restarts loading once a scheduled drop opens
   const [error, setError] = useState<string | null>(null);
   const [gone, setGone] = useState(false); // Used up, expired or deleted: nothing went wrong
+  const [used, setUsed] = useState(false); // A draw's ticket that has already been scanned
+  const [revealing, setRevealing] = useState(false);
   const [meta, setMeta] = useState<any>(null); // From GET /qr/:id: no content, doesn't use a view
   const [qrDrop, setQrDrop] = useState<any>(null); // From /open: with content
   const [keyParts, setKeyParts] = useState<KeyParts>({});
@@ -103,6 +106,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       return;
     }
     if (err instanceof DecryptError) setError(t('scanView.couldNotDecrypt'));
+    else if (err?.code === 'ALREADY_USED') setUsed(true);
     else if (err?.status === 410 || err?.status === 404) setGone(true);
     else setError(t('scanView.couldNotLoad'));
     setStatus('error');
@@ -205,6 +209,10 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           setStatus('password');
           return;
         }
+        if (metadata.isDraw) {
+          setStatus('reveal');
+          return;
+        }
         await open();
       } catch (err) {
         if (!cancelled) showError(err);
@@ -253,6 +261,17 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       await open();
     } catch (err) {
       showError(err);
+    }
+  };
+
+  const handleReveal = async () => {
+    setRevealing(true);
+    try {
+      await open();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setRevealing(false);
     }
   };
 
@@ -339,8 +358,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           <div className="lg-open-seal is-gone" aria-hidden="true">
             <AlertCircle className="size-6" />
           </div>
-          <h1 className="lg-h1 lg-open-title">{gone ? t('scanView.opened.goneTitle') : t('scanView.couldNotLoadQr')}</h1>
-          <p className="lg-lead">{gone ? t('scanView.opened.goneBody') : error}</p>
+          <h1 className="lg-h1 lg-open-title">{used ? t('lag.draw.scan.usedTitle') : gone ? t('scanView.opened.goneTitle') : t('scanView.couldNotLoadQr')}</h1>
+          <p className="lg-lead">{used ? t('lag.draw.scan.usedBody') : gone ? t('scanView.opened.goneBody') : error}</p>
         </header>
         <a href="/" className="lg-open-cta">
           <span className="lg-stack" style={{ gap: 2 }}>
@@ -365,6 +384,22 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           <p className="text-2xl text-gray-900 mb-4">{formatCountdown(t, activatesAt, now)}</p>
           <p className="text-gray-500 text-sm">{t('activation.keepOpen')}</p>
         </Card>
+      </div>
+    );
+  }
+
+  if (status === 'reveal') {
+    return (
+      <div className="lg-open">
+        <header className="lg-stack" style={{ gap: 14 }}>
+          <div className="lg-eyebrow">{t('lag.draw.scan.eyebrow')}</div>
+          <h1 className="lg-h1 lg-open-title">{meta?.title || t('lag.templates.draw.name')}</h1>
+        </header>
+        <button type="button" className={`lg-draw-reveal${revealing ? ' is-busy' : ''}`} disabled={revealing} onClick={handleReveal}>
+          <span className="lg-draw-reveal-no">{t('lag.draw.scan.ticket', { number: meta?.seriesNumber ?? '' })}</span>
+          <span className="lg-draw-reveal-star" aria-hidden="true">★</span>
+          <strong>{revealing ? t('lag.draw.scan.revealing') : t('lag.draw.scan.tapToReveal')}</strong>
+        </button>
       </div>
     );
   }
@@ -437,14 +472,28 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
       {backButton}
 
       <header className="lg-stack" style={{ gap: 14 }}>
-        <div className="lg-open-seal" aria-hidden="true">
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <rect x="4" y="11" width="16" height="10" />
-            <path d="M8 11V7a4 4 0 0 1 7.6-1.7" />
-          </svg>
-        </div>
-        <div className="lg-eyebrow">{isPreview ? t('scanView.opened.preview') : t('scanView.opened.eyebrow')}</div>
-        <h1 className="lg-h1 lg-open-title">{qrDrop?.title || t('scanView.opened.title')}</h1>
+        {!qrDrop?.isDraw && (
+          <div className="lg-open-seal" aria-hidden="true">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <rect x="4" y="11" width="16" height="10" />
+              <path d="M8 11V7a4 4 0 0 1 7.6-1.7" />
+            </svg>
+          </div>
+        )}
+        {qrDrop?.isDraw ? (
+          <div className={`lg-draw-result${qrDrop.isPrize ? ' is-win' : ''}`}>
+            <div className="lg-eyebrow">
+              {qrDrop.title || t('lag.draw.scan.eyebrow')} · {t('lag.draw.scan.ticket', { number: qrDrop.seriesNumber })}
+            </div>
+            <h1 className="lg-h1 lg-open-title">{qrDrop.isPrize ? t('lag.draw.scan.won') : t('lag.draw.scan.lost')}</h1>
+            {qrDrop.isPrize && qrDrop.prizeLabel && <p className="lg-draw-result-prize">★ {qrDrop.prizeLabel}</p>}
+          </div>
+        ) : (
+          <>
+            <div className="lg-eyebrow">{isPreview ? t('scanView.opened.preview') : t('scanView.opened.eyebrow')}</div>
+            <h1 className="lg-h1 lg-open-title">{qrDrop?.title || t('scanView.opened.title')}</h1>
+          </>
+        )}
         <div className="lg-open-meta">
           {isE2E && (
             <span className="lg-chip">
@@ -467,7 +516,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         </div>
       </header>
 
-      {lastView && (
+      {lastView && !(qrDrop?.isDraw && !qrDrop.isPrize) && (
         <p className="lg-open-warning">
           <AlertCircle className="size-4" style={{ flexShrink: 0, marginTop: 2 }} />
           {t('scanView.opened.lastView')}
@@ -480,7 +529,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
           {hasText && (
             <div className="lg-stack" style={{ gap: 16 }}>
               <p className="lg-open-message">{content.text}</p>
-              <button
+              {!qrDrop?.isDraw && <button
                 type="button"
                 className="lg-btn lg-btn-ink"
                 onClick={() => {
@@ -490,7 +539,7 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
               >
                 <Copy className="size-4" />
                 {t('scanView.copyText')}
-              </button>
+              </button>}
             </div>
           )}
 
@@ -701,8 +750,8 @@ export function ScanView({ qrDropId, onBack, isPreview = false, isDirectScan = f
         {!isPreview && (
           <a href="/" className="lg-open-cta">
             <span className="lg-stack" style={{ gap: 2 }}>
-              <strong>{t('scanView.opened.cta')} →</strong>
-              <span className="lg-small lg-muted">{t('scanView.opened.ctaHint')}</span>
+              <strong>{qrDrop?.isDraw ? t('lag.draw.scan.cta') : t('scanView.opened.cta')} →</strong>
+              <span className="lg-small lg-muted">{qrDrop?.isDraw ? t('lag.draw.scan.ctaHint') : t('scanView.opened.ctaHint')}</span>
             </span>
           </a>
         )}

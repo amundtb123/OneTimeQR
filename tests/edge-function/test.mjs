@@ -1,12 +1,10 @@
 // End-to-end tests for the Edge Function's access control, run against real Postgres (PGlite).
-import { PGlite } from '@electric-sql/pglite';
-import fs from 'node:fs';
 import path from 'node:path';
+import { createDb } from './setup-db.mjs';
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 // Repository root (override with an explicit path, e.g. to test another checkout)
 const project = path.resolve(process.argv[2] ?? path.join(here, '../..'));
-const sqlFile = (p) => fs.readFileSync(path.join(project, p), 'utf8');
 
 const failures = [];
 let passed = 0;
@@ -16,28 +14,7 @@ function check(name, cond, detail) {
 }
 
 // ---------- Database: emulate Supabase roles/auth, then apply real migrations ----------
-const db = new PGlite();
-globalThis.__db = db;
-await db.exec(`
-  create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
-  create schema auth;
-  create table auth.users (id uuid primary key, email text);
-  create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
-  create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
-  grant usage on schema public, auth to anon, authenticated, service_role;
-  create table public.kv_store_c3c9181e (key text primary key, value jsonb not null);
-`);
-await db.exec(sqlFile('supabase_migration.sql'));
-await db.exec(sqlFile('supabase_migration_idempotency.sql'));
-// Supabase default: anon/authenticated get all table privileges; RLS is the only guard
-await db.exec(`grant all on all tables in schema public to anon, authenticated, service_role;
-  alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
-  alter default privileges in schema public grant execute on functions to public;`);
-// Each migration must be safe to run again right after it was applied
-for (const f of fs.readdirSync(path.join(project, 'supabase/migrations')).sort()) {
-  await db.exec(sqlFile(path.join('supabase/migrations', f)));
-  await db.exec(sqlFile(path.join('supabase/migrations', f)));
-}
+const db = await createDb(project);
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
@@ -744,6 +721,123 @@ console.log('\nSeries');
   check('series costs more than the balance is 402', poor.status === 402 && (await coinsOf(USER_S)) === 5, poor.json);
   check('anon/authenticated cannot read qr_series', !(await asRole('authenticated', USER_S, `select * from public.qr_series`)).ok
     || (await asRole('authenticated', USER_S, `select * from public.qr_series`)).res?.rows.length === 0);
+}
+
+console.log('\nDraws');
+{
+  const USER_D = '88888888-8888-4888-8888-888888888888';
+  await db.query(`insert into auth.users (id) values ($1)`, [USER_D]);
+  await setCoins(USER_D, 100);
+  globalThis.__users['tok-D'] = USER_D;
+  const prize = (extra = {}) => ({ label: 'Gavekort', count: 2, textContentCiphertext: '{"ct":"vinner"}', ...extra });
+  const drawForm = (extra = {}, files = [], prizeFiles = {}) => {
+    const form = new FormData();
+    form.append('metadata', JSON.stringify({
+      kind: 'draw', clientId: crypto.randomUUID(), codeCount: 20, seriesEnd: '1mo',
+      textContentCiphertext: '{"ct":"ikke denne gangen"}', viewOnly: false, prizes: [prize()], ...extra,
+    }));
+    files.forEach((f, i) => form.append(i === 0 ? 'file' : `file${i}`, f));
+    for (const [p, list] of Object.entries(prizeFiles)) list.forEach((f, i) => form.append(i === 0 ? `prize${p}_file` : `prize${p}_file${i}`, f));
+    return form;
+  };
+  const makeDraw = (extra, files, prizeFiles, token = 'tok-D') => call('POST', '/series', { token, form: drawForm(extra, files, prizeFiles) });
+
+  check('draw needs login', (await makeDraw({}, [], {}, null)).status === 401);
+  check('unknown kind is 400', (await makeDraw({ kind: 'lotto' })).status === 400);
+  check('draw without prizes is 400', (await makeDraw({ prizes: [] })).json?.code === 'INVALID_PRIZES');
+  check('prize without content is 400', (await makeDraw({ prizes: [prize({ textContentCiphertext: undefined })] })).json?.code === 'INVALID_PRIZES');
+  check('prize without count is 400', (await makeDraw({ prizes: [prize({ count: 0 })] })).json?.code === 'INVALID_PRIZES');
+  check('as many prizes as codes is 400', (await makeDraw({ codeCount: 4, prizes: [prize({ count: 4 })] })).json?.code === 'INVALID_PRIZES');
+  check('11 prizes is 400', (await makeDraw({ prizes: Array.from({ length: 11 }, () => prize({ count: 1 })) })).json?.code === 'INVALID_PRIZES');
+  check('draw without the no-prize content is 400', (await makeDraw({ textContentCiphertext: undefined })).status === 400);
+  check('rejected draws cost nothing', (await coinsOf(USER_D)) === 100);
+
+  const made = await makeDraw({ title: 'Julebord', prizes: [prize({ count: 2 }), prize({ label: 'Hovedpremie', count: 1, textContentCiphertext: '{"ct":"hoved"}' })] });
+  const drawId = made.json?.series?.id;
+  const codes = made.json?.codes ?? [];
+  check('draw is created with 20 codes', made.status === 200 && codes.length === 20, made.json);
+  check('a small draw costs 10 kr', made.json?.coinsCharged === 10 && (await coinsOf(USER_D)) === 90, made.json);
+  check('the owner gets a display secret once', typeof made.json?.displayToken === 'string');
+  const variants = (await db.query(`select variant from public.qr_drops where series_id = $1`, [drawId])).rows.map((r) => r.variant);
+  check('exactly 2 + 1 codes hold a prize', variants.filter((v) => v === 1).length === 2 && variants.filter((v) => v === 2).length === 1 && variants.filter((v) => v === 0).length === 17, variants);
+  check('a draw code opens once and lives as long as the draw', (await db.query(`select 1 from public.qr_drops where series_id = $1 and (max_scans <> 1 or lifetime_ms is not null)`, [drawId])).rows.length === 0);
+  const list = (await call('GET', '/series', { token: 'tok-D' })).json?.series?.[0];
+  check('owner list shows a draw with labels and counts, no content', list?.kind === 'draw' && list.prizes.length === 2 && list.prizes[1].label === 'Hovedpremie'
+    && list.prizes[1].count === 1 && !JSON.stringify(list).includes('ct'), list);
+
+  const variantOf = async (id) => (await db.query(`select variant from public.qr_drops where id = $1`, [id])).rows[0].variant;
+  const byVariant = {};
+  for (const code of codes) (byVariant[await variantOf(code.id)] ??= []).push(code);
+  const winner = byVariant[2][0];
+  const loser = byVariant[0][0];
+
+  const wMeta = (await meta(winner.id)).json?.qrDrop;
+  const lMeta = (await meta(loser.id)).json?.qrDrop;
+  const strip = (m) => JSON.stringify({ ...m, id: undefined, seriesNumber: undefined });
+  check('before opening, a winning code looks just like the others', wMeta && strip(wMeta) === strip(lMeta) && !('isPrize' in wMeta) && !('variant' in wMeta), { wMeta, lMeta });
+  const ownerPeek = await call('POST', `/qr/${winner.id}/open`, { token: 'tok-D', headers: { 'X-Owner-Preview': '1' }, body: {} });
+  check('the owner gets no preview: it uses the code like anyone else', ownerPeek.status === 200
+    && (await db.query(`select scan_count from public.qr_drops where id = $1`, [winner.id])).rows[0].scan_count === 1);
+  check('the winning code shows its prize', ownerPeek.json?.qrDrop?.isPrize === true && ownerPeek.json.qrDrop.prizeLabel === 'Hovedpremie'
+    && ownerPeek.json.qrDrop.textContent === '{"ct":"hoved"}', ownerPeek.json?.qrDrop);
+  const lOpen = await call('POST', `/qr/${loser.id}/open`, { body: {} });
+  check('a code without a prize shows the draw\'s own content', lOpen.json?.qrDrop?.isPrize === false && lOpen.json.qrDrop.textContent === '{"ct":"ikke denne gangen"}', lOpen.json?.qrDrop);
+  const again = await call('POST', `/qr/${winner.id}/open`, { body: {} });
+  check('a used draw code says it is already used', again.status === 410 && again.json?.code === 'ALREADY_USED', again);
+  check('its metadata says so too', (await meta(winner.id)).json?.code === 'ALREADY_USED');
+
+  // An ordinary one-time drop opened at the same time, to check that cleanup still takes it
+  const ordinary = await create({ expiryType: 'scan' });
+  await call('POST', `/qr/${ordinary.id}/open`, { body: {} });
+  await db.query(`select public.cleanup_expired_qr_drops(0)`);
+  check('cleanup still deletes a used ordinary drop', !(await rawDrop(ordinary.id)));
+  check('cleanup keeps used draw codes until the draw ends', !!(await rawDrop(winner.id)) && !!(await rawDrop(loser.id)));
+  check('a used draw code is still "already used" after cleanup', (await call('POST', `/qr/${winner.id}/open`, { body: {} })).json?.code === 'ALREADY_USED');
+
+  const board = await call('GET', `/series/${drawId}/board`, { token: 'tok-D' });
+  check('owner sees the board: opened codes in order, prize only for opened ones', board.status === 200 && board.json.codeCount === 20
+    && JSON.stringify(board.json.opened) === JSON.stringify([[winner.number, 1], [loser.number, null]]) && board.json.prizes.length === 2, board.json);
+  const screen = await call('GET', `/series/${drawId}/board`, { headers: { 'X-Display-Token': made.json.displayToken } });
+  check('a screen with the display secret sees the board', screen.status === 200 && screen.json.opened.length === 2);
+  check('without it there is no board', (await call('GET', `/series/${drawId}/board`)).status === 404
+    && (await call('GET', `/series/${drawId}/board`, { token: 'tok-A' })).status === 404
+    && (await call('GET', `/series/${drawId}/board`, { headers: { 'X-Display-Token': crypto.randomUUID() } })).status === 404);
+  const renewed = await call('POST', `/series/${drawId}/display-token`, { token: 'tok-D' });
+  check('the owner can make a new display secret, and the old one stops working', renewed.status === 200
+    && (await call('GET', `/series/${drawId}/board`, { headers: { 'X-Display-Token': made.json.displayToken } })).status === 404
+    && (await call('GET', `/series/${drawId}/board`, { headers: { 'X-Display-Token': renewed.json.displayToken } })).status === 200);
+  check('others cannot make a display secret', (await call('POST', `/series/${drawId}/display-token`, { token: 'tok-A' })).status === 403);
+  check('an unknown draw has no board', (await call('GET', `/series/${crypto.randomUUID()}/board`, { token: 'tok-D' })).status === 404);
+
+  // Prize files: stored with the draw, handed out only to the winning codes, removed with the draw
+  const file = (name) => new File([new Uint8Array(2048)], name);
+  const withFiles = await makeDraw({ codeCount: 10, prizes: [prize({ count: 1, textContentCiphertext: undefined, originalFileTypes: { file: 'image/png' } })] }, [file('takk.pdf')], { 0: [file('premie.png')] });
+  const fileDrawId = withFiles.json?.series?.id;
+  const stored = (await db.query(`select files, prizes from public.qr_series where id = $1`, [fileDrawId])).rows[0];
+  const prizePath = stored?.prizes?.[0]?.files?.[0]?.path;
+  check('prize files are stored with the draw, apart from its own', withFiles.status === 200 && stored.files.length === 1 && stored.prizes[0].files[0].type === 'image/png'
+    && globalThis.__files.has(prizePath), withFiles.json);
+  const fileVariants = await Promise.all(withFiles.json.codes.map(async (c) => [c, await variantOf(c.id)]));
+  const fileWinner = fileVariants.find(([, v]) => v === 1)[0];
+  const fileLoser = fileVariants.find(([, v]) => v === 0)[0];
+  const fwMeta = (await meta(fileWinner.id)).json?.qrDrop;
+  check('before opening, a winner with a prize file shows the draw\'s own file', fwMeta?.fileCount === 1 && fwMeta.fileName === 'takk.pdf', fwMeta);
+  const fw = await call('POST', `/qr/${fileWinner.id}/open`, { body: {} });
+  const fl = await call('POST', `/qr/${fileLoser.id}/open`, { body: {} });
+  check('the winner gets the prize file, the others the draw\'s file', fw.json?.files?.[0]?.fileName === 'premie.png' && fl.json?.files?.[0]?.fileName === 'takk.pdf', { fw: fw.json?.files, fl: fl.json?.files });
+  await db.query(`update public.qr_series set expires_at = now() - interval '1 second' where id = $1`, [fileDrawId]);
+  await db.query(`select public.cleanup_expired_qr_drops()`);
+  const queued = (await db.query(`select path from public.storage_deletion_queue`)).rows.map((r) => r.path);
+  check('an ended draw goes with its codes, and all its files are queued for removal', queued.includes(prizePath) && queued.includes(stored.files[0].path)
+    && (await db.query(`select 1 from public.qr_drops where series_id = $1`, [fileDrawId])).rows.length === 0, queued);
+  check('a draw with files cannot last more than a month', (await makeDraw({ seriesEnd: '1y' }, [], { 0: [file('p.png')] })).json?.code === 'SERIES_END_TOO_LONG');
+
+  check('a draw can be made from 2 codes', (await makeDraw({ codeCount: 2, prizes: [prize({ count: 1 })] })).status === 200);
+  check('an ordinary series still needs 10 codes', (await call('POST', '/series', { token: 'tok-D', form: (() => {
+    const f = new FormData();
+    f.append('metadata', JSON.stringify({ clientId: crypto.randomUUID(), codeCount: 2, maxScans: 1, lifetime: '30d', seriesEnd: '1y', textContentCiphertext: 'x' }));
+    return f;
+  })() })).json?.code === 'INVALID_CODE_COUNT');
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

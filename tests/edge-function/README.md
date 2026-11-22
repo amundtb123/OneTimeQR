@@ -8,8 +8,10 @@ signature checks by `mock-stripe.mjs`.
 Covers access control (password, view tokens, view/download limits, ownership),
 server-side pricing and atomic coin charging, rate limiting, the Stripe webhook's
 exactly-once crediting, owner-list pagination, CORS, the SQL functions' privileges,
-RLS on the `qr_drops` tables and `user_profiles`, and cleanup of expired drops, tokens and
-files. Each migration is applied twice in a row to check that it is safe to re-run.
+RLS on the `qr_drops` tables and `user_profiles`, cleanup of expired drops, tokens and
+files, series, and draws (random prize placement, nothing that tells a winning code apart
+before it is opened, the board and its display secret, and that cleanup keeps used draw codes
+while still deleting everything else as before). Each migration is applied twice in a row to check that it is safe to re-run.
 (`pg_cron` is not available in PGlite; the cleanup function it schedules is tested directly.)
 
 Runs in GitHub Actions on every pull request (`.github/workflows/edge-function-tests.yml`).

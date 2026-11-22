@@ -12,7 +12,8 @@ import { leaveReadyGuard } from './step-ready';
 type Export = 'csv' | 'zip' | 'pdf';
 
 interface StepSeriesReadyProps {
-  created: CreatedSeries & { displayToken?: string }; // A draw has a display secret for its board
+  // A draw has a display secret for its screen, and the tickets' key if the screen hands them out
+  created: CreatedSeries & { displayToken?: string; key?: string; fromScreen?: boolean };
   onNew: () => void;
   onKeyring: () => void;
 }
@@ -38,7 +39,9 @@ export function StepSeriesReady({ created, onNew, onKeyring }: StepSeriesReadyPr
   const [busy, setBusy] = useState<Export | null>(null);
   const [progress, setProgress] = useState(0);
   const isDraw = series.kind === 'draw';
-  const screenLink = isDraw ? boardUrl(series.id, created.displayToken) : '';
+  // Tickets taken from the screen: the screen link holds the key, so it is all that must be kept
+  const queue = isDraw && !!created.fromScreen;
+  const screenLink = isDraw ? boardUrl(series.id, created.displayToken, queue ? created.key : undefined) : '';
   const name = (series.title || (isDraw ? 'trekning' : 'serie')).replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 40);
 
   useEffect(() => {
@@ -93,16 +96,16 @@ export function StepSeriesReady({ created, onNew, onKeyring }: StepSeriesReadyPr
         <div className="lg-eyebrow">{t('lag.step', { n: 3 })}</div>
         <h1 className="lg-h1">{t(isDraw ? 'lag.draw.ready.title' : 'lag.series.ready.title', { count: series.codeCount })}</h1>
         <p className="lg-lead" style={{ maxWidth: 'none' }}>
-          {t(isDraw ? 'lag.draw.ready.lead' : 'lag.series.ready.lead', { count: series.codeCount })}{' '}
+          {t(queue ? 'lag.draw.ready.leadQueue' : isDraw ? 'lag.draw.ready.lead' : 'lag.series.ready.lead', { count: series.codeCount })}{' '}
           <button type="button" className="lg-underline" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'var(--lg-ink)' }} onClick={onNew}>
             {t('lag.ready.edit')}
           </button>
         </p>
       </div>
 
-      <p className="lg-note" style={{ margin: 0 }}>{t('lag.series.ready.note')}</p>
+      {!queue && <p className="lg-note" style={{ margin: 0 }}>{t('lag.series.ready.note')}</p>}
 
-      <div className="lg-cols lg-pair">
+      {!queue && <div className="lg-cols lg-pair">
         <div className="lg-col-half">
           <div className="lg-ticket">
             <div className="lg-ticket-head">
@@ -130,24 +133,27 @@ export function StepSeriesReady({ created, onNew, onKeyring }: StepSeriesReadyPr
             {saved && <span className="lg-small" style={{ fontWeight: 600 }}>{t('lag.series.ready.saved')}</span>}
           </section>
         </div>
-      </div>
+      </div>}
 
       {isDraw && (
         <section className="lg-card lg-draw-screen" style={{ padding: 24, gap: 14 }}>
-          <h2 className="lg-h2" style={{ fontSize: 20 }}>{t('lag.draw.ready.screenTitle')}</h2>
-          <p className="lg-small" style={{ margin: 0 }}>{t('lag.draw.ready.screenBody')}</p>
+          <h2 className="lg-h2" style={{ fontSize: 20 }}>{t(queue ? 'lag.draw.ready.screenTitleQueue' : 'lag.draw.ready.screenTitle')}</h2>
+          <p className="lg-small" style={{ margin: 0 }}>{t(queue ? 'lag.draw.ready.screenBodyQueue' : 'lag.draw.ready.screenBody')}</p>
           <code className="lg-draw-link">{screenLink}</code>
           <div className="lg-row" style={{ gap: 8 }}>
-            <a className="lg-btn lg-btn-primary" href={screenLink} target="_blank" rel="noopener noreferrer">{t('lag.draw.ready.openScreen')} ↗</a>
+            <a className="lg-btn lg-btn-primary" href={screenLink} target="_blank" rel="noopener noreferrer" onClick={() => queue && setSaved(true)}>{t('lag.draw.ready.openScreen')} ↗</a>
             <button
               type="button"
               className="lg-btn"
-              onClick={() => navigator.clipboard.writeText(screenLink).then(() => toast.success(t('lag.draw.ready.linkCopied')))}
+              onClick={() => navigator.clipboard.writeText(screenLink).then(() => {
+                if (queue) setSaved(true);
+                toast.success(t('lag.draw.ready.linkCopied'));
+              })}
             >
               {t('lag.draw.ready.copyLink')}
             </button>
           </div>
-          <span className="lg-xs lg-muted">{t('lag.draw.ready.screenNote')}</span>
+          <span className="lg-xs lg-muted">{t(queue ? 'lag.draw.ready.screenNoteQueue' : 'lag.draw.ready.screenNote')}</span>
         </section>
       )}
 

@@ -365,6 +365,7 @@ export interface DrawBoard {
   codeCount: number;
   prizes: Array<{ label: string | null; count: number }>;
   opened: Array<[number, number | null]>; // [code number, prize index or null], in the order opened
+  next: { id: string; number: number } | null; // The next ticket a screen hands out
   expiresAt: number;
 }
 

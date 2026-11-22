@@ -66,6 +66,7 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
   const [noPrizeText, setNoPrizeText] = useState(() => t('lag.draw.noPrizeDefault'));
   const [noPrizeFiles, setNoPrizeFiles] = useState<File[]>([]);
   const [end, setEnd] = useState<SeriesEnd>('1mo');
+  const [fromScreen, setFromScreen] = useState(true);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [creating, setCreating] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
@@ -108,6 +109,7 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
         prizes,
         end: realEnd,
         qrStyle: STYLE_PRESETS.standard,
+        fromScreen,
       });
       await refreshCoins();
       toast.success(t('lag.preview.charged', { kr: coinsCharged }));
@@ -142,6 +144,18 @@ export function StepDraw({ onBack, onCreated }: StepDrawProps) {
             <h1 className="lg-h1" style={{ fontSize: 'clamp(34px, 4vw, 48px)' }}>{t('lag.draw.title')}</h1>
             <p className="lg-lead">{t('lag.draw.lead')}</p>
           </div>
+
+          <section className="lg-card" aria-labelledby="lg-draw-handout" style={{ gap: 12 }}>
+            <h2 id="lg-draw-handout" className="lg-h2">{t('lag.draw.handout')}</h2>
+            <div className="lg-draw-handout">
+              {[true, false].map((screen) => (
+                <button key={String(screen)} type="button" className="lg-draw-handout-opt" aria-pressed={fromScreen === screen} onClick={() => setFromScreen(screen)}>
+                  <strong>{t(screen ? 'lag.draw.handoutScreen' : 'lag.draw.handoutPrint')}</strong>
+                  <span>{t(screen ? 'lag.draw.handoutScreenNote' : 'lag.draw.handoutPrintNote')}</span>
+                </button>
+              ))}
+            </div>
+          </section>
 
           <section className="lg-card" aria-labelledby="lg-draw-basics">
             <h2 id="lg-draw-basics" className="lg-sr-only">{t('lag.draw.name')}</h2>

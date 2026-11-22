@@ -32,6 +32,7 @@ export interface DrawRequest {
   prizes: DrawPrize[];
   end: SeriesEnd;
   qrStyle: QrStyle;
+  fromScreen: boolean; // Tickets are taken from a screen, one at a time; prizes held back to the second half
 }
 
 const fileBytes = (files: File[]) => files.reduce((sum, file) => sum + file.size, 0);
@@ -53,6 +54,8 @@ export const drawTooMuchTraffic = (codeCount: number, noPrizeFiles: File[], priz
 
 export interface CreatedDraw extends CreatedSeries {
   displayToken: string; // The secret a screen shows the board with; only shown now
+  key: string; // The tickets' key: a screen handing out tickets needs it to draw their QR codes
+  fromScreen: boolean;
 }
 
 const toBase64Url = (bytes: Uint8Array) =>
@@ -91,6 +94,7 @@ export async function createDraw(req: DrawRequest): Promise<{ created: CreatedDr
     codeCount: req.codeCount,
     seriesEnd: req.end,
     viewOnly: false,
+    holdPrizes: req.fromScreen,
     qrStyle: { ...req.qrStyle, logo: undefined },
     originalFileTypes: fileTypes(req.noPrizeFiles),
     textContentCiphertext: noPrizeText ? await encryptText(noPrizeText) : undefined,
@@ -104,11 +108,20 @@ export async function createDraw(req: DrawRequest): Promise<{ created: CreatedDr
   const response = await postDraw(form);
   const codes = response.codes.map((code) => ({ number: code.number, url: createQr1Url(window.location.origin, code.id, key) }));
   return {
-    created: { series: response.series, codes, style: req.qrStyle, displayToken: response.displayToken },
+    created: { series: response.series, codes, style: req.qrStyle, displayToken: response.displayToken, key, fromScreen: req.fromScreen },
     coinsCharged: response.coinsCharged ?? 0,
   };
 }
 
-// The link a screen shows the board with. The secret is in the fragment, so it never reaches a server log.
-export const boardUrl = (drawId: string, displayToken?: string) =>
-  `${window.location.origin}/tavle/${drawId}${displayToken ? `#t=${displayToken}` : ''}`;
+// The link a screen shows the board with. The secrets are in the fragment, so they never reach a
+// server log. With the tickets' key the screen hands out the tickets itself, one QR code at a time.
+export function boardUrl(drawId: string, displayToken?: string, key?: string): string {
+  const fragment = new URLSearchParams();
+  if (displayToken) fragment.set('t', displayToken);
+  if (key) fragment.set('k', key);
+  const hash = fragment.toString();
+  return `${window.location.origin}/tavle/${drawId}${hash ? `#${hash}` : ''}`;
+}
+
+// A ticket's link, as printed in its QR code
+export const ticketUrl = (codeId: string, key: string) => createQr1Url(window.location.origin, codeId, key);

@@ -832,6 +832,29 @@ console.log('\nDraws');
     && (await db.query(`select 1 from public.qr_drops where series_id = $1`, [fileDrawId])).rows.length === 0, queued);
   check('a draw with files cannot last more than a month', (await makeDraw({ seriesEnd: '1y' }, [], { 0: [file('p.png')] })).json?.code === 'SERIES_END_TOO_LONG');
 
+  // Tickets taken from a screen: handed out in number order, with the prizes in the second half
+  await setCoins(USER_D, 1000);
+  let early = 0;
+  for (let round = 0; round < 5; round++) {
+    const held = await makeDraw({ holdPrizes: true, prizes: [prize({ count: 3 })] });
+    const prizeNumbers = (await db.query(`select series_number from public.qr_drops where series_id = $1 and variant > 0`, [held.json.series.id])).rows.map((r) => r.series_number);
+    early += prizeNumbers.filter((n) => n <= 10).length + (prizeNumbers.length === 3 ? 0 : 99);
+  }
+  check('held-back prizes are never in the first half', early === 0);
+  const crowded = await makeDraw({ codeCount: 4, holdPrizes: true, prizes: [prize({ count: 3 })] });
+  check('with more prizes than half the tickets, only the first tickets are kept free', (await db.query(
+    `select series_number from public.qr_drops where series_id = $1 and variant = 0`, [crowded.json.series.id])).rows.map((r) => r.series_number).join() === '1');
+
+  const queue = await makeDraw({ codeCount: 5, prizes: [prize({ count: 1 })] });
+  const queueBoard = () => call('GET', `/series/${queue.json.series.id}/board`, { headers: { 'X-Display-Token': queue.json.displayToken } });
+  const first = (await queueBoard()).json?.next;
+  check('the board names the next ticket: the lowest number nobody has scanned', first?.number === 1 && first.id === queue.json.codes[0].id, first);
+  await call('POST', `/qr/${queue.json.codes[0].id}/open`, { body: {} });
+  await call('POST', `/qr/${queue.json.codes[2].id}/open`, { body: {} });
+  check('once it is scanned the next one follows, skipping tickets taken elsewhere', (await queueBoard()).json?.next?.number === 2);
+  for (const code of queue.json.codes) await call('POST', `/qr/${code.id}/open`, { body: {} });
+  check('when every ticket is taken there is no next', (await queueBoard()).json?.next === null);
+
   check('a draw can be made from 2 codes', (await makeDraw({ codeCount: 2, prizes: [prize({ count: 1 })] })).status === 200);
   check('an ordinary series still needs 10 codes', (await call('POST', '/series', { token: 'tok-D', form: (() => {
     const f = new FormData();
